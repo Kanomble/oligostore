@@ -1,0 +1,80 @@
+{% extends "core/base.html" %}
+{% block title %}Primer Binding Analysis{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto mt-10">
+
+  <h1 class="text-3xl font-bold mb-6">
+    Primer binding analysis
+  </h1>
+
+  {% if not sequence_files %}
+    <div class="alert alert-warning mb-6">
+      No sequence files available.
+      <a href="{% url 'sequencefile_upload' %}" class="link link-primary ml-1">
+        Upload one first
+      </a>
+    </div>
+  {% endif %}
+
+  <form method="POST" class="space-y-6">
+    {% csrf_token %}
+
+    <!-- Primer -->
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text font-semibold">Primer</span>
+      </label>
+      <select name="primer_id" class="select select-bordered" required>
+        {% for primer in primers %}
+          <option
+            value="{{ primer.id }}"
+            {% if primer.id|stringformat:"s" == preselected_primer %}selected{% endif %}
+          >
+            {{ primer.primer_name }} ({{ primer.sequence }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Sequence file -->
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text font-semibold">Sequence file</span>
+      </label>
+      <select
+        name="sequence_file_id"
+        class="select select-bordered"
+        required
+        {% if not sequence_files %}disabled{% endif %}
+      >
+        {% for sf in sequence_files %}
+          <option
+            value="{{ sf.id }}"
+            {% if sf.id|stringformat:"s" == preselected_sequence_file %}selected{% endif %}
+          >
+            {{ sf.name }} ({{ sf.file_type|upper }})
+          </option>
+        {% endfor %}
+      </select>
+
+      <label class="label">
+        <span class="label-text-alt">
+          <a href="{% url 'sequencefile_upload' %}" class="link">
+            Upload new sequence file
+          </a>
+        </span>
+      </label>
+    </div>
+
+    <button
+      class="btn btn-primary w-full"
+      {% if not sequence_files %}disabled{% endif %}
+    >
+      Run binding analysis
+    </button>
+
+  </form>
+
+</div>
+{% endblock %}

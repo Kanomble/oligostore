@@ -1,0 +1,55 @@
+{% extends "core/base.html" %}
+{% block title %}Register{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center">
+    <div class="card w-full max-w-md shadow-xl bg-base-100">
+        <div class="card-body">
+            <h2 class="text-3xl font-bold text-center mb-6">Create Account</h2>
+
+            {% if form.errors %}
+            <div class="alert alert-error mb-4">
+                <span>Please correct the errors below.</span>
+            </div>
+            {% endif %}
+
+            <form method="POST" class="space-y-4">
+                {% csrf_token %}
+
+                <!-- Loop through form fields -->
+                {% for field in form %}
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">{{ field.label }}</span>
+                        </label>
+
+                        <input
+                            type="{{ field.field.widget.input_type }}"
+                            name="{{ field.name }}"
+                            value="{{ field.value|default:'' }}"
+                            class="input input-bordered w-full"
+                            required
+                        >
+
+                        <!-- Field errors -->
+                        {% if field.errors %}
+                            <p class="text-error text-sm mt-1">
+                                {{ field.errors.0 }}
+                            </p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+
+                <button class="btn btn-primary w-full mt-4" type="submit">
+                    Create Account
+                </button>
+            </form>
+
+            <div class="text-center mt-4">
+                Already have an account?
+                <a href="{% url 'login' %}" class="link">Login</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

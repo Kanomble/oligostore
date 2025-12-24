@@ -1,0 +1,106 @@
+{% extends "core/base.html" %}
+{% block title %}Create Primer Pair{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto mt-10">
+
+    <h1 class="text-3xl font-bold mb-6">Create Primer Pair + Primers</h1>
+
+    <div class="card bg-base-100 shadow-xl p-6">
+
+        <form method="POST" class="space-y-6">
+            {% csrf_token %}
+
+            <div class="form-control">
+                <label class="label"><span class="label-text font-bold">Primer Pair Name</span></label>
+                {{ form.pair_name }}
+            </div>
+
+            <h2 class="text-xl font-bold mt-6">Forward Primer</h2>
+            <div class="form-control">
+                <label class="label"><span class="label-text">Name</span></label>
+                {{ form.forward_name }}
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text">Sequence</span></label>
+                {{ form.forward_sequence }}
+            </div>
+
+            <h2 class="text-xl font-bold mt-6">Reverse Primer</h2>
+            <div class="form-control">
+                <label class="label"><span class="label-text">Name</span></label>
+                {{ form.reverse_name }}
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text">Sequence</span></label>
+                {{ form.reverse_sequence }}
+            </div>
+
+            <button class="btn btn-primary w-full mt-6">Create Primer Pair</button>
+
+            <button type="button" class="btn btn-info w-full mt-2" id="analyze-primerpair-btn">
+                Analyze Primer Pair
+            </button>
+
+            <div id="analysis-result" class="mt-6"></div>
+
+        </form>
+    </div>
+</div>
+<script>
+document.getElementById("analyze-primerpair-btn").addEventListener("click", function () {
+    const fwd = document.getElementById("id_forward_sequence").value;
+    const rev = document.getElementById("id_reverse_sequence").value;
+
+    const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
+
+    fetch("{% url 'analyze_primerpair' %}", {
+        method: "POST",
+        headers: {
+            "X-CSRFToken": csrfToken,
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+            "forward_sequence": fwd,
+            "reverse_sequence": rev,
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        let resultDiv = document.getElementById("analysis-result");
+
+        if (data.error) {
+            resultDiv.innerHTML = `<p class="text-error">${data.error}</p>`;
+            return;
+        }
+
+        resultDiv.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                <div class="card bg-base-200 p-4">
+                    <h3 class="font-bold text-lg mb-2">Forward Primer</h3>
+                    <p><strong>Tm:</strong> ${data.forward.tm}</p>
+                    <p><strong>GC:</strong> ${data.forward.gc}%</p>
+                    <p><strong>Hairpin ΔG:</strong> ${data.forward.hairpin_dg}</p>
+                    <p><strong>Self-Dimer ΔG:</strong> ${data.forward.self_dimer_dg}</p>
+                </div>
+
+                <div class="card bg-base-200 p-4">
+                    <h3 class="font-bold text-lg mb-2">Reverse Primer</h3>
+                    <p><strong>Tm:</strong> ${data.reverse.tm}</p>
+                    <p><strong>GC:</strong> ${data.reverse.gc}%</p>
+                    <p><strong>Hairpin ΔG:</strong> ${data.reverse.hairpin_dg}</p>
+                    <p><strong>Self-Dimer ΔG:</strong> ${data.reverse.self_dimer_dg}</p>
+                </div>
+
+            </div>
+
+            <div class="card bg-base-300 p-4 mt-4">
+                <h3 class="font-bold text-lg mb-2">Hetero-Dimer (Forward ↔ Reverse)</h3>
+                <p><strong>ΔG:</strong> ${data.hetero_dimer_dg}</p>
+            </div>
+        `;
+    });
+});
+</script>
+{% endblock %}

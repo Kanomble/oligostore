@@ -1,0 +1,186 @@
+{% extends "core/base.html" %}
+{% block title %}Sequence Files{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-10">
+
+  <!-- Header -->
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Sequence Files</h1>
+      <p class="opacity-70 mt-2">
+        Upload FASTA or GenBank files and reuse them for primer binding checks.
+      </p>
+    </div>
+
+    <div class="flex gap-2">
+      <a href="{% url 'sequencefile_upload' %}" class="btn btn-primary">
+        Upload sequence file
+      </a>
+      <a href="{% url 'primer_binding' %}" class="btn btn-outline">
+        Primer binding analysis
+      </a>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-8">
+    <div class="card-body gap-4">
+
+      <form method="GET" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+        <!-- Search -->
+        <div class="form-control md:col-span-6">
+          <label class="label">
+            <span class="label-text font-semibold">Search</span>
+          </label>
+          <input
+            type="text"
+            name="q"
+            value="{{ request.GET.q }}"
+            placeholder="Search by name, description, uploader…"
+            class="input input-bordered w-full"
+          />
+        </div>
+
+        <!-- File type -->
+        <div class="form-control md:col-span-3">
+          <label class="label">
+            <span class="label-text font-semibold">File type</span>
+          </label>
+          <select name="type" class="select select-bordered w-full">
+            <option value="" {% if not request.GET.type %}selected{% endif %}>All</option>
+            <option value="fasta" {% if request.GET.type == "fasta" %}selected{% endif %}>FASTA</option>
+            <option value="genbank" {% if request.GET.type == "genbank" %}selected{% endif %}>GenBank</option>
+          </select>
+        </div>
+
+        <!-- Submit -->
+        <div class="md:col-span-3 flex gap-2">
+          <button class="btn btn-primary flex-1" type="submit">Filter</button>
+          <a class="btn btn-ghost" href="{% url 'sequencefile_list' %}">Reset</a>
+        </div>
+      </form>
+
+      <!-- Stats row -->
+      <div class="flex flex-wrap gap-2 items-center">
+        <div class="badge badge-outline">
+          Total: {{ sequence_files|length }}
+        </div>
+        {% if request.GET.q or request.GET.type %}
+          <div class="badge badge-ghost">
+            Filtered view
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+
+  <!-- List -->
+  <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-6">
+    <div class="card-body">
+
+      {% if sequence_files %}
+        <div class="overflow-x-auto">
+          <table class="table table-zebra table-sm md:table-md">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th class="hidden md:table-cell">Type</th>
+                <th class="hidden lg:table-cell">Description</th>
+                <th class="hidden md:table-cell">Uploaded</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for sf in sequence_files %}
+                <tr>
+                  <td>
+                    <div class="flex items-center gap-3">
+                      <div class="avatar placeholder">
+                        <div class="bg-base-200 text-base-content rounded-xl w-10">
+                          <span class="text-sm font-bold">
+                            {% if sf.file_type == "genbank" %}GB{% else %}FA{% endif %}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div class="min-w-0">
+                        <div class="font-semibold truncate max-w-[28ch] md:max-w-[44ch]">
+                          {{ sf.name }}
+                        </div>
+                        <div class="text-xs opacity-70 truncate max-w-[32ch] md:max-w-[56ch]">
+                          Uploaded by {{ sf.uploaded_by }}{% if sf.file.size %} · {{ sf.file.size|filesizeformat }}{% endif %}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td class="hidden md:table-cell">
+                    {% if sf.file_type == "genbank" %}
+                      <span class="badge badge-neutral">GenBank</span>
+                    {% else %}
+                      <span class="badge badge-info">FASTA</span>
+                    {% endif %}
+                  </td>
+
+                  <td class="hidden lg:table-cell max-w-[60ch]">
+                    <div class="truncate opacity-80">
+                      {{ sf.description|default:"—" }}
+                    </div>
+                  </td>
+
+                  <td class="hidden md:table-cell">
+                    <div class="text-sm">
+                      {{ sf.uploaded_at|date:"Y-m-d" }}
+                    </div>
+                    <div class="text-xs opacity-70">
+                      {{ sf.uploaded_at|date:"H:i" }}
+                    </div>
+                  </td>
+
+                  <td class="text-right">
+                    <div class="flex justify-end gap-2">
+                      <!-- Optional: link to download raw file (requires media serving) -->
+                      <a class="btn btn-ghost btn-sm" href="{{ sf.file.url }}">Download</a>
+
+                      <!-- Optional: detail page -->
+                      {# <a class="btn btn-outline btn-sm" href="{% url 'sequencefile_detail' sf.id %}">View</a> #}
+
+                      <!-- Jump into analysis, preselect sequence file if you implement that -->
+                        <a
+                          href="{% url 'primer_binding' %}?sequence_file={{ sf.id }}"
+                          class="btn btn-sm btn-primary"
+                        >
+                          Analyze
+                        </a>
+
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination hook (if you add it later) -->
+        {# Include your pagination partial here #}
+
+      {% else %}
+        <div class="p-10 text-center">
+          <h2 class="text-xl font-bold">No sequence files yet</h2>
+          <p class="opacity-70 mt-2">
+            Upload a FASTA or GenBank file to start running binding checks.
+          </p>
+          <div class="mt-6">
+            <a href="{% url 'sequencefile_upload' %}" class="btn btn-primary">
+              Upload your first sequence file
+            </a>
+          </div>
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}

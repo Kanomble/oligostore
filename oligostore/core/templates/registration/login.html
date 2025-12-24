@@ -1,0 +1,61 @@
+{% extends "core/base.html" %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center bg-base-200">
+    <div class="card w-full max-w-md shadow-xl bg-base-100">
+        <div class="card-body">
+            <h2 class="text-3xl font-bold text-center mb-6">Login</h2>
+
+            {% if form.errors %}
+            <div class="alert alert-error mb-4">
+                <span>Invalid username or password.</span>
+            </div>
+            {% endif %}
+
+            <form method="POST" class="space-y-4">
+                {% csrf_token %}
+
+                <!-- Username -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Username</span>
+                    </label>
+                    <input
+                        type="text"
+                        name="username"
+                        class="input input-bordered w-full"
+                        required
+                        autofocus
+                    >
+                </div>
+
+                <!-- Password -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Password</span>
+                    </label>
+                    <input
+                        type="password"
+                        name="password"
+                        class="input input-bordered w-full"
+                        required
+                    >
+                </div>
+
+                <button class="btn btn-primary w-full mt-4" type="submit">
+                    Log In
+                </button>
+            </form>
+
+            <div class="text-center mt-4 text-sm">
+                <a href="{% url 'password_reset' %}" class="link">Forgot password?</a>
+            </div>
+
+            <div class="text-center text-sm mt-2">
+                No account?
+                <a href="{% url 'register' %}" class="link">Register here</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

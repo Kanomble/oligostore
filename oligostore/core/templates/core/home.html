@@ -1,0 +1,60 @@
+{% extends "core/base.html" %}
+{% block title %}Oligostore – Home{% endblock %}
+
+{% block content %}
+<div class="text-center py-16">
+    <h1 class="text-5xl font-bold text-primary mb-6">
+        Welcome to Oligostore
+    </h1>
+    <p class="text-lg opacity-80 max-w-2xl mx-auto">
+        A modern platform for managing oligos into associated projects.
+    </p>
+
+    <div class="mt-10 flex justify-center gap-4">
+        <a href="{% url 'primer_list' %}" class="btn btn-primary btn-lg">View Primer</a>
+        <a href="{% url 'primerpair_list' %}" class="btn btn-primary btn-lg">View Primer Pairs</a>
+        <a href="{% url 'project_list' %}", class="btn btn-primary btn-lg">View Projects</a>
+         <a
+            href="{% url 'sequencefile_list' %}"
+            class="btn btn-primary btn-lg"
+          >
+            Sequence Files
+        </a>
+    </div>
+
+    <div class="mt-10 flex justify-center gap-4">
+        <a href="{% url 'analyze_sequence' %}" class="btn btn-accent btn-lg">Design Primer</a>
+        <a href="{% url 'primer_create' %}"class="btn btn-accent btn-lg">Create Primer</a>
+        <a href="{% url 'primerpair_combined_create' %}" class="btn btn-accent btn-lg">Create Primer Pairs</a>
+        <a href="{% url 'project_create' %}" class="btn btn-accent btn-lg">Create New Project</a>
+    </div>
+
+</div>
+
+<!-- Feature Cards -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 px-4">
+
+    <div class="card bg-base-100 shadow-md p-6">
+        <h2 class="card-title">Manage Oligos</h2>
+        <p class="opacity-80">
+            Store, search, and annotate your oligonucleotide sequences easily.
+        </p>
+    </div>
+
+    <div class="card bg-base-100 shadow-md p-6">
+        <h2 class="card-title">Project Workflows</h2>
+        <p class="opacity-80">
+            Organize oligos into projects and streamline your research pipeline.
+        </p>
+    </div>
+
+    <div class="card bg-base-100 shadow-md p-6">
+        <h2 class="card-title">Modern Interface</h2>
+        <p class="opacity-80">
+            Beautiful UI built with Tailwind and DaisyUI for maximum productivity.
+        </p>
+    </div>
+
+</div>
+
+{% endblock %}

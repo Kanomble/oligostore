@@ -1,0 +1,201 @@
+{% extends "core/base.html" %}
+{% block title %}Primer Results{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">Primer3 Results</h1>
+
+<p class="opacity-70 mb-6">
+    Showing primer candidates generated for your input sequence.
+</p>
+
+{% if mode == "PAIR" %}
+    <div class="space-y-10">
+        {% for p in primer_list %}
+
+        <!-- PAIR CARD -->
+        <div class="card bg-base-100 shadow-xl p-8 border border-base-300 rounded-xl">
+
+            <h2 class="text-2xl font-bold mb-6">
+                Primer Pair {{ forloop.counter }}
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-10 items-start min-w-0">
+
+                <!-- LEFT COLUMN: PRIMER INFO -->
+                <div class="space-y-6 min-w-0">
+
+                    <div class="card bg-base-200 p-6 shadow-inner rounded-lg">
+                        <h3 class="text-lg font-semibold mb-2">Forward Primer</h3>
+                        <p class="font-mono text-primary break-all">{{ p.left_seq }}</p>
+                        <p class="opacity-70 text-sm">
+                            Tm: {{ p.left_tm|floatformat:2 }} °C
+                        </p>
+                    </div>
+
+                    <div class="card bg-base-200 p-6 shadow-inner rounded-lg">
+                        <h3 class="text-lg font-semibold mb-2">Reverse Primer</h3>
+                        <p class="font-mono text-primary break-all">{{ p.right_seq }}</p>
+                        <p class="opacity-70 text-sm">
+                            Tm: {{ p.right_tm|floatformat:2 }} °C
+                        </p>
+                    </div>
+
+                    <div class="card bg-base-200 p-6 shadow-inner rounded-lg">
+                        <h3 class="text-lg font-semibold mb-2">Pair Metrics</h3>
+                        <p>
+                            Product Size:
+                            <span class="font-mono">{{ p.product_size }} bp</span>
+                        </p>
+                        <p>
+                            Penalty: {{ p.penalty|floatformat:2 }}
+                        </p>
+                    </div>
+                </div>
+
+                <!-- RIGHT COLUMN: ALIGNMENT -->
+                <div class="card bg-base-200 p-6 shadow-inner rounded-lg min-w-0">
+                    <h3 class="text-lg font-semibold mb-4">
+                        Primer Binding Alignment
+                    </h3>
+
+                    <pre class="font-mono text-sm leading-tight whitespace-pre-wrap
+                                bg-base-300 p-4 rounded-lg overflow-x-auto">
+                        Forward window:
+                        {{ p.forward_window_line }}
+                        {{ p.forward_window|safe }}
+
+                        Reverse window:
+                        {{ p.reverse_window|safe }}
+                        {{ p.reverse_window_line }}
+                    </pre>
+
+                    <!-- PCR PRODUCT SEQUENCE -->
+                    <div class="mt-4 flex gap-3">
+                        <button type="button"
+                                class="btn btn-outline btn-secondary"
+                                onclick="copyToClipboard('product-seq-{{ forloop.counter }}')">
+                            Copy to Clipboard
+                        </button>
+
+                        <form method="POST"
+                              action="{% url 'download_product_sequence' %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="product_sequence"
+                                   value="{{ p.product_sequence }}">
+                            <input type="hidden" name="pair_index"
+                                   value="{{ forloop.counter }}">
+                            <button type="submit"
+                                    class="btn btn-outline btn-primary">
+                                Download FASTA
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- SAVE PAIR -->
+            <div class="mt-10 pt-6 border-t border-base-300">
+                <form method="POST" action="{% url 'save_generated_primerpair' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="left_seq" value="{{ p.left_seq }}">
+                    <input type="hidden" name="right_seq" value="{{ p.right_seq }}">
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="form-control">
+                            <label class="label font-semibold">
+                                Forward Primer Name
+                            </label>
+                            <input type="text" name="forward_name"
+                                   class="input input-bordered w-full"
+                                   value="forward_primer">
+                        </div>
+
+                        <div class="form-control">
+                            <label class="label font-semibold">
+                                Reverse Primer Name
+                            </label>
+                            <input type="text" name="reverse_name"
+                                   class="input input-bordered w-full"
+                                   value="reverse_primer">
+                        </div>
+
+                        <div class="form-control">
+                            <label class="label font-semibold">
+                                Primer Pair Name
+                            </label>
+                            <input type="text" name="pair_name"
+                                   class="input input-bordered w-full"
+                                   value="primer_pair">
+                        </div>
+                    </div>
+
+                    <button type="submit"
+                            class="btn btn-primary mt-6 w-full md:w-auto">
+                        Save This Primer Pair
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+{% elif mode == "LEFT" or mode == "RIGHT" %}
+
+    <h2 class="text-xl font-semibold mb-6">
+        {{ mode|title }} primers
+    </h2>
+
+    <div class="space-y-8">
+        {% for p in primer_list %}
+        <div class="card bg-base-100 shadow-xl p-8 border border-base-300 rounded-xl">
+
+            <h3 class="text-lg font-semibold mb-4">
+                Primer {{ forloop.counter }}
+            </h3>
+
+            <p class="font-mono text-primary break-all mb-2">
+                {{ p.seq }}
+            </p>
+
+            <p class="opacity-70 text-sm mb-4">
+                Tm: {{ p.tm|floatformat:2 }} °C |
+                Penalty: {{ p.penalty|floatformat:2 }}
+            </p>
+
+            <pre class="font-mono text-sm leading-tight whitespace-pre-wrap
+                        bg-base-300 p-4 rounded-lg overflow-x-auto">
+                {{ p.window_line }}
+                {{ p.window|safe }}
+            </pre>
+        </div>
+        {% endfor %}
+    </div>
+
+{% else %}
+
+    <div class="alert alert-warning">
+        No primers were generated. Please adjust your settings.
+    </div>
+
+{% endif %}
+
+<div class="mt-10">
+    <a href="{% url 'analyze_sequence' %}" class="btn btn-primary">
+        Back to Analyzer
+    </a>
+</div>
+<script>
+    function copyToClipboard(elementId) {
+        const text = document.getElementById(elementId).innerText;
+
+        navigator.clipboard.writeText(text).then(() => {
+            console.log("Sequence copied to clipboard");
+        }).catch(err => {
+            console.error("Clipboard copy failed:", err);
+            alert("Failed to copy sequence to clipboard.");
+        });
+    }
+</script>
+
+{% endblock %}

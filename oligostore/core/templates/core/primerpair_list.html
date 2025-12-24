@@ -1,0 +1,44 @@
+{% extends "core/base.html" %}
+{% block title %}Primer List{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-8">
+    <h1 class="text-3xl font-bold">Primer Pairs</h1>
+
+</div>
+
+{% if primer_pairs %}
+<div class="overflow-x-auto">
+    <table class="table table-zebra w-full">
+        <thead>
+            <tr>
+                <th>Primer Pair ID</th>
+                <th>Forward Sequence</th>
+                <th>Forward TM</th>
+                <th>Reverse Sequence</th>
+                <th>Reverse TM</th>
+                <th>Delete Primer Pair</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pair in primer_pairs %}
+            <tr>
+                <td class="font-semibold">{{ pair.name }}</td>
+                <td>{{ pair.forward_primer.sequence }}</td>
+                <td>{{ pair.forward_primer.tm }} </td>
+                <td>{{ pair.reverse_primer.sequence }} </td>
+                <td>{{ pair.reverse_primer.tm }}</td>
+                <td><a href="{% url 'primerpair_delete' pair.id %}"
+                   class="btn btn-error btn-sm"
+                   onclick="return confirm('Delete this primer pair?');">
+                   Delete
+                </a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-center opacity-60 mt-10">No primer pairs yet.</p>
+{% endif %}
+{% endblock %}

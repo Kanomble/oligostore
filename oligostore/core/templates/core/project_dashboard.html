@@ -1,0 +1,100 @@
+{% extends "core/base.html" %}
+{% block title %}Project Dashboard{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="mb-10">
+    <div class="card bg-base-100 shadow-xl p-6 border border-base-300">
+        <h1 class="text-4xl font-bold mb-2">{{ project.name }}</h1>
+        <p class="opacity-70">{{ project.description|default:"No description provided." }}</p>
+
+        <div class="mt-4 flex gap-3">
+            <div class="badge badge-outline">Created: {{ project.created_at|date:"Y-m-d" }}</div>
+            <div class="badge badge-primary">Project Owner: {{ project.creator.username }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- Grid layout -->
+<div class="grid lg:grid-cols-2 gap-10">
+
+    <!-- LEFT SIDE: Existing PrimerPairs -->
+    <div>
+        <h2 class="text-2xl font-bold mb-3">Primer Pairs in this Project</h2>
+
+        {% if project.primerpairs.all %}
+            <div class="space-y-4">
+                {% for pair in project.primerpairs.all %}
+                <div class="card bg-base-100 border border-base-300 shadow-md hover:shadow-xl transition p-5">
+
+                    <div class="flex justify-between items-center">
+                        <!-- Info -->
+                        <div>
+                            <h3 class="text-xl font-semibold">{{ pair.name }}</h3>
+                            <p class="text-sm opacity-70 mt-1">
+                                <span class="badge badge-info badge-sm">Forward</span>
+                                {{ pair.forward_primer.primer_name }}
+
+                                <span class="mx-1 opacity-40">•</span>
+
+                                <span class="badge badge-secondary badge-sm">Reverse</span>
+                                {{ pair.reverse_primer.primer_name }}
+                            </p>
+                        </div>
+
+                        <!-- Remove Button -->
+                        <a href="{% url 'project_remove_primerpair' project.id pair.id %}"
+                           class="btn btn-error btn-sm"
+                           onclick="return confirm('Remove this primer pair from the project?');">
+                            Remove
+                        </a>
+                    </div>
+
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="opacity-70">No primer pairs are part of this project yet.</p>
+        {% endif %}
+    </div>
+
+
+    <!-- RIGHT SIDE: Add PrimerPairs -->
+    <div>
+        <h2 class="text-2xl font-bold mb-3">Add Primer Pair</h2>
+
+        {% if all_pairs %}
+            <div class="space-y-4">
+
+                {% for pair in all_pairs %}
+                {% if pair not in project.primerpairs.all %}
+                <div class="card bg-base-100 border border-base-300 shadow-md hover:shadow-xl transition p-5">
+
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h3 class="text-xl font-semibold">{{ pair.name }}</h3>
+                            <p class="text-sm opacity-70">
+                                {{ pair.forward_primer.primer_name }} → {{ pair.reverse_primer.primer_name }}
+                            </p>
+                        </div>
+
+                        <a href="{% url 'project_add_primerpair' project.id pair.id %}"
+                           class="btn btn-primary btn-sm">
+                           Add
+                        </a>
+                    </div>
+
+                </div>
+                {% endif %}
+                {% endfor %}
+
+            </div>
+        {% else %}
+            <p class="opacity-70">No primer pairs available.</p>
+        {% endif %}
+    </div>
+
+</div>
+
+{% endblock %}

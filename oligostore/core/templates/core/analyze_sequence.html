@@ -1,0 +1,234 @@
+{% extends "core/base.html" %}
+{% load form_filters %}
+{% block title %}Sequence analysis for primer generation{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">
+    Analyze your sequence for potential primer binding sites
+</h1>
+
+<!-- Alpine.js (lightweight, no config needed) -->
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+<div class="card bg-base-100 shadow-xl p-8 max-w-5xl mx-auto" x-data="{ active: 'none' }">
+    <form method="POST" class="space-y-10">
+        {% csrf_token %}
+
+        <!-- Sequence Input -->
+        <div class="form-control mb-6">
+            <label class="label">
+                <span class="label-text font-bold text-lg">Input DNA Sequence</span>
+            </label>
+            {% if error_message %}
+            <div class="alert alert-error shadow-lg mb-6">
+                <span>{{ error_message }}</span>
+            </div>
+            {% endif %}
+            <textarea name="sequence" rows="6"
+                      class="textarea textarea-bordered textarea-lg w-full"
+                      placeholder="Paste your DNA sequence here"
+                      required></textarea>
+        </div>
+
+        <!-- PRIMER SIDE SELECTION -->
+        <div class="form-control mb-6">
+            <label class="label">
+                <span class="label-text font-bold text-lg">
+                    Primer direction
+                </span>
+            </label>
+
+            <div class="flex flex-wrap gap-6">
+                {% for checkbox in form.PRIMER_SIDES %}
+                    <label class="label cursor-pointer gap-3">
+                        {{ checkbox.tag }}
+                        <span class="label-text">
+                            {{ checkbox.choice_label }}
+                        </span>
+                    </label>
+                {% endfor %}
+            </div>
+
+            {% if form.PRIMER_SIDES.errors %}
+                <p class="text-error text-sm mt-2">
+                    {{ form.PRIMER_SIDES.errors }}
+                </p>
+            {% endif %}
+        </div>
+
+        <!-- BUTTON BAR -->
+        <div class="flex flex-wrap gap-3 justify-center">
+            <button type="button" class="btn btn-outline"
+                    :class="{ 'btn-primary': active === 'size' }"
+                    @click="active = (active === 'size' ? 'none' : 'size')">
+                Product Size
+            </button>
+
+            <button type="button" class="btn btn-outline"
+                    :class="{ 'btn-primary': active === 'length' }"
+                    @click="active = (active === 'length' ? 'none' : 'length')">
+                Primer Length
+            </button>
+
+            <button type="button" class="btn btn-outline"
+                    :class="{ 'btn-primary': active === 'tm' }"
+                    @click="active = (active === 'tm' ? 'none' : 'tm')">
+                Primer Tm
+            </button>
+
+            <button type="button" class="btn btn-outline"
+                    :class="{ 'btn-primary': active === 'gc' }"
+                    @click="active = (active === 'gc' ? 'none' : 'gc')">
+                GC Content
+            </button>
+
+            <button type="button" class="btn btn-outline"
+                    :class="{ 'btn-primary': active === 'dimers' }"
+                    @click="active = (active === 'dimers' ? 'none' : 'dimers')">
+                Self-Dimers / Hairpins
+            </button>
+
+            <button type="button" class="btn btn-outline"
+                    :class="{ 'btn-primary': active === 'producttm' }"
+                    @click="active = (active === 'producttm' ? 'none' : 'producttm')">
+                Product Tm
+            </button>
+
+            <button type="button" class="btn btn-outline"
+                    :class="{ 'btn-primary': active === 'chemistry' }"
+                    @click="active = (active === 'chemistry' ? 'none' : 'chemistry')">
+                Chemistry
+            </button>
+
+            <button type="button" class="btn btn-outline"
+                    :class="{ 'btn-primary': active === 'misc' }"
+                    @click="active = (active === 'misc' ? 'none' : 'misc')">
+                Misc
+            </button>
+        </div>
+
+
+        <!-- PANELS -->
+
+        <!-- PRODUCT SIZE PANEL -->
+        <div x-show="active === 'size'" class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+            {% for name in product_size_fields %}
+            <div class="form-control">
+                {% with field=form|get_item:name %}
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field|add_class:"input input-bordered w-full" }}
+                {% endwith %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- PRIMER LENGTH PANEL -->
+        <div x-show="active === 'length'" class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+            {% for name in primer_length_fields %}
+            <div class="form-control">
+                {% with field=form|get_item:name %}
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field|add_class:"input input-bordered w-full" }}
+                {% endwith %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- TM PANEL -->
+        <div x-show="active === 'tm'" class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+            {% for name in tm_fields %}
+            <div class="form-control">
+                {% with field=form|get_item:name %}
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field|add_class:"input input-bordered w-full" }}
+                {% endwith %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- GC CONTENT PANEL -->
+        <div x-show="active === 'gc'" class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+            {% for name in gc_fields %}
+            <div class="form-control">
+                {% with field=form|get_item:name %}
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field|add_class:"input input-bordered w-full" }}
+                {% endwith %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- SELF DIMERS / HAIRPINS PANEL -->
+        <div x-show="active === 'dimers'" class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+            {% for name in self_comp_fields %}
+            <div class="form-control">
+                {% with field=form|get_item:name %}
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field|add_class:"input input-bordered w-full" }}
+                {% endwith %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- PRODUCT TM PANEL -->
+        <div x-show="active === 'producttm'" class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+            {% for name in product_tm_fields %}
+            <div class="form-control">
+                {% with field=form|get_item:name %}
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field|add_class:"input input-bordered w-full" }}
+                {% endwith %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- CHEMISTRY PANEL -->
+        <div x-show="active === 'chemistry'" class="grid grid-cols-1 md:grid-cols-4 gap-6 mt-4">
+            {% for name in chemistry_fields %}
+            <div class="form-control">
+                {% with field=form|get_item:name %}
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field|add_class:"input input-bordered w-full" }}
+                {% endwith %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- MISC PANEL -->
+        <div x-show="active === 'misc'" class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+            {% for name in misc_fields %}
+            <div class="form-control">
+                {% with field=form|get_item:name %}
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field|add_class:"input input-bordered w-full" }}
+                {% endwith %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- SUBMIT -->
+        <div class="text-center pt-4">
+            <button class="btn btn-primary btn-lg" type="submit">
+                Run Primer Analysis
+            </button>
+        </div>
+    </form>
+</div>
+
+{% endblock %}

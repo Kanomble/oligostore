@@ -1,0 +1,31 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# virtual envs
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn.lock
+pnpm-lock.yaml
+package-lock.json
+
+# OS-specific junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project-specific
+staticfiles/
+media/
+
+# Avoid packing entire local folders
+*.sqlite3
+*.log

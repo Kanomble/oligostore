@@ -1,0 +1,9 @@
+Django==5.0
+primer3-py
+pydna
+pandas
+numpy
+matplotlib
+biopython
+gunicorn
+psycopg[binary]

@@ -1,0 +1,80 @@
+{% extends "core/base.html" %}
+{% block title %}Create Primer{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">Create New Primer</h1>
+
+<form method="POST" class="space-y-6 max-w-xl">
+    {% csrf_token %}
+
+    {% if form.errors %}
+    <div class="alert alert-error mb-4">
+        <span>Please correct the errors below.</span>
+    </div>
+    {% endif %}
+
+
+    <div class="form-control">
+        <label class="label"><span class="label-text">Primer Name</span></label>
+        {{ form.primer_name }}
+    </div>
+
+    <div class="form-control">
+        <label class="label"><span class="label-text">Sequence</span></label>
+        {{ form.sequence }}
+
+        {% if form.sequence.errors %}
+            <p class="text-error text-sm mt-1">{{ form.sequence.errors.0 }}</p>
+        {% endif %}
+    </div>
+
+    <div class="flex gap-4 mt-4">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <a href="{% url 'primer_list' %}" class="btn btn-ghost">Cancel</a>
+    </div>
+
+    <div class="flex gap-4 mt-4">
+        <button class="btn btn-info" type="button" id="analyze-primer-btn">Analyze Primer</button>
+    </div>
+
+    <div id="analysis-result" class="mt-6">
+    </div>
+</form>
+<script>
+    document.getElementById("analyze-primer-btn").addEventListener("click", function (){
+        const seq = document.getElementById("id_sequence").value;
+        const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
+
+        fetch("{% url 'analyze_primer' %}", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken":csrfToken,
+                "Content-Type":"application/x-www-form-urlencoded"
+            },
+            body: new URLSearchParams({
+                "sequence":seq
+            })
+        })
+        .then(response=>response.json())
+        .then(data=>{
+            let resultDiv = document.getElementById("analysis-result");
+            console.log("DEBUG data:", data);
+            if(data.error){
+                resultDiv.innerHTML = `<p class="text-error">${data.error}</p>`;
+                return;
+            }
+            resultDiv.innerHTML = `
+                <div class="card bg-base-200 shadow p-4">
+                <h3 class="font-bold text-lg mb-2">Analysis Result</h3>
+                <p class="strong">Tm: ${data.tm}</p>
+                <p class="strong">GC: ${data.gc_content}</p>
+                <p class="strong">Hairpin Found: ${data.hairpin}</p>
+                <p class="strong">Hairpin: ${data.hairpin_dg}</p>
+                <p class="strong">Self Dimer Found: ${data.self_dimer}</p>
+                <p class="strong">Self-Dimer: ${data.self_dimer_dg}</p>
+                </div>
+            `;
+        });
+    });
+</script>
+{% endblock %}

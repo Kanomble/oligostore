@@ -1,0 +1,48 @@
+{% extends "core/base.html" %}
+{% block title %}Primer Binding Results{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto mt-10">
+
+    <h1 class="text-3xl font-bold mb-4">
+        Binding Results
+    </h1>
+
+    <p class="mb-6 opacity-70">
+        Primer: <strong>{{ primer.primer_name }}</strong><br>
+        Sequence file: {{ sequence_file.name }}
+    </p>
+
+    {% if hits %}
+        <div class="overflow-x-auto">
+            <table class="table table-zebra">
+                <thead>
+                    <tr>
+                        <th>Record</th>
+                        <th>Start</th>
+                        <th>End</th>
+                        <th>Strand</th>
+                        <th>Mismatches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for hit in hits %}
+                        <tr>
+                            <td>{{ hit.record_id }}</td>
+                            <td>{{ hit.start }}</td>
+                            <td>{{ hit.end }}</td>
+                            <td>{{ hit.strand }}</td>
+                            <td>{{ hit.mismatches }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="alert alert-success">
+            No binding sites detected.
+        </div>
+    {% endif %}
+
+</div>
+{% endblock %}

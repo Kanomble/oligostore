@@ -1,0 +1,77 @@
+{% extends "core/base.html" %}
+{% block title %}Upload Sequence File{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto py-10">
+
+  <h1 class="text-3xl font-bold mb-6">
+    Upload sequence file
+  </h1>
+
+  {% if error %}
+    <div class="alert alert-error mb-6">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <form method="POST" enctype="multipart/form-data" class="space-y-6">
+    {% csrf_token %}
+
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text font-semibold">Name</span>
+      </label>
+      <input
+        type="text"
+        name="name"
+        class="input input-bordered"
+        required
+      >
+    </div>
+
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text font-semibold">File</span>
+      </label>
+      <input
+        type="file"
+        name="file"
+        class="file-input file-input-bordered"
+        required
+      >
+    </div>
+
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text font-semibold">File type</span>
+      </label>
+      <select name="file_type" class="select select-bordered" required>
+        <option value="fasta">FASTA</option>
+        <option value="genbank">GenBank</option>
+      </select>
+    </div>
+
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">Description (optional)</span>
+      </label>
+      <textarea
+        name="description"
+        class="textarea textarea-bordered"
+        rows="3"
+      ></textarea>
+    </div>
+
+    <div class="flex justify-between items-center">
+      <a href="{% url 'sequencefile_list' %}" class="btn btn-ghost">
+        Cancel
+      </a>
+      <button type="submit" class="btn btn-primary">
+        Upload
+      </button>
+    </div>
+
+  </form>
+
+</div>
+{% endblock %}

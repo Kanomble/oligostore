@@ -1,0 +1,22 @@
+{% extends "core/base.html" %}
+{% block title %}Projects{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-8">
+    <h1 class="text-3xl font-bold">Projects</h1>
+    <a href="{% url 'project_create' %}" class="btn btn-primary">+ New Project</a>
+</div>
+
+{% if projects %}
+<div class="grid gap-4">
+    {% for project in projects %}
+    <a href="{% url 'project_dashboard' project.id %}" class="card bg-base-100 shadow p-4 hover:shadow-lg">
+        <h2 class="text-xl font-bold">{{ project.name }}</h2>
+        <p class="opacity-70">{{ project.description|truncatechars:120 }}</p>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-center opacity-60 mt-10">No projects yet.</p>
+{% endif %}
+{% endblock %}
