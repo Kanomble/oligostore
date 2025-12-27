@@ -1,9 +1,10 @@
 {
   "type": "commonjs",
   "devDependencies": {
-    "autoprefixer": "^10.4.22",
+    "tailwindcss": "^4.1.17",
+    "@tailwindcss/cli": "^4.1.17",
     "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.17"
+    "autoprefixer": "^10.4.22"
   },
   "dependencies": {
     "daisyui": "^5.5.11"

@@ -1,6 +1,6 @@
-import daisyui from "daisyui";
+const daisyui = require("daisyui");
 
-export default {
+module.exports = {
   content: [
     "./templates/**/*.html",
     "./core/templates/**/*.html",
@@ -12,16 +12,14 @@ export default {
     extend: {},
   },
 
-  plugins: [
-    daisyui
-  ],
+  plugins: [daisyui],
 
   daisyui: {
     themes: [
       {
         light: {
           ...require("daisyui/src/theming/themes")["light"],
-          "accent": "#3ABFF8",
+          accent: "#3ABFF8",
           "accent-content": "#ffffff",
         }
       },
