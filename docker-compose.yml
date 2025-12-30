@@ -4,7 +4,6 @@ services:
     container_name: oligostore_web
     command: >
       sh -c "
-      npm ci &&
       npx tailwindcss -c ./tailwind.config.cjs -i ./static/css/src/styles.css -o ./static/css/dist/styles.css --minify &&
       python manage.py runserver 0.0.0.0:8000
       "
