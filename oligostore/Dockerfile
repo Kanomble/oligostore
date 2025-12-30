@@ -20,3 +20,5 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+# Install node dependencies at build time for caching
+RUN npm ci
