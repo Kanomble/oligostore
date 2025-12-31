@@ -1,6 +1,22 @@
 from django.db import models
 from django.contrib.auth.models import User
 
+class AccessControllModel(models.Model):
+    creator = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="%(class)s_created",
+    )
+
+    users = models.ManyToManyField(
+        User,
+        related_name="%(class)s_access",
+        blank=True,
+    )
+
+    class Meta:
+        abstract = True
+
 class SequenceFile(models.Model):
     FILE_FASTA = "fasta"
     FILE_GENBANK = "genbank"
@@ -45,22 +61,10 @@ class PrimerBindingResult(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
-class Project(models.Model):
+class Project(AccessControllModel):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    creator = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="created_projects"
-    )
-
-    users = models.ManyToManyField(
-        User,
-        related_name="projects",
-        blank=True
-    )
-
     primerpairs = models.ManyToManyField(
         "PrimerPair",
         related_name="projects",
@@ -70,22 +74,10 @@ class Project(models.Model):
     def __str__(self):
         return self.name
 
-class Primer(models.Model):
+class Primer(AccessControllModel):
     primer_name = models.CharField(max_length=100)
     sequence = models.TextField()
     length = models.IntegerField(null=True,blank=True)
-
-    creator = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="created_primers"
-    )
-
-    users = models.ManyToManyField(
-        User,
-        related_name="accessible_primers",
-        blank=True
-    )
 
     # --- Analysis fields ---
     gc_content = models.FloatField(null=True, blank=True)
@@ -98,7 +90,7 @@ class Primer(models.Model):
     def __str__(self):
         return self.primer_name
 
-class PrimerPair(models.Model):
+class PrimerPair(AccessControllModel):
     name = models.CharField(max_length=100)
     description = models.TextField(null=True,
                                    blank=True)
@@ -112,18 +104,6 @@ class PrimerPair(models.Model):
         Primer,
         on_delete=models.CASCADE,
         related_name="as_reverse_primer",
-    )
-
-    creator = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="created_primerpairs"
-    )
-
-    users = models.ManyToManyField(
-        User,
-        related_name="accessible_primerpairs",
-        blank=True
     )
 
     def __str__(self):

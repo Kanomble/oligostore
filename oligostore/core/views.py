@@ -1,6 +1,6 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
 from django.contrib import messages
 from django.db.models import Q
 from .models import Primer, PrimerPair, Project, SequenceFile
@@ -418,134 +418,6 @@ def analyze_sequence_view(request):
         },
     )
 
-'''
-@login_required
-def analyze_sequence_view(request):
-    if request.method == "POST":
-        form = Primer3GlobalArgsForm(request.POST)
-        raw_seq = request.POST.get("sequence")
-
-        if form.is_valid():
-            try:
-                sequence = sanitize_sequence(raw_seq)
-            except ValueError as e:
-                return render(
-                    request,
-                    "core/analyze_sequence.html",
-                    {
-                        "form": form,
-                        "error_message": str(e),
-                        "product_size_fields": ["PRIMER_PRODUCT_SIZE_RANGE"],
-                        "primer_length_fields": ["PRIMER_OPT_SIZE", "PRIMER_MIN_SIZE", "PRIMER_MAX_SIZE"],
-                        "tm_fields": ["PRIMER_OPT_TM", "PRIMER_MIN_TM", "PRIMER_MAX_TM"],
-                        "gc_fields": ["PRIMER_MIN_GC", "PRIMER_MAX_GC", "PRIMER_OPT_GC_PERCENT"],
-                        "self_comp_fields": ["PRIMER_MAX_SELF_ANY", "PRIMER_MAX_SELF_END", "PRIMER_MAX_HAIRPIN_TH"],
-                        "product_tm_fields": ["PRIMER_PRODUCT_OPT_TM", "PRIMER_PRODUCT_MIN_TM",
-                                              "PRIMER_PRODUCT_MAX_TM"],
-                        "chemistry_fields": ["PRIMER_SALT_MONOVALENT", "PRIMER_SALT_DIVALENT",
-                                             "PRIMER_DNTP_CONC", "PRIMER_DNA_CONC"],
-                        "misc_fields": ["PRIMER_MAX_POLY_X", "PRIMER_EXPLAIN_FLAG",
-                                        "PRIMER_NUM_RETURN", "PRIMER_GC_CLAMP"],
-                        "primer_sides":["LEFT", "RIGHT"],
-                    }
-                )
-
-            global_args = form.cleaned_data
-
-            primer_sides = global_args.pop("PRIMER_SIDES", ["LEFT", "RIGHT"])
-
-            if not primer_sides:
-                return render(
-                    request,
-                    "core/analyze_sequence.html",
-                    {
-                        "form": form,
-                        "error_message": "Select at least one primer direction.",
-                    },
-                )
-
-            global_args["PRIMER_PICK_LEFT_PRIMER"] = 1 if "LEFT" in primer_sides else 0
-            global_args["PRIMER_PICK_RIGHT_PRIMER"] = 1 if "RIGHT" in primer_sides else 0
-
-            for key in ["PRIMER_THERMODYNAMIC_OLIGO_ALIGNMENT",
-                        "PRIMER_THERMODYNAMIC_TEMPLATE_ALIGNMENT"]:
-                val = global_args.get(key)
-                global_args[key] = 1 if val else 0
-
-            for field_name, field in form.fields.items():
-                if global_args.get(field_name) is None:
-                    global_args[field_name] = field.initial
-
-            for key in ["PRIMER_PRODUCT_MIN_TM", "PRIMER_PRODUCT_MAX_TM", "PRIMER_PRODUCT_OPT_TM"]:
-                if not global_args.get(key):
-                    global_args.pop(key, None)
-
-            # Run Primer3
-            primer_list, raw_results = analyze_sequence(sequence, global_args)
-
-            # ----------- ENHANCE EACH PRIMER WITH BINDING VISUALIZATION -----------
-
-            for p in primer_list:
-                fwd = p["left_seq"].upper()
-                rev = p["right_seq"].upper()
-                rev_rc = reverse_complement(rev)
-
-                fwd_pos = find_binding_site(sequence, fwd)
-                rev_pos = find_binding_site(sequence, rev_rc)
-
-                # Create windows around both sites
-                fwd_window, fwd_start, fwd_len = window_sequence(
-                    sequence, fwd_pos, len(fwd), flank=10
-                )
-                rev_window, rev_start, rev_len = window_sequence(
-                    sequence, rev_pos, len(rev_rc), flank=10
-                )
-
-                # Render dotted alignment lines
-                p["forward_window"] = fwd_window
-                p["reverse_window"] = rev_window
-
-                p["forward_window_line"] = render_windowed_line(fwd_window, fwd_start, fwd_len)
-                p["reverse_window_line"] = render_windowed_line(rev_window, rev_start, rev_len)
-
-                # Add positions (optional)
-                p["forward_pos"] = fwd_pos
-                p["reverse_pos"] = rev_pos
-
-            # Render result page
-            return render(
-                request,
-                "core/analyze_sequence_results.html",
-                {
-                    "sequence": sequence,
-                    "primer_list": primer_list,
-                    "raw_results": raw_results,
-                },
-            )
-    else:
-        form = Primer3GlobalArgsForm()
-
-        # unchanged context for form page
-    return render(
-        request,
-        "core/analyze_sequence.html",
-        {
-            "form": form,
-            "product_size_fields": ["PRIMER_PRODUCT_SIZE_RANGE"],
-            "primer_length_fields": ["PRIMER_OPT_SIZE", "PRIMER_MIN_SIZE", "PRIMER_MAX_SIZE"],
-            "tm_fields": ["PRIMER_OPT_TM", "PRIMER_MIN_TM", "PRIMER_MAX_TM"],
-            "gc_fields": ["PRIMER_MIN_GC", "PRIMER_MAX_GC", "PRIMER_OPT_GC_PERCENT"],
-            "self_comp_fields": ["PRIMER_MAX_SELF_ANY", "PRIMER_MAX_SELF_END", "PRIMER_MAX_HAIRPIN_TH"],
-            "product_tm_fields": ["PRIMER_PRODUCT_OPT_TM", "PRIMER_PRODUCT_MIN_TM", "PRIMER_PRODUCT_MAX_TM"],
-            "chemistry_fields": ["PRIMER_SALT_MONOVALENT", "PRIMER_SALT_DIVALENT",
-                                 "PRIMER_DNTP_CONC", "PRIMER_DNA_CONC"],
-            "misc_fields": ["PRIMER_MAX_POLY_X", "PRIMER_EXPLAIN_FLAG",
-                            "PRIMER_NUM_RETURN", "PRIMER_GC_CLAMP"],
-            "primer_sides": ["LEFT", "RIGHT"],
-        }
-    )
-'''
-
 @login_required
 def analyze_primer_view(request):
     if request.method != "POST":
@@ -635,7 +507,7 @@ def project_create(request):
 
 @login_required(login_url="login")
 def project_list(request):
-    projects = request.user.projects.all()
+    projects = request.user.project_access.all()
     return render(request, "core/project_list.html",{"projects":projects})
 
 @login_required
