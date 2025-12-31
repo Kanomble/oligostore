@@ -1,4 +1,5 @@
 def assign_creator(obj, user):
-    obj.creator = user  # 2
-    obj.save()  # 3
+    obj.creator = user
+    obj.save()
+    obj.users.add(user)
     return obj

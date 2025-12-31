@@ -2,6 +2,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from .models import Primer, PrimerPair, Project, SequenceFile
 from .forms import PrimerForm, CustomUserCreationForm, \
@@ -9,7 +10,7 @@ from .forms import PrimerForm, CustomUserCreationForm, \
     ProjectForm, Primer3GlobalArgsForm
 from .services.primer_analysis import analyze_primer, analyze_cross_dimer, \
     analyze_sequence, sanitize_sequence, reverse_complement, find_binding_site,\
-    render_binding_line, window_sequence, render_windowed_line, highlight_binding
+    window_sequence, render_windowed_line, highlight_binding
 from .services.primer_binding import analyze_primer_binding
 from .services.user_assignment import assign_creator
 import re
@@ -89,6 +90,20 @@ def primer_binding_analysis(request):
 
     preselected_primer = request.GET.get("primer")
     preselected_sequence_file = request.GET.get("sequence_file")
+
+    if preselected_primer:
+        preselected_primer = (
+            primers.filter(id=preselected_primer)
+            .values_list("id", flat=True)
+            .first()
+        )
+
+    if preselected_sequence_file:
+        preselected_sequence_file = (
+            sequence_files.filter(id=preselected_sequence_file)
+            .values_list("id", flat=True)
+            .first()
+        )
 
     if request.method == "POST":
         primer_id = request.POST.get("primer_id")
@@ -175,9 +190,8 @@ def save_generated_primerpair(request):
         forward = Primer(
             primer_name=left_name,
             sequence=left_seq,
-            creator=request.user,
         )
-
+        forward = assign_creator(forward, request.user)
         analysis = analyze_primer(forward.sequence)
         forward.length = len(forward.sequence)
         forward.gc_content = analysis["gc_content"]
@@ -185,18 +199,15 @@ def save_generated_primerpair(request):
         forward.hairpin_dg = analysis["hairpin_dg"]
         forward.self_dimer_dg = analysis["self_dimer_dg"]
 
-        forward.save()               # save before adding M2M
-        forward.users.add(request.user)
-
+        forward.save()
         # ---------------------------
         # Create REVERSE primer
         # ---------------------------
         reverse = Primer(
             primer_name=right_name,
             sequence=right_seq,
-            creator=request.user,
         )
-
+        reverse = assign_creator(reverse, request.user)
         analysis = analyze_primer(reverse.sequence)
         reverse.length = len(reverse.sequence)
         reverse.gc_content = analysis["gc_content"]
@@ -205,7 +216,6 @@ def save_generated_primerpair(request):
         reverse.self_dimer_dg = analysis["self_dimer_dg"]
 
         reverse.save()
-        reverse.users.add(request.user)
 
         # ---------------------------
         # Create PRIMER PAIR
@@ -214,15 +224,13 @@ def save_generated_primerpair(request):
             name=pair_name,
             forward_primer=forward,
             reverse_primer=reverse,
-            creator=request.user,
         )
-        pair.users.add(request.user)
-
+        pair = assign_creator(pair, request.user)
+        pair.save()
         messages.success(request, f"Primer Pair '{pair.name}' saved successfully!")
         return redirect("primerpair_list")
 
     except Exception as e:
-        print("ERROR saving primer pair:", e)
         messages.error(request, f"ERROR saving primer pair: {e}")
         return redirect("analyze_sequence")
 
@@ -447,11 +455,11 @@ def register(request):
 
 @login_required
 def project_add_primerpair(request, project_id, pair_id):
-    project = get_object_or_404(Project, id=project_id)
-    pair = get_object_or_404(PrimerPair, id=pair_id)
+    project = get_object_or_404(Project, id=project_id, users=request.user)
+    pair = get_object_or_404(PrimerPair, id=pair_id, users=request.user)
 
     if request.user not in project.users.all():
-        return HttpResponseForbidden("Not allowed")
+        return HttpResponseForbidden("You are not allowed to add these primer to your project.")
 
     project.primerpairs.add(pair)
     return redirect("project_dashboard", project_id=project_id)
@@ -459,11 +467,11 @@ def project_add_primerpair(request, project_id, pair_id):
 
 @login_required
 def project_remove_primerpair(request, project_id, pair_id):
-    project = get_object_or_404(Project, id=project_id)
-    pair = get_object_or_404(PrimerPair, id=pair_id)
+    project = get_object_or_404(Project, id=project_id, users=request.user)
+    pair = get_object_or_404(PrimerPair, id=pair_id, users=request.user)
 
     if request.user not in project.users.all():
-        return HttpResponseForbidden("Not allowed")
+        return HttpResponseForbidden("You are not allowed to remove these primer pairs from your project.")
 
     project.primerpairs.remove(pair)
     return redirect("project_dashboard", project_id=project_id)
@@ -474,11 +482,11 @@ def project_dashboard(request, project_id):
 
     # Ensure the user has access
     if request.user not in project.users.all():
-        return HttpResponseForbidden("Not allowed")
+        return HttpResponseForbidden("You do not have access to this project.")
 
     # All objects user can link
-    all_primers = Primer.objects.all()
-    all_pairs = PrimerPair.objects.all()
+    all_primers = Primer.objects.filter(users=request.user)
+    all_pairs = PrimerPair.objects.filter(users=request.user)
 
     return render(request, "core/project_dashboard.html", {
         "project": project,
@@ -492,12 +500,10 @@ def project_create(request):
         form = ProjectForm(request.POST)
         if form.is_valid():
             project = form.save(commit=False)
-            project.creator = request.user
+            project = assign_creator(project, request.user)
             project.save()
 
             # Creator automatically has access
-            project.users.add(request.user)
-
             return redirect("project_list")
     else:
         form = ProjectForm()
@@ -513,11 +519,8 @@ def project_list(request):
 @login_required
 def primerpair_delete(request, primerpair_id):
     pair = get_object_or_404(PrimerPair, id=primerpair_id)
-
-    # optional: ensure only creator can delete
-    # if pair.creator != request.user:
-    #     return HttpResponseForbidden("You cannot delete this PrimerPair.")
-
+    if pair.creator != request.user:
+        raise PermissionDenied("You are not the creator of this primer.")
     pair.delete()
     return redirect("primerpair_list")
 
@@ -578,8 +581,8 @@ def primerpair_combined_create(request):
             forward = Primer.objects.create(
                 primer_name=form.cleaned_data["forward_name"],
                 sequence=form.cleaned_data["forward_sequence"],
-                creator=request.user,
             )
+            forward = assign_creator(forward, request.user)
             analysis = analyze_primer(forward.sequence)
             forward.length = len(forward.sequence)
             # run analysis
@@ -587,15 +590,14 @@ def primerpair_combined_create(request):
             forward.tm = analysis["tm"]
             forward.hairpin_dg = analysis["hairpin_dg"]
             forward.self_dimer_dg = analysis["self_dimer_dg"]
-            forward.users.add(request.user)
             forward.save()
 
             # 2) Create reverse primer
             reverse = Primer.objects.create(
                 primer_name=form.cleaned_data["reverse_name"],
                 sequence=form.cleaned_data["reverse_sequence"],
-                creator=request.user,
             )
+            reverse = assign_creator(reverse, request.user)
             analysis = analyze_primer(reverse.sequence)
             reverse.length = len(reverse.sequence)
             # run analysis
@@ -603,7 +605,7 @@ def primerpair_combined_create(request):
             reverse.tm = analysis["tm"]
             reverse.hairpin_dg = analysis["hairpin_dg"]
             reverse.self_dimer_dg = analysis["self_dimer_dg"]
-            reverse.users.add(request.user)
+
             reverse.save()
 
             # 3) Create primer pair
@@ -611,10 +613,9 @@ def primerpair_combined_create(request):
                 name=form.cleaned_data["pair_name"],
                 forward_primer=forward,
                 reverse_primer=reverse,
-                creator=request.user,
             )
-            pair.users.add(request.user)
-
+            pair = assign_creator(pair, request.user)
+            pair.save()
             return redirect("primerpair_list")
 
     else:
@@ -628,13 +629,8 @@ def primerpair_create(request):
         form = PrimerPairForm(request.POST)
         if form.is_valid():
             pair = form.save(commit=False)
-
-            # assign creator
-            pair.creator = request.user
+            pair = assign_creator(pair, request.user)
             pair.save()
-
-            # give creator access (optional)
-            pair.users.add(request.user)
 
             return redirect("primerpair_list")
     else:
@@ -644,12 +640,12 @@ def primerpair_create(request):
 
 @login_required(login_url="login")
 def primerpair_list(request):
-    primer_pairs = PrimerPair.objects.all()
+    primer_pairs = PrimerPair.objects.filter(users=request.user)
     return render(request, "core/primerpair_list.html",{"primer_pairs":primer_pairs})
 
 @login_required(login_url="login")
 def primer_list(request):
-    primers = Primer.objects.all().order_by('-created_at')
+    primers = Primer.objects.filter(users=request.user).order_by('-created_at')
     return render(request, "core/primer_list.html", {"primers": primers})
 
 @login_required(login_url="login")
@@ -659,8 +655,6 @@ def primer_create(request):
         if form.is_valid():
             primer = form.save(commit=False)
             primer = assign_creator(primer, user=request.user)
-            primer.users.add(request.user)
-
             primer.length = len(primer.sequence)
             # run analysis
             analysis = analyze_primer(primer.sequence)
@@ -680,6 +674,9 @@ def primer_create(request):
 @login_required(login_url="login")
 def primer_delete(request, primer_id):
     primer = get_object_or_404(Primer, id=primer_id)
+    if primer.creator != request.user:
+        raise PermissionDenied("You are not the creator of this primer.")
+
     primer.delete()
     return redirect("primer_list")
 
