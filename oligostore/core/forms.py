@@ -97,6 +97,25 @@ class Primer3GlobalArgsForm(forms.Form):
         help_text="Format: min-max or multiple ranges, e.g. 100-300 400-600"
     )
 
+    def clean_PRIMER_PRODUCT_SIZE_RANGE(self):
+        value = self.cleaned_data.get("PRIMER_PRODUCT_SIZE_RANGE", "")
+        normalized = " ".join(value.split())
+        pattern = r"^\d+-\d+( \d+-\d+)*$"
+
+        if not re.fullmatch(pattern, normalized):
+            raise forms.ValidationError(
+                "Enter product size ranges as 'min-max' with optional additional ranges separated by spaces."
+            )
+
+        for size_range in normalized.split():
+            min_size, max_size = (int(part) for part in size_range.split("-", 1))
+            if min_size > max_size:
+                raise forms.ValidationError(
+                    "Each product size range must have a minimum less than or equal to the maximum."
+                )
+
+        return normalized
+
     # PRIMER LENGTH
     PRIMER_OPT_SIZE = forms.IntegerField(initial=20)
     PRIMER_MIN_SIZE = forms.IntegerField(initial=18)
