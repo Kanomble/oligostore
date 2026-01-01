@@ -4,6 +4,15 @@ from django import forms
 from .models import Primer, PrimerPair, Project
 import re
 
+def apply_tailwind_classes(fields):
+    for field in fields.values():
+        if isinstance(field.widget, forms.Textarea):
+            field.widget.attrs.update({"class": "textarea textarea-bordered w-full"})
+        elif isinstance(field.widget, forms.Select):
+            field.widget.attrs.update({"class": "select select-bordered w-full"})
+        elif isinstance(field, (forms.CharField, forms.IntegerField, forms.FloatField)):
+            field.widget.attrs.update({"class": "input input-bordered w-full"})
+
 def clean_sequence_value(value, allow_n=True):
     seq = (value or "").strip().upper()
     pattern = r"[ACGTN]+" if allow_n else r"[ACGT]+"
@@ -22,8 +31,7 @@ class ProjectForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["name"].widget.attrs.update({"class": "input input-bordered w-full"})
-        self.fields["description"].widget.attrs.update({"class": "textarea textarea-bordered w-full"})
+        apply_tailwind_classes(self.fields)
 
 class PrimerForm(forms.ModelForm):
     class Meta:
@@ -32,8 +40,7 @@ class PrimerForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["primer_name"].widget.attrs.update({"class": "input input-bordered w-full"})
-        self.fields["sequence"].widget.attrs.update({"class": "textarea textarea-bordered w-full"})
+        apply_tailwind_classes(self.fields)
 
     def clean_sequence(self):
         return clean_sequence_value(self.cleaned_data.get("sequence", ""), allow_n=False)
@@ -45,17 +52,10 @@ class PrimerPairForm(forms.ModelForm ):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
         user = kwargs.pop("user", None)
-
         self.fields["forward_primer"].queryset = Primer.objects.filter(users=user)
         self.fields["reverse_primer"].queryset = Primer.objects.filter(users=user)
-
-
-        # Add DaisyUI/Tailwind classes for styling
-        self.fields["name"].widget.attrs.update({"class": "input input-bordered w-full"})
-        self.fields["forward_primer"].widget.attrs.update({"class": "select select-bordered w-full"})
-        self.fields["reverse_primer"].widget.attrs.update({"class": "select select-bordered w-full"})
+        apply_tailwind_classes(self.fields)
 
 class PrimerPairCreateCombinedForm(forms.Form):
     pair_name = forms.CharField(max_length=100)
@@ -68,14 +68,9 @@ class PrimerPairCreateCombinedForm(forms.Form):
     reverse_name = forms.CharField(max_length=100)
     reverse_sequence = forms.CharField(widget=forms.Textarea)
 
-    # styling
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for k, field in self.fields.items():
-            if k.endswith("sequence"):
-                field.widget.attrs.update({"class": "textarea textarea-bordered w-full"})
-            else:
-                field.widget.attrs.update({"class": "input input-bordered w-full"})
+        apply_tailwind_classes(self.fields)
 
     def clean_forward_sequence(self):
         return clean_sequence_value(self.cleaned_data.get("forward_sequence", ""), allow_n=True)
