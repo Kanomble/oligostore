@@ -4,6 +4,17 @@ from django import forms
 from .models import Primer, PrimerPair, Project
 import re
 
+def clean_sequence_value(value, allow_n=True):
+    seq = (value or "").strip().upper()
+    pattern = r"[ACGTN]+" if allow_n else r"[ACGT]+"
+    if not re.fullmatch(pattern, seq):
+        raise forms.ValidationError(
+            "Sequence may only contain the characters A, C, G, T"
+            + (" or N" if allow_n else "")
+            + " (no spaces or numbers)."
+        )
+    return seq
+
 class ProjectForm(forms.ModelForm):
     class Meta:
         model = Project
@@ -25,15 +36,7 @@ class PrimerForm(forms.ModelForm):
         self.fields["sequence"].widget.attrs.update({"class": "textarea textarea-bordered w-full"})
 
     def clean_sequence(self):
-        seq = self.cleaned_data.get("sequence", "").upper()
-
-        # Allow only A, C, G, T
-        if not re.fullmatch(r"[ACGT]+", seq):
-            raise forms.ValidationError(
-                "Sequence may only contain the characters A, C, G, T (no spaces or numbers)."
-            )
-
-        return seq
+        return clean_sequence_value(self.cleaned_data.get("sequence", ""), allow_n=False)
 
 class PrimerPairForm(forms.ModelForm ):
     class Meta:
@@ -74,6 +77,11 @@ class PrimerPairCreateCombinedForm(forms.Form):
             else:
                 field.widget.attrs.update({"class": "input input-bordered w-full"})
 
+    def clean_forward_sequence(self):
+        return clean_sequence_value(self.cleaned_data.get("forward_sequence", ""), allow_n=True)
+
+    def clean_reverse_sequence(self):
+        return clean_sequence_value(self.cleaned_data.get("reverse_sequence", ""), allow_n=True)
 
 class CustomUserCreationForm(UserCreationForm):
     class Meta:
