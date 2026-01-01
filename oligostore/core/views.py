@@ -578,7 +578,7 @@ def primerpair_combined_create(request):
         if form.is_valid():
 
             # 1) Create forward primer
-            forward = Primer.objects.create(
+            forward = Primer(
                 primer_name=form.cleaned_data["forward_name"],
                 sequence=form.cleaned_data["forward_sequence"],
             )
@@ -593,7 +593,7 @@ def primerpair_combined_create(request):
             forward.save()
 
             # 2) Create reverse primer
-            reverse = Primer.objects.create(
+            reverse = Primer(
                 primer_name=form.cleaned_data["reverse_name"],
                 sequence=form.cleaned_data["reverse_sequence"],
             )
@@ -609,7 +609,7 @@ def primerpair_combined_create(request):
             reverse.save()
 
             # 3) Create primer pair
-            pair = PrimerPair.objects.create(
+            pair = PrimerPair(
                 name=form.cleaned_data["pair_name"],
                 forward_primer=forward,
                 reverse_primer=reverse,
