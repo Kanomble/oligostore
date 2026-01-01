@@ -35,7 +35,7 @@ class PrimerForm(forms.ModelForm):
 
         return seq
 
-class PrimerPairForm(forms.ModelForm):
+class PrimerPairForm(forms.ModelForm ):
     class Meta:
         model = PrimerPair
         fields = ["name", "forward_primer", "reverse_primer"]
@@ -43,9 +43,11 @@ class PrimerPairForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Show ALL primers, since access should NOT be limited
-        self.fields["forward_primer"].queryset = Primer.objects.all()
-        self.fields["reverse_primer"].queryset = Primer.objects.all()
+        user = kwargs.pop("user", None)
+
+        self.fields["forward_primer"].queryset = Primer.objects.filter(users=user)
+        self.fields["reverse_primer"].queryset = Primer.objects.filter(users=user)
+
 
         # Add DaisyUI/Tailwind classes for styling
         self.fields["name"].widget.attrs.update({"class": "input input-bordered w-full"})

@@ -626,7 +626,7 @@ def primerpair_combined_create(request):
 @login_required(login_url="login")
 def primerpair_create(request):
     if request.method == "POST":
-        form = PrimerPairForm(request.POST)
+        form = PrimerPairForm(request.POST, user=request.user)
         if form.is_valid():
             pair = form.save(commit=False)
             pair = assign_creator(pair, request.user)
@@ -634,7 +634,7 @@ def primerpair_create(request):
 
             return redirect("primerpair_list")
     else:
-        form = PrimerPairForm()
+        form = PrimerPairForm(user=request.user)
 
     return render(request, "core/primerpair_form.html", {"form": form})
 
