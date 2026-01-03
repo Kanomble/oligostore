@@ -3,7 +3,12 @@ import re
 from core.services.sequence_utils import reverse_complement
 
 def analyze_primer(seq: str) -> dict:
-    seq = seq.upper()
+    """Analyze a primer sequence.
+
+    Raises:
+        ValueError: If the sequence is empty or contains invalid characters.
+    """
+    seq = sanitize_sequence(seq)
 
     # primer3 objects
     hairpin = primer3.calc_hairpin(seq)
@@ -84,11 +89,13 @@ def sanitize_sequence(raw: str) -> str:
     - Validates allowed characters
     """
 
-    if not raw:
+    if raw is None:
         raise ValueError("No sequence provided.")
 
     # Remove whitespace/newlines/tabs/spaces
     cleaned = re.sub(r"\s+", "", raw).upper()
+    if not cleaned:
+        raise ValueError("No sequence provided.")
 
     # Validate: A, C, G, T, (optionally N)
     if not re.fullmatch(r"[ACGTN]+", cleaned):
