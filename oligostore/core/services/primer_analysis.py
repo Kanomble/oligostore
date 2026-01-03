@@ -43,6 +43,8 @@ def analyze_sequence(sequence: str, global_args: dict):
     right_n = results.get("PRIMER_RIGHT_NUM_RETURNED", 0)
     pair_n = results.get("PRIMER_PAIR_NUM_RETURNED", 0)
 
+    mode = "NONE"
+
     if pair_n > 0:
         mode = "PAIR"
         for i in range(pair_n):
@@ -75,9 +77,6 @@ def analyze_sequence(sequence: str, global_args: dict):
                 "tm": results.get(f"PRIMER_RIGHT_{i}_TM"),
                 "penalty": results.get(f"PRIMER_RIGHT_{i}_PENALTY"),
             })
-
-    else:
-        mode = "NONE"
 
     return primer_list, results, mode
 
