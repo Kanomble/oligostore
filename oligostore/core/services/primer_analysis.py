@@ -1,6 +1,6 @@
 import primer3
 import re
-
+from core.services.sequence_utils import reverse_complement
 
 def analyze_primer(seq: str) -> dict:
     seq = seq.upper()
@@ -76,35 +76,6 @@ def analyze_sequence(sequence: str, global_args: dict):
 
     return primer_list, results, mode
 
-'''
-def analyze_sequence(sequence: str, global_args: dict):
-    """
-    Runs Primer3 on the given sequence and returns all primer candidates.
-    """
-    primer3_input = {
-        "SEQUENCE_ID": "user_sequence",
-        "SEQUENCE_TEMPLATE": sequence,
-    }
-
-    results = primer3.bindings.design_primers(primer3_input, global_args)
-    # Extract primers cleanly
-    primer_list = []
-
-    num = results.get("PRIMER_PAIR_NUM_RETURNED", 0)
-
-    for i in range(num):
-        primer_list.append({
-            "left_seq": results.get(f"PRIMER_LEFT_{i}_SEQUENCE"),
-            "right_seq": results.get(f"PRIMER_RIGHT_{i}_SEQUENCE"),
-            "left_tm": results.get(f"PRIMER_LEFT_{i}_TM"),
-            "right_tm": results.get(f"PRIMER_RIGHT_{i}_TM"),
-            "product_size": results.get(f"PRIMER_PAIR_{i}_PRODUCT_SIZE"),
-            "penalty": results.get(f"PRIMER_PAIR_{i}_PENALTY"),
-        })
-
-    return primer_list, results
-'''
-
 def sanitize_sequence(raw: str) -> str:
     """
     Cleans user input so Primer3 receives a valid DNA sequence.
@@ -127,10 +98,6 @@ def sanitize_sequence(raw: str) -> str:
         )
 
     return cleaned
-
-def reverse_complement(seq:str) -> str:
-    complement = str.maketrans("ACGT", "TGCA")
-    return seq.translate(complement)[::-1]
 
 def find_binding_site(seq:str, primer:str) -> int:
     """Return start index where primer binds. Return None if not found."""

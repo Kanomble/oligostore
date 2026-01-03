@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from typing import List
-
-from Bio.Seq import Seq
-
 from core.services.sequence_loader import load_sequences
-
+from core.services.sequence_utils import reverse_complement
 
 @dataclass
 class PrimerBindingHit:
@@ -14,14 +11,21 @@ class PrimerBindingHit:
     strand: str
     mismatches: int
 
+def iter_mismatch_counts(sequence: str, primer: str):
+    primer_len = len(primer)
+    window_count = len(sequence) - primer_len + 1
+    if window_count <= 0:
+        return
 
-def reverse_complement(seq: str) -> str:
-    return str(Seq(seq).reverse_complement())
+    mismatch_counts = [0] * window_count
+    for offset, primer_base in enumerate(primer):
+        for index, seq_base in enumerate(
+            sequence[offset : offset + window_count]
+        ):
+            if seq_base != primer_base:
+                mismatch_counts[index] += 1
 
-
-def count_mismatches(a: str, b: str) -> int:
-    return sum(1 for x, y in zip(a, b) if x != y)
-
+    yield from mismatch_counts
 
 def scan_sequence(
     sequence: str,
@@ -32,21 +36,21 @@ def scan_sequence(
 ) -> List[PrimerBindingHit]:
     hits = []
     primer_len = len(primer)
+    mismatch_counts = list(iter_mismatch_counts(sequence, primer))
 
-    for i in range(len(sequence) - primer_len + 1):
-        window = sequence[i : i + primer_len]
+    for i, mismatches in enumerate(mismatch_counts):
+        window_end = i + primer_len
 
         # Enforce perfect 3' base
-        if block_3prime_mismatch and window[-1] != primer[-1]:
+        if block_3prime_mismatch and sequence[window_end - 1] != primer[-1]:
             continue
 
-        mismatches = count_mismatches(window, primer)
         if mismatches <= max_mismatches:
             hits.append(
                 PrimerBindingHit(
                     record_id="",
                     start=i,
-                    end=i + primer_len,
+                    end=window_end,
                     strand=strand,
                     mismatches=mismatches,
                 )
