@@ -126,7 +126,6 @@ def window_sequence(seq, pos, primer_len, flank=25):
     end = min(len(seq), pos + primer_len + flank)
 
     window = seq[start:end]
-
     left_offset = 0
     if start > 0:
         window = "..." + window
@@ -134,7 +133,6 @@ def window_sequence(seq, pos, primer_len, flank=25):
 
     if end < len(seq):
         window = window + "..."
-
     primer_start_in_window = (pos - start) + left_offset
     return window, primer_start_in_window, primer_len
 
