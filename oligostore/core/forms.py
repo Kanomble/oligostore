@@ -1,4 +1,6 @@
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.db import OperationalError, ProgrammingError
 from django.contrib.auth.models import User
 from django import forms
 from .models import Primer, PrimerPair, Project
@@ -82,6 +84,45 @@ class CustomUserCreationForm(UserCreationForm):
     class Meta:
         model = User
         fields = ["username", "email"]
+
+class CustomAuthenticationForm(AuthenticationForm):
+    def clean(self):
+        print("CHECK!")
+        username = self.cleaned_data.get("username")
+        password = self.cleaned_data.get("password")
+
+        if username:
+            user_model = get_user_model()
+            try:
+                has_user = user_model.objects.filter(username__iexact=username).exists()
+            except (OperationalError, ProgrammingError):
+                raise forms.ValidationError(
+                    "Authentication is unavailable because the user database is not ready."
+                )
+
+            if not has_user:
+                raise forms.ValidationError(
+                    "No account found with that username. Please register first."
+                )
+
+        if username and password:
+            try:
+                self.user_cache = authenticate(
+                    self.request, username=username, password=password
+                )
+            except (OperationalError, ProgrammingError):
+                raise forms.ValidationError(
+                    "Authentication is unavailable because the user database is not ready."
+                )
+            else:
+                if self.user_cache is None:
+                    raise forms.ValidationError(
+                        self.error_messages["invalid_login"],
+                        code="invalid_login",
+                    )
+                self.confirm_login_allowed(self.user_cache)
+
+        return self.cleaned_data
 
 
 class Primer3GlobalArgsForm(forms.Form):
