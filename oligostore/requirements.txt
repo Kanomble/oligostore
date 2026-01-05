@@ -9,3 +9,4 @@ matplotlib
 biopython
 gunicorn
 psycopg[binary]
+openpyxl

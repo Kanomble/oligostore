@@ -17,6 +17,9 @@ from .services.user_assignment import assign_creator
 from celery.result import AsyncResult
 from .tasks import analyze_primer_binding_task
 import re
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
 def paginate_queryset(request, qs, per_page=10):
     paginator = Paginator(qs, per_page)
@@ -555,6 +558,37 @@ def project_remove_primerpair(request, project_id, pair_id):
     return redirect("project_dashboard", project_id=project_id)
 
 @login_required
+def project_add_sequencefile(request, project_id, sequencefile_id):
+    project = get_object_or_404(Project, id=project_id, users=request.user)
+    sequence_file = get_object_or_404(
+        SequenceFile,
+        id=sequencefile_id,
+        uploaded_by=request.user,
+    )
+
+    if request.user not in project.users.all():
+        return HttpResponseForbidden("You are not allowed to add sequence files to this project.")
+
+    project.sequence_files.add(sequence_file)
+    return redirect("project_dashboard", project_id=project_id)
+
+
+@login_required
+def project_remove_sequencefile(request, project_id, sequencefile_id):
+    project = get_object_or_404(Project, id=project_id, users=request.user)
+    sequence_file = get_object_or_404(
+        SequenceFile,
+        id=sequencefile_id,
+        uploaded_by=request.user,
+    )
+
+    if request.user not in project.users.all():
+        return HttpResponseForbidden("You are not allowed to remove sequence files from this project.")
+
+    project.sequence_files.remove(sequence_file)
+    return redirect("project_dashboard", project_id=project_id)
+
+@login_required
 def project_dashboard(request, project_id):
     project = get_object_or_404(Project, id=project_id)
 
@@ -565,11 +599,13 @@ def project_dashboard(request, project_id):
     # All objects user can link
     all_primers = Primer.objects.filter(users=request.user)
     all_pairs = PrimerPair.objects.filter(users=request.user)
+    all_sequence_files = SequenceFile.objects.filter(uploaded_by=request.user)
 
     return render(request, "core/project_dashboard.html", {
         "project": project,
         "all_primers": all_primers,
         "all_pairs": all_pairs,
+        "all_sequence_files": all_sequence_files,
     })
 
 @login_required
@@ -817,6 +853,82 @@ def primer_list(request):
             "query_string": query_string,
         },
     )
+
+@login_required(login_url="login")
+def download_selected_primers(request):
+    if request.method != "POST":
+        return HttpResponse("POST only", status=405)
+
+    primer_ids = request.POST.getlist("primer_ids")
+    if not primer_ids:
+        messages.error(request, "Select at least one primer to download.")
+        return redirect("primer_list")
+
+    primers = (
+        Primer.objects.filter(users=request.user, id__in=primer_ids)
+        .order_by("primer_name")
+    )
+    if not primers.exists():
+        messages.error(request, "No primers matched your selection.")
+        return redirect("primer_list")
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Primers"
+
+    headers = [
+        "Name",
+        "Sequence",
+        "Length",
+        "GC Content",
+        "Temperature",
+        "Hairpin",
+        "Self Dimer",
+        "Creator",
+        "Created",
+    ]
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+
+    for primer in primers:
+        sheet.append(
+            [
+                primer.primer_name,
+                primer.sequence,
+                primer.length,
+                primer.gc_content,
+                primer.tm,
+                primer.hairpin_dg,
+                primer.self_dimer_dg,
+                str(primer.creator),
+                primer.created_at.strftime("%Y-%m-%d %H:%M"),
+            ]
+        )
+
+    for column_cells in sheet.columns:
+        max_length = 0
+        for cell in column_cells:
+            cell_value = cell.value
+            if cell_value is None:
+                continue
+            max_length = max(max_length, len(str(cell_value)))
+        adjusted_width = min(max_length + 2, 50)
+        column_letter = column_cells[0].column_letter
+        sheet.column_dimensions[column_letter].width = max(adjusted_width, 12)
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+    )
+    response["Content-Disposition"] = 'attachment; filename="primers.xlsx"'
+    return response
 
 @login_required(login_url="login")
 def primer_create(request):

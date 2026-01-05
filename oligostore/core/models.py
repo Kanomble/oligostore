@@ -70,6 +70,11 @@ class Project(AccessControllModel):
         related_name="projects",
         blank=True
     )
+    sequence_files = models.ManyToManyField(
+        SequenceFile,
+        related_name="projects",
+        blank=True,
+    )
 
     def __str__(self):
         return self.name

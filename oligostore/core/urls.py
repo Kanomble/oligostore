@@ -9,7 +9,9 @@ from .views import primer_list, primer_create,\
     analyze_sequence_view, save_generated_primerpair, \
     download_product_sequence, primer_binding_analysis, \
     sequencefile_list, sequencefile_upload, \
-    primer_binding_analysis_async, primer_binding_status
+    primer_binding_analysis_async, primer_binding_status, \
+    project_add_sequencefile, project_remove_sequencefile, \
+    download_selected_primers
 
 urlpatterns = [
     # Projects
@@ -20,7 +22,16 @@ urlpatterns = [
     # Connecting primerpairs
     path("projects/<int:project_id>/add-pair/<int:pair_id>/", project_add_primerpair, name="project_add_primerpair"),
     path("projects/<int:project_id>/remove-pair/<int:pair_id>/", project_remove_primerpair, name="project_remove_primerpair"),
-
+        path(
+            "projects/<int:project_id>/add-sequence-file/<int:sequencefile_id>/",
+            project_add_sequencefile,
+            name="project_add_sequencefile",
+        ),
+        path(
+            "projects/<int:project_id>/remove-sequence-file/<int:sequencefile_id>/",
+            project_remove_sequencefile,
+            name="project_remove_sequencefile",
+        ),
     # Basic project paths
     path("", home, name="home"),
     path("register/", register, name="register"),
@@ -30,6 +41,11 @@ urlpatterns = [
     path("primerpair_list",primerpair_list,name="primerpair_list"),
     path("project_list",project_list,name="project_list"),
     path("primer_list", primer_list, name="primer_list"),
+    path(
+        "primer_list/download/",
+        download_selected_primers,
+        name="download_selected_primers",
+    ),
     path("create/", primer_create, name="primer_create"),
     path("delete/<int:primer_id>/", primer_delete, name="primer_delete"),
 

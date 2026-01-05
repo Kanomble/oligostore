@@ -266,8 +266,20 @@ class AnalyzePrimerPairViewTests(TestCase):
 
 
 class ProjectViewTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._temp_media_root = tempfile.mkdtemp(prefix="oligostore-tests-")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls._temp_media_root)
+        super().tearDownClass()
+
     def setUp(self):
         super().setUp()
+        self._media_override = override_settings(MEDIA_ROOT=self._temp_media_root)
+        self._media_override.enable()
         self.user = User.objects.create_user(
             username="project_user",
             email="project@example.com",
@@ -303,6 +315,17 @@ class ProjectViewTests(TestCase):
             creator=self.user,
         )
         self.pair.users.add(self.user)
+        self.sequence_file = SequenceFile.objects.create(
+            name="Project Sequence",
+            file=SimpleUploadedFile("project.fasta", b">seq\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+            description="Project file description",
+        )
+
+    def tearDown(self):
+        self._media_override.disable()
+        super().tearDown()
 
     def test_project_dashboard_forbidden_for_non_member(self):
         self.client.force_login(self.other_user)
@@ -328,6 +351,30 @@ class ProjectViewTests(TestCase):
         )
         self.assertNotIn(self.pair, self.project.primerpairs.all())
 
+    def test_project_add_and_remove_sequencefile(self):
+        response = self.client.get(
+            reverse(
+                "project_add_sequencefile",
+                args=[self.project.id, self.sequence_file.id],
+            )
+        )
+        self.assertRedirects(
+            response,
+            reverse("project_dashboard", args=[self.project.id]),
+        )
+        self.assertIn(self.sequence_file, self.project.sequence_files.all())
+
+        response = self.client.get(
+            reverse(
+                "project_remove_sequencefile",
+                args=[self.project.id, self.sequence_file.id],
+            )
+        )
+        self.assertRedirects(
+            response,
+            reverse("project_dashboard", args=[self.project.id]),
+        )
+        self.assertNotIn(self.sequence_file, self.project.sequence_files.all())
 
 class PrimerViewTests(TestCase):
     def setUp(self):

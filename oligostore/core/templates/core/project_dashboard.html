@@ -96,5 +96,82 @@
     </div>
 
 </div>
+<div class="mt-12 grid lg:grid-cols-2 gap-10">
 
+    <!-- LEFT SIDE: Existing Sequence Files -->
+    <div>
+        <h2 class="text-2xl font-bold mb-3">Sequence Files in this Project</h2>
+
+        {% if project.sequence_files.all %}
+            <div class="space-y-4">
+                {% for sequence_file in project.sequence_files.all %}
+                <div class="card bg-base-100 border border-base-300 shadow-md hover:shadow-xl transition p-5">
+
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h3 class="text-xl font-semibold">{{ sequence_file.name }}</h3>
+                            <p class="text-sm opacity-70 mt-1">
+                                <span class="badge badge-outline badge-sm">{{ sequence_file.get_file_type_display }}</span>
+                                {% if sequence_file.description %}
+                                    <span class="mx-1 opacity-40">•</span>
+                                    {{ sequence_file.description }}
+                                {% endif %}
+                            </p>
+                        </div>
+
+                        <a href="{% url 'project_remove_sequencefile' project.id sequence_file.id %}"
+                           class="btn btn-error btn-sm"
+                           onclick="return confirm('Remove this sequence file from the project?');">
+                            Remove
+                        </a>
+                    </div>
+
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="opacity-70">No sequence files are part of this project yet.</p>
+        {% endif %}
+    </div>
+
+    <!-- RIGHT SIDE: Add Sequence Files -->
+    <div>
+        <h2 class="text-2xl font-bold mb-3">Add Sequence File</h2>
+
+        {% if all_sequence_files %}
+            <div class="space-y-4">
+
+                {% for sequence_file in all_sequence_files %}
+                {% if sequence_file not in project.sequence_files.all %}
+                <div class="card bg-base-100 border border-base-300 shadow-md hover:shadow-xl transition p-5">
+
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h3 class="text-xl font-semibold">{{ sequence_file.name }}</h3>
+                            <p class="text-sm opacity-70">
+                                {{ sequence_file.get_file_type_display }}
+                                {% if sequence_file.description %}
+                                    <span class="mx-1 opacity-40">•</span>
+                                    {{ sequence_file.description }}
+                                {% endif %}
+                            </p>
+                        </div>
+
+                        <a href="{% url 'project_add_sequencefile' project.id sequence_file.id %}"
+                           class="btn btn-primary btn-sm">
+                           Add
+                        </a>
+                    </div>
+
+                </div>
+                {% endif %}
+                {% endfor %}
+
+            </div>
+        {% else %}
+            <p class="opacity-70">No sequence files available.</p>
+        {% endif %}
+    </div>
+
+</div>
 {% endblock %}

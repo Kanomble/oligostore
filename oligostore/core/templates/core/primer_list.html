@@ -55,54 +55,89 @@
     </div>
 </form>
 {% if primers %}
-<div class="overflow-x-auto">
-    <table class="table table-zebra w-full">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Sequence</th>
-                <th>Length</th>
-                <th>GC Content</th>
-                <th>Temperature</th>
-                <th>Hairpin</th>
-                <th>Self Dimer</th>
-                <th>Creator</th>
-                <th>Created</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for primer in primers %}
-            <tr>
-                <td class="font-semibold">{{ primer.primer_name }}</td>
-                <td class="truncate max-w-xs">{{ primer.sequence }}</td>
-                <td>{{ primer.length }}</td>
-                <td>{{ primer.gc_content }}</td>
-                <td>{{ primer.tm }}</td>
-                <td>{{ primer.hairpin_dg }}</td>
-                <td>{{ primer.self_dimer_dg }}</td>
-                <td>{{ primer.creator }}</td>
-                <td>{{ primer.created_at|date:"Y-m-d H:i" }}</td>
-                <td>
-                    <a href="{% url 'primer_delete' primer.id %}" 
-                       class="btn btn-error btn-sm"
-                       onclick="return confirm('Delete this primer?');">
-                        Delete
-                    </a>
-                </td>
-                <td>
-                    <a
-                      href="{% url 'primer_binding' %}?primer={{ primer.id }}"
-                      class="btn btn-sm btn-outline"
-                    >
-                      Binding analysis
-                    </a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+<form method="POST" action="{% url 'download_selected_primers' %}">
+    {% csrf_token %}
+    <div class="flex items-center justify-between mb-4">
+        <span class="text-sm opacity-70">Select primers to download.</span>
+        <button type="submit" class="btn btn-outline btn-sm">
+            Download selected (Excel)
+        </button>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>
+                        <label class="flex items-center gap-2">
+                            <input id="select-all-primers" type="checkbox" class="checkbox checkbox-sm">
+                            <span class="text-xs">All</span>
+                        </label>
+                    </th>
+                    <th>Name</th>
+                    <th>Sequence</th>
+                    <th>Length</th>
+                    <th>GC Content</th>
+                    <th>Temperature</th>
+                    <th>Hairpin</th>
+                    <th>Self Dimer</th>
+                    <th>Creator</th>
+                    <th>Created</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for primer in primers %}
+                <tr>
+                    <td>
+                        <input
+                            type="checkbox"
+                            name="primer_ids"
+                            value="{{ primer.id }}"
+                            class="checkbox checkbox-sm primer-select"
+                        >
+                    </td>
+                    <td class="font-semibold">{{ primer.primer_name }}</td>
+                    <td class="truncate max-w-xs">{{ primer.sequence }}</td>
+                    <td>{{ primer.length }}</td>
+                    <td>{{ primer.gc_content }}</td>
+                    <td>{{ primer.tm }}</td>
+                    <td>{{ primer.hairpin_dg }}</td>
+                    <td>{{ primer.self_dimer_dg }}</td>
+                    <td>{{ primer.creator }}</td>
+                    <td>{{ primer.created_at|date:"Y-m-d H:i" }}</td>
+                    <td>
+                        <a href="{% url 'primer_delete' primer.id %}"
+                           class="btn btn-error btn-sm"
+                           onclick="return confirm('Delete this primer?');">
+                            Delete
+                        </a>
+                    </td>
+                    <td>
+                        <a
+                          href="{% url 'primer_binding' %}?primer={{ primer.id }}"
+                          class="btn btn-sm btn-outline"
+                        >
+                          Binding analysis
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</form>
+<script>
+    const selectAllPrimers = document.getElementById("select-all-primers");
+    const primerCheckboxes = document.querySelectorAll(".primer-select");
+
+    if (selectAllPrimers) {
+        selectAllPrimers.addEventListener("change", () => {
+            primerCheckboxes.forEach((checkbox) => {
+                checkbox.checked = selectAllPrimers.checked;
+            });
+        });
+    }
+</script>
 {% include "core/pagination.html" %}
 {% else %}
 <p class="text-center opacity-60 mt-10">No primers yet.</p>
