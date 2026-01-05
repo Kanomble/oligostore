@@ -611,7 +611,7 @@ def project_dashboard(request, project_id):
         "all_sequence_files": all_sequence_files,
     })
 
-login_required
+@login_required
 def project_primer_list(request, project_id):
     project = get_object_or_404(Project, id=project_id)
 
