@@ -54,6 +54,19 @@
           </select>
         </div>
 
+        <!-- Order -->
+        <div class="form-control md:col-span-3">
+          <label class="label">
+            <span class="label-text font-semibold">Order by</span>
+          </label>
+          <select name="order" class="select select-bordered w-full">
+            <option value="uploaded_desc" {% if request.GET.order == "uploaded_desc" or not request.GET.order %}selected{% endif %}>Newest</option>
+            <option value="uploaded" {% if request.GET.order == "uploaded" %}selected{% endif %}>Oldest</option>
+            <option value="name" {% if request.GET.order == "name" %}selected{% endif %}>Name (A-Z)</option>
+            <option value="name_desc" {% if request.GET.order == "name_desc" %}selected{% endif %}>Name (Z-A)</option>
+          </select>
+        </div>
+
         <!-- Submit -->
         <div class="md:col-span-3 flex gap-2">
           <button class="btn btn-primary flex-1" type="submit">Filter</button>

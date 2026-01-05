@@ -6,7 +6,37 @@
     <h1 class="text-3xl font-bold">Projects</h1>
     <a href="{% url 'project_create' %}" class="btn btn-primary">+ New Project</a>
 </div>
+<form method="GET" class="flex flex-wrap gap-4 items-end mb-6">
+    <div class="form-control">
+        <label class="label">
+            <span class="label-text font-semibold">Search</span>
+        </label>
+        <input
+            type="text"
+            name="q"
+            value="{{ request.GET.q }}"
+            placeholder="Search by name or description..."
+            class="input input-bordered"
+        />
+    </div>
 
+    <div class="form-control">
+        <label class="label">
+            <span class="label-text font-semibold">Order by</span>
+        </label>
+        <select name="order" class="select select-bordered">
+            <option value="created_desc" {% if request.GET.order == "created_desc" or not request.GET.order %}selected{% endif %}>Newest</option>
+            <option value="created" {% if request.GET.order == "created" %}selected{% endif %}>Oldest</option>
+            <option value="name" {% if request.GET.order == "name" %}selected{% endif %}>Name (A-Z)</option>
+            <option value="name_desc" {% if request.GET.order == "name_desc" %}selected{% endif %}>Name (Z-A)</option>
+        </select>
+    </div>
+
+    <div class="flex gap-2">
+        <button class="btn btn-primary" type="submit">Apply</button>
+        <a class="btn btn-ghost" href="{% url 'project_list' %}">Reset</a>
+    </div>
+</form>
 {% if projects %}
 <div class="grid gap-4">
     {% for project in projects %}

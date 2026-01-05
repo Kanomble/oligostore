@@ -17,7 +17,43 @@
         + Create Primer Pair (with new primers)
     </a>
 </div>
+<form method="GET" class="flex flex-wrap gap-4 items-end mb-6">
+    <div class="form-control">
+        <label class="label">
+            <span class="label-text font-semibold">Search</span>
+        </label>
+        <input
+            type="text"
+            name="q"
+            value="{{ request.GET.q }}"
+            placeholder="Search by name, sequence, creator..."
+            class="input input-bordered"
+        />
+    </div>
 
+    <div class="form-control">
+        <label class="label">
+            <span class="label-text font-semibold">Order by</span>
+        </label>
+        <select name="order" class="select select-bordered">
+            <option value="created_desc" {% if request.GET.order == "created_desc" or not request.GET.order %}selected{% endif %}>Newest</option>
+            <option value="created" {% if request.GET.order == "created" %}selected{% endif %}>Oldest</option>
+            <option value="name" {% if request.GET.order == "name" %}selected{% endif %}>Name (A-Z)</option>
+            <option value="name_desc" {% if request.GET.order == "name_desc" %}selected{% endif %}>Name (Z-A)</option>
+            <option value="length_desc" {% if request.GET.order == "length_desc" %}selected{% endif %}>Length (High-Low)</option>
+            <option value="length" {% if request.GET.order == "length" %}selected{% endif %}>Length (Low-High)</option>
+            <option value="gc_desc" {% if request.GET.order == "gc_desc" %}selected{% endif %}>GC% (High-Low)</option>
+            <option value="gc" {% if request.GET.order == "gc" %}selected{% endif %}>GC% (Low-High)</option>
+            <option value="tm_desc" {% if request.GET.order == "tm_desc" %}selected{% endif %}>TM (High-Low)</option>
+            <option value="tm" {% if request.GET.order == "tm" %}selected{% endif %}>TM (Low-High)</option>
+        </select>
+    </div>
+
+    <div class="flex gap-2">
+        <button class="btn btn-primary" type="submit">Apply</button>
+        <a class="btn btn-ghost" href="{% url 'primer_list' %}">Reset</a>
+    </div>
+</form>
 {% if primers %}
 <div class="overflow-x-auto">
     <table class="table table-zebra w-full">

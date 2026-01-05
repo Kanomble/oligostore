@@ -6,7 +6,43 @@
     <h1 class="text-3xl font-bold">Primer Pairs</h1>
 
 </div>
+<form method="GET" class="flex flex-wrap gap-4 items-end mb-6">
+    <div class="form-control">
+        <label class="label">
+            <span class="label-text font-semibold">Search</span>
+        </label>
+        <input
+            type="text"
+            name="q"
+            value="{{ request.GET.q }}"
+            placeholder="Search by name or primer sequence..."
+            class="input input-bordered"
+        />
+    </div>
 
+    <div class="form-control">
+        <label class="label">
+            <span class="label-text font-semibold">Order by</span>
+        </label>
+        <select name="order" class="select select-bordered">
+            <option value="name" {% if request.GET.order == "name" or not request.GET.order %}selected{% endif %}>Name (A-Z)</option>
+            <option value="name_desc" {% if request.GET.order == "name_desc" %}selected{% endif %}>Name (Z-A)</option>
+            <option value="forward_name" {% if request.GET.order == "forward_name" %}selected{% endif %}>Forward name (A-Z)</option>
+            <option value="forward_name_desc" {% if request.GET.order == "forward_name_desc" %}selected{% endif %}>Forward name (Z-A)</option>
+            <option value="reverse_name" {% if request.GET.order == "reverse_name" %}selected{% endif %}>Reverse name (A-Z)</option>
+            <option value="reverse_name_desc" {% if request.GET.order == "reverse_name_desc" %}selected{% endif %}>Reverse name (Z-A)</option>
+            <option value="forward_tm_desc" {% if request.GET.order == "forward_tm_desc" %}selected{% endif %}>Forward TM (High-Low)</option>
+            <option value="forward_tm" {% if request.GET.order == "forward_tm" %}selected{% endif %}>Forward TM (Low-High)</option>
+            <option value="reverse_tm_desc" {% if request.GET.order == "reverse_tm_desc" %}selected{% endif %}>Reverse TM (High-Low)</option>
+            <option value="reverse_tm" {% if request.GET.order == "reverse_tm" %}selected{% endif %}>Reverse TM (Low-High)</option>
+        </select>
+    </div>
+
+    <div class="flex gap-2">
+        <button class="btn btn-primary" type="submit">Apply</button>
+        <a class="btn btn-ghost" href="{% url 'primerpair_list' %}">Reset</a>
+    </div>
+</form>
 {% if primer_pairs %}
 <div class="overflow-x-auto">
     <table class="table table-zebra w-full">

@@ -130,7 +130,15 @@ def sequencefile_list(request):
     if file_type in ("fasta", "genbank"):
         qs = qs.filter(file_type=file_type)
 
-    qs = qs.order_by("-uploaded_at")
+    order = request.GET.get("order", "uploaded_desc")
+    allowed_orders = {
+        "name": "name",
+        "name_desc": "-name",
+        "uploaded": "uploaded_at",
+        "uploaded_desc": "-uploaded_at",
+    }
+    qs = qs.order_by(allowed_orders.get(order, "-uploaded_at"))
+
     page_obj, query_string = paginate_queryset(request, qs)
     return render(
         request,
@@ -584,6 +592,22 @@ def project_create(request):
 @login_required(login_url="login")
 def project_list(request):
     projects = request.user.project_access.all()
+
+    q = request.GET.get("q")
+    if q:
+        projects = projects.filter(
+            Q(name__icontains=q)
+            | Q(description__icontains=q)
+        )
+
+    order = request.GET.get("order", "created_desc")
+    allowed_orders = {
+        "name": "name",
+        "name_desc": "-name",
+        "created": "created_at",
+        "created_desc": "-created_at",
+    }
+    projects = projects.order_by(allowed_orders.get(order, "-created_at"))
     page_obj, query_string = paginate_queryset(request, projects)
     return render(
         request,
@@ -719,6 +743,32 @@ def primerpair_create(request):
 @login_required(login_url="login")
 def primerpair_list(request):
     primer_pairs = PrimerPair.objects.filter(users=request.user)
+
+    q = request.GET.get("q")
+    if q:
+        primer_pairs = primer_pairs.filter(
+            Q(name__icontains=q)
+            | Q(forward_primer__primer_name__icontains=q)
+            | Q(forward_primer__sequence__icontains=q)
+            | Q(reverse_primer__primer_name__icontains=q)
+            | Q(reverse_primer__sequence__icontains=q)
+        )
+
+    order = request.GET.get("order", "name")
+    allowed_orders = {
+        "name": "name",
+        "name_desc": "-name",
+        "forward_name": "forward_primer__primer_name",
+        "forward_name_desc": "-forward_primer__primer_name",
+        "reverse_name": "reverse_primer__primer_name",
+        "reverse_name_desc": "-reverse_primer__primer_name",
+        "forward_tm": "forward_primer__tm",
+        "forward_tm_desc": "-forward_primer__tm",
+        "reverse_tm": "reverse_primer__tm",
+        "reverse_tm_desc": "-reverse_primer__tm",
+    }
+    primer_pairs = primer_pairs.order_by(allowed_orders.get(order, "name"))
+
     page_obj, query_string = paginate_queryset(request, primer_pairs)
     return render(
         request,
@@ -733,7 +783,30 @@ def primerpair_list(request):
 
 @login_required(login_url="login")
 def primer_list(request):
-    primers = Primer.objects.filter(users=request.user).order_by("-created_at")
+    primers = Primer.objects.filter(users=request.user)
+
+    q = request.GET.get("q")
+    if q:
+        primers = primers.filter(
+            Q(primer_name__icontains=q)
+            | Q(sequence__icontains=q)
+            | Q(creator__username__icontains=q)
+        )
+
+    order = request.GET.get("order", "created_desc")
+    allowed_orders = {
+        "name": "primer_name",
+        "name_desc": "-primer_name",
+        "created": "created_at",
+        "created_desc": "-created_at",
+        "length": "length",
+        "length_desc": "-length",
+        "gc": "gc_content",
+        "gc_desc": "-gc_content",
+        "tm": "tm",
+        "tm_desc": "-tm",
+    }
+    primers = primers.order_by(allowed_orders.get(order, "-created_at"))
     page_obj, query_string = paginate_queryset(request, primers)
     return render(
         request,
