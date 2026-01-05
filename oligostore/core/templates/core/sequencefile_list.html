@@ -64,7 +64,7 @@
       <!-- Stats row -->
       <div class="flex flex-wrap gap-2 items-center">
         <div class="badge badge-outline">
-          Total: {{ sequence_files|length }}
+          Total: {{ page_obj.paginator.count }}
         </div>
         {% if request.GET.q or request.GET.type %}
           <div class="badge badge-ghost">
@@ -163,8 +163,7 @@
           </table>
         </div>
 
-        <!-- Pagination hook (if you add it later) -->
-        {# Include your pagination partial here #}
+        {% include "core/pagination.html" %}
 
       {% else %}
         <div class="p-10 text-center">

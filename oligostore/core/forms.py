@@ -53,8 +53,8 @@ class PrimerPairForm(forms.ModelForm ):
         fields = ["name", "forward_primer", "reverse_primer"]
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         user = kwargs.pop("user", None)
+        super().__init__(*args, **kwargs)
         self.fields["forward_primer"].queryset = Primer.objects.filter(users=user)
         self.fields["reverse_primer"].queryset = Primer.objects.filter(users=user)
         apply_tailwind_classes(self.fields)

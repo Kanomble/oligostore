@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
+from django.core.paginator import Paginator
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
@@ -16,6 +17,14 @@ from .services.user_assignment import assign_creator
 from celery.result import AsyncResult
 from .tasks import analyze_primer_binding_task
 import re
+
+def paginate_queryset(request, qs, per_page=10):
+    paginator = Paginator(qs, per_page)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
+    query_params = request.GET.copy()
+    query_params.pop("page", None)
+    return page_obj, query_params.urlencode()
 
 @login_required
 def sequencefile_upload(request):
@@ -122,12 +131,14 @@ def sequencefile_list(request):
         qs = qs.filter(file_type=file_type)
 
     qs = qs.order_by("-uploaded_at")
-
+    page_obj, query_string = paginate_queryset(request, qs)
     return render(
         request,
         "core/sequencefile_list.html",
         {
-            "sequence_files": qs,
+            "sequence_files": page_obj,
+            "page_obj": page_obj,
+            "query_string": query_string,
         },
     )
 
@@ -562,8 +573,16 @@ def project_create(request):
 @login_required(login_url="login")
 def project_list(request):
     projects = request.user.project_access.all()
-    return render(request, "core/project_list.html",{"projects":projects})
-
+    page_obj, query_string = paginate_queryset(request, projects)
+    return render(
+        request,
+        "core/project_list.html",
+        {
+            "projects": page_obj,
+            "page_obj": page_obj,
+            "query_string": query_string,
+        },
+    )
 @login_required
 def primerpair_delete(request, primerpair_id):
     pair = get_object_or_404(PrimerPair, id=primerpair_id)
@@ -689,12 +708,31 @@ def primerpair_create(request):
 @login_required(login_url="login")
 def primerpair_list(request):
     primer_pairs = PrimerPair.objects.filter(users=request.user)
-    return render(request, "core/primerpair_list.html",{"primer_pairs":primer_pairs})
+    page_obj, query_string = paginate_queryset(request, primer_pairs)
+    return render(
+        request,
+        "core/primerpair_list.html",
+        {
+            "primer_pairs": page_obj,
+            "page_obj": page_obj,
+            "query_string": query_string,
+        },
+    )
+
 
 @login_required(login_url="login")
 def primer_list(request):
-    primers = Primer.objects.filter(users=request.user).order_by('-created_at')
-    return render(request, "core/primer_list.html", {"primers": primers})
+    primers = Primer.objects.filter(users=request.user).order_by("-created_at")
+    page_obj, query_string = paginate_queryset(request, primers)
+    return render(
+        request,
+        "core/primer_list.html",
+        {
+            "primers": page_obj,
+            "page_obj": page_obj,
+            "query_string": query_string,
+        },
+    )
 
 @login_required(login_url="login")
 def primer_create(request):
