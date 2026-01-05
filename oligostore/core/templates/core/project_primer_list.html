@@ -1,0 +1,141 @@
+{% extends "core/base.html" %}
+{% block title %}Project Primers{% endblock %}
+
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+    <div>
+        <h1 class="text-3xl font-bold">Project Primers</h1>
+        <p class="opacity-70 mt-1">
+            {{ project.name }}
+        </p>
+    </div>
+    <div class="flex gap-2">
+        <a href="{% url 'project_dashboard' project.id %}" class="btn btn-ghost">
+            Back to project
+        </a>
+        <a href="{% url 'primer_list' %}" class="btn btn-outline">
+            All primers
+        </a>
+    </div>
+</div>
+
+<form method="GET" class="flex flex-wrap gap-4 items-end mb-6">
+    <div class="form-control">
+        <label class="label">
+            <span class="label-text font-semibold">Search</span>
+        </label>
+        <input
+            type="text"
+            name="q"
+            value="{{ request.GET.q }}"
+            placeholder="Search by name, sequence, creator..."
+            class="input input-bordered"
+        />
+    </div>
+
+    <div class="form-control">
+        <label class="label">
+            <span class="label-text font-semibold">Order by</span>
+        </label>
+        <select name="order" class="select select-bordered">
+            <option value="created_desc" {% if request.GET.order == "created_desc" or not request.GET.order %}selected{% endif %}>Newest</option>
+            <option value="created" {% if request.GET.order == "created" %}selected{% endif %}>Oldest</option>
+            <option value="name" {% if request.GET.order == "name" %}selected{% endif %}>Name (A-Z)</option>
+            <option value="name_desc" {% if request.GET.order == "name_desc" %}selected{% endif %}>Name (Z-A)</option>
+            <option value="length_desc" {% if request.GET.order == "length_desc" %}selected{% endif %}>Length (High-Low)</option>
+            <option value="length" {% if request.GET.order == "length" %}selected{% endif %}>Length (Low-High)</option>
+            <option value="gc_desc" {% if request.GET.order == "gc_desc" %}selected{% endif %}>GC% (High-Low)</option>
+            <option value="gc" {% if request.GET.order == "gc" %}selected{% endif %}>GC% (Low-High)</option>
+            <option value="tm_desc" {% if request.GET.order == "tm_desc" %}selected{% endif %}>TM (High-Low)</option>
+            <option value="tm" {% if request.GET.order == "tm" %}selected{% endif %}>TM (Low-High)</option>
+        </select>
+    </div>
+
+    <div class="flex gap-2">
+        <button class="btn btn-primary" type="submit">Apply</button>
+        <a class="btn btn-ghost" href="{% url 'project_primer_list' project.id %}">Reset</a>
+    </div>
+</form>
+
+{% if primers %}
+<form method="POST" action="{% url 'download_selected_primers' %}">
+    {% csrf_token %}
+    <div class="flex items-center justify-between mb-4">
+        <span class="text-sm opacity-70">Select primers to download.</span>
+        <button type="submit" class="btn btn-outline btn-sm">
+            Download selected (Excel)
+        </button>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>
+                        <label class="flex items-center gap-2">
+                            <input id="select-all-primers" type="checkbox" class="checkbox checkbox-sm">
+                            <span class="text-xs">All</span>
+                        </label>
+                    </th>
+                    <th>Name</th>
+                    <th>Sequence</th>
+                    <th>Length</th>
+                    <th>GC Content</th>
+                    <th>Temperature</th>
+                    <th>Hairpin</th>
+                    <th>Self Dimer</th>
+                    <th>Creator</th>
+                    <th>Created</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for primer in primers %}
+                <tr>
+                    <td>
+                        <input
+                            type="checkbox"
+                            name="primer_ids"
+                            value="{{ primer.id }}"
+                            class="checkbox checkbox-sm primer-select"
+                        >
+                    </td>
+                    <td class="font-semibold">{{ primer.primer_name }}</td>
+                    <td class="truncate max-w-xs">{{ primer.sequence }}</td>
+                    <td>{{ primer.length }}</td>
+                    <td>{{ primer.gc_content }}</td>
+                    <td>{{ primer.tm }}</td>
+                    <td>{{ primer.hairpin_dg }}</td>
+                    <td>{{ primer.self_dimer_dg }}</td>
+                    <td>{{ primer.creator }}</td>
+                    <td>{{ primer.created_at|date:"Y-m-d H:i" }}</td>
+                    <td>
+                        <a
+                          href="{% url 'primer_binding' %}?primer={{ primer.id }}"
+                          class="btn btn-sm btn-outline"
+                        >
+                          Binding analysis
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</form>
+<script>
+    const selectAllPrimers = document.getElementById("select-all-primers");
+    const primerCheckboxes = document.querySelectorAll(".primer-select");
+
+    if (selectAllPrimers) {
+        selectAllPrimers.addEventListener("change", () => {
+            primerCheckboxes.forEach((checkbox) => {
+                checkbox.checked = selectAllPrimers.checked;
+            });
+        });
+    }
+</script>
+{% include "core/pagination.html" %}
+{% else %}
+<p class="text-center opacity-60 mt-10">No primers linked to this project yet.</p>
+{% endif %}
+{% endblock %}

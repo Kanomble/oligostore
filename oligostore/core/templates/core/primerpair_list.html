@@ -44,36 +44,71 @@
     </div>
 </form>
 {% if primer_pairs %}
-<div class="overflow-x-auto">
-    <table class="table table-zebra w-full">
-        <thead>
-            <tr>
-                <th>Primer Pair ID</th>
-                <th>Forward Sequence</th>
-                <th>Forward TM</th>
-                <th>Reverse Sequence</th>
-                <th>Reverse TM</th>
-                <th>Delete Primer Pair</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for pair in primer_pairs %}
-            <tr>
-                <td class="font-semibold">{{ pair.name }}</td>
-                <td>{{ pair.forward_primer.sequence }}</td>
-                <td>{{ pair.forward_primer.tm }} </td>
-                <td>{{ pair.reverse_primer.sequence }} </td>
-                <td>{{ pair.reverse_primer.tm }}</td>
-                <td><a href="{% url 'primerpair_delete' pair.id %}"
-                   class="btn btn-error btn-sm"
-                   onclick="return confirm('Delete this primer pair?');">
-                   Delete
-                </a></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+<form method="POST" action="{% url 'download_selected_primerpairs' %}">
+    {% csrf_token %}
+    <div class="flex items-center justify-between mb-4">
+        <span class="text-sm opacity-70">Select primer pairs to download.</span>
+        <button type="submit" class="btn btn-outline btn-sm">
+            Download selected (Excel)
+        </button>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>
+                        <label class="flex items-center gap-2">
+                            <input id="select-all-primerpairs" type="checkbox" class="checkbox checkbox-sm">
+                            <span class="text-xs">All</span>
+                        </label>
+                    </th>
+                    <th>Primer Pair ID</th>
+                    <th>Forward Sequence</th>
+                    <th>Forward TM</th>
+                    <th>Reverse Sequence</th>
+                    <th>Reverse TM</th>
+                    <th>Delete Primer Pair</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pair in primer_pairs %}
+                <tr>
+                    <td>
+                        <input
+                            type="checkbox"
+                            name="primerpair_ids"
+                            value="{{ pair.id }}"
+                            class="checkbox checkbox-sm primerpair-select"
+                        >
+                    </td>
+                    <td class="font-semibold">{{ pair.name }}</td>
+                    <td>{{ pair.forward_primer.sequence }}</td>
+                    <td>{{ pair.forward_primer.tm }} </td>
+                    <td>{{ pair.reverse_primer.sequence }} </td>
+                    <td>{{ pair.reverse_primer.tm }}</td>
+                    <td><a href="{% url 'primerpair_delete' pair.id %}"
+                       class="btn btn-error btn-sm"
+                       onclick="return confirm('Delete this primer pair?');">
+                       Delete
+                    </a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</form>
+<script>
+    const selectAllPrimerPairs = document.getElementById("select-all-primerpairs");
+    const primerPairCheckboxes = document.querySelectorAll(".primerpair-select");
+
+    if (selectAllPrimerPairs) {
+        selectAllPrimerPairs.addEventListener("change", () => {
+            primerPairCheckboxes.forEach((checkbox) => {
+                checkbox.checked = selectAllPrimerPairs.checked;
+            });
+        });
+    }
+</script>
 {% include "core/pagination.html" %}
 {% else %}
 <p class="text-center opacity-60 mt-10">No primer pairs yet.</p>

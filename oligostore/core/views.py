@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
 from django.core.paginator import Paginator
 from django.contrib import messages
+from django.utils.text import slugify
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from .models import Primer, PrimerPair, Project, SequenceFile
@@ -17,9 +18,11 @@ from .services.user_assignment import assign_creator
 from celery.result import AsyncResult
 from .tasks import analyze_primer_binding_task
 import re
+import os
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font
+from zipfile import ZipFile, ZIP_DEFLATED
 
 def paginate_queryset(request, qs, per_page=10):
     paginator = Paginator(qs, per_page)
@@ -608,6 +611,79 @@ def project_dashboard(request, project_id):
         "all_sequence_files": all_sequence_files,
     })
 
+login_required
+def project_primer_list(request, project_id):
+    project = get_object_or_404(Project, id=project_id)
+
+    if request.user not in project.users.all():
+        return HttpResponseForbidden("You do not have access to this project.")
+
+    primers = Primer.objects.filter(users=request.user).filter(
+        Q(as_forward_primer__projects=project)
+        | Q(as_reverse_primer__projects=project)
+    ).distinct()
+
+    q = request.GET.get("q")
+    if q:
+        primers = primers.filter(
+            Q(primer_name__icontains=q)
+            | Q(sequence__icontains=q)
+            | Q(creator__username__icontains=q)
+        )
+
+    order = request.GET.get("order", "created_desc")
+    allowed_orders = {
+        "name": "primer_name",
+        "name_desc": "-primer_name",
+        "created": "created_at",
+        "created_desc": "-created_at",
+        "length": "length",
+        "length_desc": "-length",
+        "gc": "gc_content",
+        "gc_desc": "-gc_content",
+        "tm": "tm",
+        "tm_desc": "-tm",
+    }
+    primers = primers.order_by(allowed_orders.get(order, "-created_at"))
+    page_obj, query_string = paginate_queryset(request, primers)
+    return render(
+        request,
+        "core/project_primer_list.html",
+        {
+            "project": project,
+            "primers": page_obj,
+            "page_obj": page_obj,
+            "query_string": query_string,
+        },
+    )
+
+@login_required
+def project_download_sequence_files(request, project_id):
+    project = get_object_or_404(Project, id=project_id)
+
+    if request.user not in project.users.all():
+        return HttpResponseForbidden("You do not have access to this project.")
+
+    sequence_files = project.sequence_files.all()
+    if not sequence_files.exists():
+        messages.error(request, "No sequence files are associated with this project.")
+        return redirect("project_dashboard", project_id=project_id)
+
+    archive_buffer = BytesIO()
+    with ZipFile(archive_buffer, "w", ZIP_DEFLATED) as archive:
+        for sequence_file in sequence_files:
+            if not sequence_file.file:
+                continue
+            filename = os.path.basename(sequence_file.file.name)
+            with sequence_file.file.open("rb") as file_handle:
+                archive.writestr(filename, file_handle.read())
+
+    archive_buffer.seek(0)
+    filename = f"{slugify(project.name) or 'project'}-sequence-files.zip"
+    response = HttpResponse(archive_buffer.getvalue(), content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
 @login_required
 def project_create(request):
     if request.method == "POST":
@@ -928,6 +1004,79 @@ def download_selected_primers(request):
         ),
     )
     response["Content-Disposition"] = 'attachment; filename="primers.xlsx"'
+    return response
+
+@login_required(login_url="login")
+def download_selected_primerpairs(request):
+    if request.method != "POST":
+        return HttpResponse("POST only", status=405)
+
+    primerpair_ids = request.POST.getlist("primerpair_ids")
+    if not primerpair_ids:
+        messages.error(request, "Select at least one primer pair to download.")
+        return redirect("primerpair_list")
+
+    primer_pairs = (
+        PrimerPair.objects.filter(users=request.user, id__in=primerpair_ids)
+        .select_related("forward_primer", "reverse_primer")
+        .order_by("name")
+    )
+    if not primer_pairs.exists():
+        messages.error(request, "No primer pairs matched your selection.")
+        return redirect("primerpair_list")
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Primer Pairs"
+
+    headers = [
+        "Pair Name",
+        "Forward Name",
+        "Forward Sequence",
+        "Forward TM",
+        "Reverse Name",
+        "Reverse Sequence",
+        "Reverse TM",
+    ]
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+
+    for pair in primer_pairs:
+        sheet.append(
+            [
+                pair.name,
+                pair.forward_primer.primer_name,
+                pair.forward_primer.sequence,
+                pair.forward_primer.tm,
+                pair.reverse_primer.primer_name,
+                pair.reverse_primer.sequence,
+                pair.reverse_primer.tm,
+            ]
+        )
+
+    for column_cells in sheet.columns:
+        max_length = 0
+        for cell in column_cells:
+            cell_value = cell.value
+            if cell_value is None:
+                continue
+            max_length = max(max_length, len(str(cell_value)))
+        adjusted_width = min(max_length + 2, 50)
+        column_letter = column_cells[0].column_letter
+        sheet.column_dimensions[column_letter].width = max(adjusted_width, 12)
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+    )
+    response["Content-Disposition"] = 'attachment; filename="primer_pairs.xlsx"'
     return response
 
 @login_required(login_url="login")
