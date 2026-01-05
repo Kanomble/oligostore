@@ -87,7 +87,6 @@ class CustomUserCreationForm(UserCreationForm):
 
 class CustomAuthenticationForm(AuthenticationForm):
     def clean(self):
-        print("CHECK!")
         username = self.cleaned_data.get("username")
         password = self.cleaned_data.get("password")
 
