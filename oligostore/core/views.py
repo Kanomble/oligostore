@@ -279,7 +279,7 @@ def save_generated_primerpair(request):
         # ---------------------------
         # Create PRIMER PAIR
         # ---------------------------
-        pair = PrimerPair.objects.create(
+        pair = PrimerPair(
             name=pair_name,
             forward_primer=forward,
             reverse_primer=reverse,
@@ -287,7 +287,14 @@ def save_generated_primerpair(request):
         pair = assign_creator(pair, request.user)
         pair.save()
         messages.success(request, f"Primer Pair '{pair.name}' saved successfully!")
-        return redirect("primerpair_list")
+        last_results = request.session.get("last_primer_results")
+        if last_results:
+            return render(
+                request,
+                "core/analyze_sequence_results.html",
+                last_results,
+            )
+        return redirect("analyze_sequence")
 
     except Exception as e:
         messages.error(request, f"ERROR saving primer pair: {e}")
@@ -440,7 +447,11 @@ def analyze_sequence_view(request):
                     p["pos"] = pos
 
             # ---------------- RENDER RESULTS ----------------
-
+            request.session["last_primer_results"] = {
+                "sequence": sequence,
+                "primer_list": primer_list,
+                "mode": mode,
+            }
             return render(
                 request,
                 "core/analyze_sequence_results.html",
