@@ -8,7 +8,8 @@ from .views import primer_list, primer_create,\
     analyze_primer_view, analyze_primerpair_view,\
     analyze_sequence_view, save_generated_primerpair, \
     download_product_sequence, primer_binding_analysis, \
-    sequencefile_list, sequencefile_upload
+    sequencefile_list, sequencefile_upload, \
+    primer_binding_analysis_async, primer_binding_status
 
 urlpatterns = [
     # Projects
@@ -56,4 +57,14 @@ urlpatterns = [
 
     # Primer binding analysis
     path("primer-binding/", primer_binding_analysis, name="primer_binding"),
+    path(
+        "primer-binding/async/",
+        primer_binding_analysis_async,
+        name="primer_binding_async",
+    ),
+    path(
+        "primer-binding/status/<str:task_id>/",
+        primer_binding_status,
+        name="primer_binding_status",
+    ),
 ]

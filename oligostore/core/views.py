@@ -13,6 +13,8 @@ from .services.primer_analysis import analyze_primer, analyze_cross_dimer, \
     window_sequence, render_windowed_line, highlight_binding
 from .services.primer_binding import analyze_primer_binding
 from .services.user_assignment import assign_creator
+from celery.result import AsyncResult
+from .tasks import analyze_primer_binding_task
 import re
 
 @login_required
@@ -50,6 +52,52 @@ def sequencefile_upload(request):
         request,
         "core/sequencefile_upload.html",
     )
+
+@login_required
+def primer_binding_analysis_async(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required."}, status=405)
+
+    primer_id = request.POST.get("primer_id")
+    sequence_file_id = request.POST.get("sequence_file_id")
+
+    primer = get_object_or_404(
+        Primer,
+        id=primer_id,
+        users=request.user,
+    )
+
+    sequence_file = get_object_or_404(
+        SequenceFile,
+        id=sequence_file_id,
+        uploaded_by=request.user,
+    )
+
+    task = analyze_primer_binding_task.delay(
+        primer_id=primer.id,
+        sequence_file_id=sequence_file.id,
+        max_mismatches=2,
+    )
+
+    return JsonResponse({"task_id": task.id}, status=202)
+
+
+@login_required
+def primer_binding_status(request, task_id):
+    result = AsyncResult(task_id)
+
+    if result.state == "FAILURE":
+        return JsonResponse(
+            {"state": result.state, "error": str(result.info)},
+            status=500,
+        )
+
+    if result.state == "SUCCESS":
+        return JsonResponse(
+            {"state": result.state, "result": result.result},
+        )
+
+    return JsonResponse({"state": result.state})
 
 @login_required
 def sequencefile_list(request):
