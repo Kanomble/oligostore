@@ -300,33 +300,17 @@ def save_generated_primerpair(request):
         right_name = request.POST.get("reverse_name")
         pair_name = request.POST.get("pair_name")
 
-        forward = Primer(
+        forward = Primer.create_with_analysis(
             primer_name=left_name,
             sequence=left_seq,
+            user=request.user,
         )
-        forward = assign_creator(forward, request.user)
-        analysis = analyze_primer(forward.sequence)
-        forward.length = len(forward.sequence)
-        forward.gc_content = analysis["gc_content"]
-        forward.tm = analysis["tm"]
-        forward.hairpin_dg = analysis["hairpin_dg"]
-        forward.self_dimer_dg = analysis["self_dimer_dg"]
 
-        forward.save()
-
-        reverse = Primer(
+        reverse = Primer.create_with_analysis(
             primer_name=right_name,
             sequence=right_seq,
+            user=request.user,
         )
-        reverse = assign_creator(reverse, request.user)
-        analysis = analyze_primer(reverse.sequence)
-        reverse.length = len(reverse.sequence)
-        reverse.gc_content = analysis["gc_content"]
-        reverse.tm = analysis["tm"]
-        reverse.hairpin_dg = analysis["hairpin_dg"]
-        reverse.self_dimer_dg = analysis["self_dimer_dg"]
-
-        reverse.save()
 
         pair = PrimerPair(
             name=pair_name,

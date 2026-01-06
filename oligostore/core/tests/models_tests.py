@@ -104,6 +104,21 @@ class PrimerAndProjectModelTests(TestCase):
     def test_primer_str(self):
         self.assertEqual(str(self.forward_primer), "Forward")
 
+    def test_create_with_analysis_sets_analysis_fields(self):
+        primer = Primer.create_with_analysis(
+            primer_name="Analyzed Primer",
+            sequence="ATGCATGC",
+            user=self.creator,
+        )
+
+        self.assertEqual(primer.creator, self.creator)
+        self.assertIn(self.creator, primer.users.all())
+        self.assertEqual(primer.length, 8)
+        self.assertIsNotNone(primer.gc_content)
+        self.assertIsNotNone(primer.tm)
+        self.assertIsNotNone(primer.hairpin_dg)
+        self.assertIsNotNone(primer.self_dimer_dg)
+
     def test_project_access_and_pairs(self):
         project = Project.objects.create(
             name="Project Alpha",

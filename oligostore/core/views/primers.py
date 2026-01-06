@@ -11,8 +11,6 @@ from openpyxl.styles import Font
 
 from ..forms import PrimerForm
 from ..models import Primer
-from ..services.primer_analysis import analyze_primer
-from ..services.user_assignment import assign_creator
 from .utils import paginate_queryset
 
 
@@ -59,16 +57,11 @@ def primer_create(request):
     if request.method == "POST":
         form = PrimerForm(request.POST)
         if form.is_valid():
-            primer = form.save(commit=False)
-            primer = assign_creator(primer, user=request.user)
-            primer.length = len(primer.sequence)
-            analysis = analyze_primer(primer.sequence)
-            primer.gc_content = analysis["gc_content"]
-            primer.tm = analysis["tm"]
-            primer.hairpin_dg = analysis["hairpin_dg"]
-            primer.self_dimer_dg = analysis["self_dimer_dg"]
-
-            primer.save()
+            Primer.create_with_analysis(
+                primer_name=form.cleaned_data["primer_name"],
+                sequence=form.cleaned_data["sequence"],
+                user=request.user,
+            )
             return redirect("primer_list")
     else:
         form = PrimerForm()

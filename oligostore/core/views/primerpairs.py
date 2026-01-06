@@ -11,7 +11,6 @@ from openpyxl.styles import Font
 
 from ..forms import PrimerPairForm, PrimerPairCreateCombinedForm
 from ..models import Primer, PrimerPair
-from ..services.primer_analysis import analyze_primer
 from ..services.user_assignment import assign_creator
 from .utils import paginate_queryset
 
@@ -79,32 +78,17 @@ def primerpair_combined_create(request):
         form = PrimerPairCreateCombinedForm(request.POST)
         if form.is_valid():
 
-            forward = Primer(
+            forward = Primer.create_with_analysis(
                 primer_name=form.cleaned_data["forward_name"],
                 sequence=form.cleaned_data["forward_sequence"],
+                user=request.user,
             )
-            forward = assign_creator(forward, request.user)
-            analysis = analyze_primer(forward.sequence)
-            forward.length = len(forward.sequence)
-            forward.gc_content = analysis["gc_content"]
-            forward.tm = analysis["tm"]
-            forward.hairpin_dg = analysis["hairpin_dg"]
-            forward.self_dimer_dg = analysis["self_dimer_dg"]
-            forward.save()
 
-            reverse = Primer(
+            reverse = Primer.create_with_analysis(
                 primer_name=form.cleaned_data["reverse_name"],
                 sequence=form.cleaned_data["reverse_sequence"],
+                user=request.user,
             )
-            reverse = assign_creator(reverse, request.user)
-            analysis = analyze_primer(reverse.sequence)
-            reverse.length = len(reverse.sequence)
-            reverse.gc_content = analysis["gc_content"]
-            reverse.tm = analysis["tm"]
-            reverse.hairpin_dg = analysis["hairpin_dg"]
-            reverse.self_dimer_dg = analysis["self_dimer_dg"]
-
-            reverse.save()
 
             pair = PrimerPair(
                 name=form.cleaned_data["pair_name"],
