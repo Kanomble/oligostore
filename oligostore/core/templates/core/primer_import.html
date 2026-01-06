@@ -45,6 +45,26 @@
                     {{ map_form.overhang_column.label_tag }}
                     {{ map_form.overhang_column }}
                 </div>
+                <input type="hidden" name="edited_rows" id="edited-rows">
+                <div class="space-y-2">
+                    <h3 class="text-base font-semibold">3. Preview primers</h3>
+                    <p class="text-sm opacity-70">
+                        Update primer names, add 3' overhangs, or remove rows before importing.
+                    </p>
+                    <div class="overflow-x-auto border border-base-200 rounded-lg">
+                        <table class="table table-zebra w-full text-sm">
+                            <thead>
+                                <tr>
+                                    <th class="w-52">Primer name</th>
+                                    <th>Sequence</th>
+                                    <th class="w-52">3' overhang</th>
+                                    <th class="w-24">Remove</th>
+                                </tr>
+                            </thead>
+                            <tbody id="primer-preview-body"></tbody>
+                        </table>
+                    </div>
+                </div>
                 <button class="btn btn-primary" type="submit" name="map_columns">
                     Import primers
                 </button>
@@ -57,4 +77,104 @@
         <a class="btn btn-ghost" href="{% url 'primer_list' %}">Back to primers</a>
     </div>
 </div>
+{% if columns %}
+{{ rows|json_script:"primer-rows" }}
+{{ columns|json_script:"primer-columns" }}
+<script>
+    const rows = JSON.parse(document.getElementById("primer-rows").textContent || "[]");
+    const columns = JSON.parse(document.getElementById("primer-columns").textContent || "[]");
+    const nameSelect = document.getElementById("id_name_column");
+    const sequenceSelect = document.getElementById("id_sequence_column");
+    const overhangSelect = document.getElementById("id_overhang_column");
+    const previewBody = document.getElementById("primer-preview-body");
+    const editedRowsInput = document.getElementById("edited-rows");
+
+    const buildCell = (content, className = "") => {
+        const cell = document.createElement("td");
+        if (className) {
+            cell.className = className;
+        }
+        cell.appendChild(content);
+        return cell;
+    };
+
+    const renderPreview = () => {
+        if (!previewBody) {
+            return;
+        }
+        previewBody.innerHTML = "";
+        const nameKey = nameSelect?.value;
+        const sequenceKey = sequenceSelect?.value;
+        const overhangKey = overhangSelect?.value;
+        rows.forEach((row, index) => {
+            const tr = document.createElement("tr");
+            tr.dataset.index = index;
+
+            const nameInput = document.createElement("input");
+            nameInput.type = "text";
+            nameInput.className = "input input-bordered input-sm w-full";
+            nameInput.value = row[nameKey] ?? "";
+
+            const sequenceText = document.createElement("span");
+            sequenceText.className = "font-mono break-all";
+            sequenceText.textContent = row[sequenceKey] ?? "";
+
+            const sequenceInput = document.createElement("input");
+            sequenceInput.type = "hidden";
+            sequenceInput.value = row[sequenceKey] ?? "";
+
+            const overhangInput = document.createElement("input");
+            overhangInput.type = "text";
+            overhangInput.className = "input input-bordered input-sm w-full";
+            overhangInput.placeholder = "Optional";
+            overhangInput.value = overhangKey ? (row[overhangKey] ?? "") : "";
+
+            const removeButton = document.createElement("button");
+            removeButton.type = "button";
+            removeButton.className = "btn btn-ghost btn-sm text-error";
+            removeButton.textContent = "Remove";
+            removeButton.addEventListener("click", () => {
+                tr.remove();
+                storePreviewRows();
+            });
+
+            const sequenceWrapper = document.createElement("div");
+            sequenceWrapper.appendChild(sequenceText);
+            sequenceWrapper.appendChild(sequenceInput);
+
+            tr.appendChild(buildCell(nameInput));
+            tr.appendChild(buildCell(sequenceWrapper));
+            tr.appendChild(buildCell(overhangInput));
+            tr.appendChild(buildCell(removeButton, "text-center"));
+            previewBody.appendChild(tr);
+        });
+        storePreviewRows();
+    };
+
+    const storePreviewRows = () => {
+        if (!previewBody || !editedRowsInput) {
+            return;
+        }
+        const payload = Array.from(previewBody.querySelectorAll("tr")).map((row) => {
+            const name = row.querySelector("td:nth-child(1) input")?.value ?? "";
+            const sequence = row.querySelector("td:nth-child(2) input")?.value ?? "";
+            const overhang = row.querySelector("td:nth-child(3) input")?.value ?? "";
+            return {
+                name,
+                sequence,
+                overhang,
+            };
+        });
+        editedRowsInput.value = JSON.stringify(payload);
+    };
+
+    nameSelect?.addEventListener("change", renderPreview);
+    sequenceSelect?.addEventListener("change", renderPreview);
+    overhangSelect?.addEventListener("change", renderPreview);
+    document.querySelector("form button[name='map_columns']")?.addEventListener("click", () => {
+        storePreviewRows();
+    });
+    renderPreview();
+</script>
+{% endif %}
 {% endblock %}

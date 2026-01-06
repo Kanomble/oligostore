@@ -1,5 +1,4 @@
 from io import BytesIO
-
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -19,6 +18,7 @@ from ..models import Primer
 from .utils import paginate_queryset
 from django.core.exceptions import ValidationError
 import pandas as pd
+import json
 
 @login_required(login_url="login")
 def primer_list(request):
@@ -158,12 +158,33 @@ def primer_import_excel(request):
                     skipped = 0
                     errors = []
 
-                    for idx, row in enumerate(rows, start=1):
-                        name = str(row.get(name_col, "")).strip()
-                        sequence = str(row.get(sequence_col, "")).strip()
-                        overhang = (
-                            str(row.get(overhang_col, "")).strip() if overhang_col else ""
-                        )
+                    edited_rows = request.POST.get("edited_rows")
+                    if edited_rows:
+                        try:
+                            parsed_rows = json.loads(edited_rows)
+                        except json.JSONDecodeError:
+                            parsed_rows = None
+                            messages.error(
+                                request, "Preview data could not be read. Please try again."
+                            )
+                    else:
+                        parsed_rows = None
+
+                    source_rows = parsed_rows if isinstance(parsed_rows, list) else rows
+
+                    for idx, row in enumerate(source_rows, start=1):
+                        if isinstance(row, dict) and parsed_rows is not None:
+                            name = str(row.get("name", "")).strip()
+                            sequence = str(row.get("sequence", "")).strip()
+                            overhang = str(row.get("overhang", "")).strip()
+                        else:
+                            name = str(row.get(name_col, "")).strip()
+                            sequence = str(row.get(sequence_col, "")).strip()
+                            overhang = (
+                                str(row.get(overhang_col, "")).strip()
+                                if overhang_col
+                                else ""
+                            )
 
                         if not name or not sequence:
                             skipped += 1
@@ -219,5 +240,6 @@ def primer_import_excel(request):
             "upload_form": upload_form,
             "map_form": map_form,
             "columns": columns,
+            "rows": rows,
         },
     )
