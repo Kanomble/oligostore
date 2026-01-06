@@ -12,6 +12,7 @@ from openpyxl.styles import Font
 from ..forms import PrimerPairForm, PrimerPairCreateCombinedForm
 from ..models import Primer, PrimerPair
 from ..services.user_assignment import assign_creator
+from ..services.export_helpers import build_primerpair_worksheet
 from .utils import paginate_queryset
 
 
@@ -134,45 +135,7 @@ def download_selected_primerpairs(request):
         return redirect("primerpair_list")
 
     workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Primer Pairs"
-
-    headers = [
-        "Pair Name",
-        "Forward Name",
-        "Forward Sequence",
-        "Forward TM",
-        "Reverse Name",
-        "Reverse Sequence",
-        "Reverse TM",
-    ]
-    sheet.append(headers)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-
-    for pair in primer_pairs:
-        sheet.append(
-            [
-                pair.name,
-                pair.forward_primer.primer_name,
-                pair.forward_primer.sequence,
-                pair.forward_primer.tm,
-                pair.reverse_primer.primer_name,
-                pair.reverse_primer.sequence,
-                pair.reverse_primer.tm,
-            ]
-        )
-
-    for column_cells in sheet.columns:
-        max_length = 0
-        for cell in column_cells:
-            cell_value = cell.value
-            if cell_value is None:
-                continue
-            max_length = max(max_length, len(str(cell_value)))
-        adjusted_width = min(max_length + 2, 50)
-        column_letter = column_cells[0].column_letter
-        sheet.column_dimensions[column_letter].width = max(adjusted_width, 12)
+    build_primerpair_worksheet(workbook, primer_pairs)
 
     output = BytesIO()
     workbook.save(output)

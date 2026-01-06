@@ -8,11 +8,10 @@ from django.http import HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import Workbook
 from openpyxl.styles import Font
-
+from ..services.export_helpers import build_primer_worksheet
 from ..forms import PrimerForm
 from ..models import Primer
 from .utils import paginate_queryset
-
 
 @login_required(login_url="login")
 def primer_list(request):
@@ -51,7 +50,6 @@ def primer_list(request):
         },
     )
 
-
 @login_required(login_url="login")
 def primer_create(request):
     if request.method == "POST":
@@ -67,7 +65,6 @@ def primer_create(request):
         form = PrimerForm()
 
     return render(request, "core/primer_create.html", {"form": form})
-
 
 @login_required(login_url="login")
 def primer_delete(request, primer_id):
@@ -98,49 +95,7 @@ def download_selected_primers(request):
         return redirect("primer_list")
 
     workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Primers"
-
-    headers = [
-        "Name",
-        "Sequence",
-        "Length",
-        "GC Content",
-        "Temperature",
-        "Hairpin",
-        "Self Dimer",
-        "Creator",
-        "Created",
-    ]
-    sheet.append(headers)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-
-    for primer in primers:
-        sheet.append(
-            [
-                primer.primer_name,
-                primer.sequence,
-                primer.length,
-                primer.gc_content,
-                primer.tm,
-                primer.hairpin_dg,
-                primer.self_dimer_dg,
-                str(primer.creator),
-                primer.created_at.strftime("%Y-%m-%d %H:%M"),
-            ]
-        )
-
-    for column_cells in sheet.columns:
-        max_length = 0
-        for cell in column_cells:
-            cell_value = cell.value
-            if cell_value is None:
-                continue
-            max_length = max(max_length, len(str(cell_value)))
-        adjusted_width = min(max_length + 2, 50)
-        column_letter = column_cells[0].column_letter
-        sheet.column_dimensions[column_letter].width = max(adjusted_width, 12)
+    build_primer_worksheet(workbook, primers)
 
     output = BytesIO()
     workbook.save(output)
