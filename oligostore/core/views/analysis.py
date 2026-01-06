@@ -299,17 +299,21 @@ def save_generated_primerpair(request):
         left_name = request.POST.get("forward_name")
         right_name = request.POST.get("reverse_name")
         pair_name = request.POST.get("pair_name")
+        left_overhang = request.POST.get("forward_overhang", "")
+        right_overhang = request.POST.get("reverse_overhang", "")
 
         forward = Primer.create_with_analysis(
             primer_name=left_name,
             sequence=left_seq,
             user=request.user,
+            overhang_sequence=left_overhang,
         )
 
         reverse = Primer.create_with_analysis(
             primer_name=right_name,
             sequence=right_seq,
             user=request.user,
+            overhang_sequence=right_overhang,
         )
 
         pair = PrimerPair(

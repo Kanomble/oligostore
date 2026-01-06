@@ -101,7 +101,7 @@
                     <input type="hidden" name="left_seq" value="{{ p.left_seq }}">
                     <input type="hidden" name="right_seq" value="{{ p.right_seq }}">
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
                         <div class="form-control">
                             <label class="label font-semibold">
                                 Forward Primer Name
@@ -110,7 +110,14 @@
                                    class="input input-bordered w-full"
                                    value="forward_primer">
                         </div>
-
+                        <div class="form-control">
+                            <label class="label font-semibold">
+                                Forward 5′ Overhang (optional)
+                            </label>
+                            <input type="text" name="forward_overhang"
+                                   class="input input-bordered w-full"
+                                   placeholder="e.g. AAGCTT">
+                        </div>
                         <div class="form-control">
                             <label class="label font-semibold">
                                 Reverse Primer Name
@@ -119,7 +126,14 @@
                                    class="input input-bordered w-full"
                                    value="reverse_primer">
                         </div>
-
+                        <div class="form-control">
+                            <label class="label font-semibold">
+                                Reverse 5′ Overhang (optional)
+                            </label>
+                            <input type="text" name="reverse_overhang"
+                                   class="input input-bordered w-full"
+                                   placeholder="e.g. GGATCC">
+                        </div>
                         <div class="form-control">
                             <label class="label font-semibold">
                                 Primer Pair Name
