@@ -12,17 +12,16 @@ from ..services.primer_analysis import (
     analyze_cross_dimer,
     analyze_sequence,
     sanitize_sequence,
-    reverse_complement,
     find_binding_site,
     window_sequence,
     render_windowed_line,
     highlight_binding,
 )
 from ..services.user_assignment import assign_creator
+from ..services.sequence_utils import reverse_complement
 
 
 @login_required
-
 def analyze_sequence_view(request):
     if request.method == "POST":
         form = Primer3GlobalArgsForm(request.POST)
