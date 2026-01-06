@@ -146,7 +146,7 @@ class PrimerBindingViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("primers", response.context)
 
-    @patch("core.views.analyze_primer_binding")
+    @patch("core.views.sequence_files.analyze_primer_binding")
     def test_primer_binding_analysis_post(self, analyze_primer_binding):
         analyze_primer_binding.return_value = [{"record_id": "rec1"}]
         response = self.client.post(
@@ -210,7 +210,7 @@ class AnalyzePrimerViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("invalid characters", response.json()["error"])
 
-    @patch("core.views.analyze_primer")
+    @patch("core.views.analysis.analyze_primer")
     def test_analyze_primer_valid_sequence(self, analyze_primer):
         analyze_primer.return_value = {"tm": 60.0}
         response = self.client.post(
@@ -244,8 +244,8 @@ class AnalyzePrimerPairViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Forward sequence contains invalid characters", response.json()["error"])
 
-    @patch("core.views.analyze_cross_dimer")
-    @patch("core.views.analyze_primer")
+    @patch("core.views.analysis.analyze_cross_dimer")
+    @patch("core.views.analysis.analyze_primer")
     def test_analyze_primerpair_success(self, analyze_primer, analyze_cross_dimer):
         analyze_primer.side_effect = [
             {"tm": 60.0, "gc_content": 0.5, "hairpin_dg": -1.0, "self_dimer_dg": -2.0},
@@ -391,7 +391,7 @@ class PrimerViewTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    @patch("core.views.analyze_primer")
+    @patch("core.views.primers.analyze_primer")
     def test_primer_create_and_list(self, analyze_primer):
         analyze_primer.return_value = {
             "gc_content": 0.5,
@@ -455,7 +455,7 @@ class PrimerPairViewTests(TestCase):
         self.forward.users.add(self.user)
         self.reverse.users.add(self.user)
 
-    @patch("core.views.PrimerPairForm")
+    @patch("core.views.primerpairs.PrimerPairForm")
     def test_primerpair_create_uses_form(self, mock_form):
         pair = PrimerPair(
             name="Pair Test",
@@ -471,7 +471,7 @@ class PrimerPairViewTests(TestCase):
         self.assertRedirects(response, reverse("primerpair_list"))
         self.assertTrue(PrimerPair.objects.filter(name="Pair Test").exists())
 
-    @patch("core.views.analyze_primer")
+    @patch("core.views.primerpairs.analyze_primer")
     def test_primerpair_combined_create(self, analyze_primer):
         analyze_primer.return_value = {
             "gc_content": 0.5,
