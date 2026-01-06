@@ -9,10 +9,12 @@ def analyze_primer(seq: str) -> dict:
         ValueError: If the sequence is empty or contains invalid characters.
     """
     seq = sanitize_sequence(seq)
+    thermo_seq = seq[-60:] if len(seq) > 60 else seq
+
 
     # primer3 objects
-    hairpin = primer3.calc_hairpin(seq)
-    dimer = primer3.calc_homodimer(seq)
+    hairpin = primer3.calc_hairpin(thermo_seq)
+    dimer = primer3.calc_homodimer(thermo_seq)
 
     gc_content = (seq.count("G") + seq.count("C"))/len(seq)
 

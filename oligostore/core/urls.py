@@ -13,7 +13,7 @@ from .views import primer_list, primer_create,\
     primer_binding_analysis_async, primer_binding_status, \
     project_add_sequencefile, project_remove_sequencefile, \
     download_selected_primers, download_selected_primerpairs, \
-    primer_import_excel
+    primer_import_excel, delete_selected_primers
 
 urlpatterns = [
     # Projects
@@ -58,6 +58,11 @@ urlpatterns = [
         "primer_list/download/",
         download_selected_primers,
         name="download_selected_primers",
+    ),
+    path(
+        "primer_list/delete/",
+        delete_selected_primers,
+        name="delete_selected_primers",
     ),
     path("create/", primer_create, name="primer_create"),
     path(

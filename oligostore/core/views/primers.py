@@ -58,6 +58,32 @@ def primer_list(request):
     )
 
 @login_required(login_url="login")
+def delete_selected_primers(request):
+    if request.method != "POST":
+        return HttpResponse("POST only", status=405)
+
+    primer_ids = request.POST.getlist("primer_ids")
+    if not primer_ids:
+        messages.error(request, "Select at least one primer to delete.")
+        return redirect("primer_list")
+
+    primers = Primer.objects.filter(id__in=primer_ids, creator=request.user)
+    deletable_count = primers.count()
+    if deletable_count == 0:
+        messages.error(
+            request, "No primers matched your selection or you lack delete access."
+        )
+        return redirect("primer_list")
+
+    primers.delete()
+    messages.success(request, f"Deleted {deletable_count} primer(s).")
+    if deletable_count < len(primer_ids):
+        messages.warning(
+            request, "Some primers were not deleted because you do not own them."
+        )
+    return redirect("primer_list")
+
+@login_required(login_url="login")
 def primer_create(request):
     if request.method == "POST":
         form = PrimerForm(request.POST)

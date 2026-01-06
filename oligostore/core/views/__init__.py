@@ -16,6 +16,7 @@ from .primerpairs import (
 )
 from .primers import (
     download_selected_primers,
+    delete_selected_primers,
     primer_create,
     primer_import_excel,
     primer_delete,
@@ -47,6 +48,7 @@ __all__ = [
     "download_product_sequence",
     "download_selected_primerpairs",
     "download_selected_primers",
+    "delete_selected_primers",
     "home",
     "primer_binding_analysis",
     "primer_binding_analysis_async",

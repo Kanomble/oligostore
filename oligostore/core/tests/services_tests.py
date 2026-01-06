@@ -166,6 +166,27 @@ class PrimerAnalysisTests(SimpleTestCase):
                 "hetero",
             )
 
+    def test_analyze_primer_truncates_long_sequence_for_thermo(self):
+        hairpin = SimpleNamespace(dg=-5000, structure_found=True)
+        dimer = SimpleNamespace(dg=-2500, structure_found=False)
+        long_seq = "A" * 61
+        with mock.patch.object(
+            primer_analysis.primer3,
+            "calc_hairpin",
+            return_value=hairpin,
+        ) as hairpin_mock, mock.patch.object(
+            primer_analysis.primer3,
+            "calc_homodimer",
+            return_value=dimer,
+        ) as dimer_mock, mock.patch.object(
+            primer_analysis.primer3,
+            "calcTm",
+            return_value=60.1234,
+        ):
+            primer_analysis.analyze_primer(long_seq)
+
+        hairpin_mock.assert_called_once_with(long_seq[-60:])
+        dimer_mock.assert_called_once_with(long_seq[-60:])
 
 class PrimerBindingTests(SimpleTestCase):
     def test_reverse_complement(self):

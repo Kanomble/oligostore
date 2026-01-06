@@ -63,11 +63,21 @@
 {% if primers %}
 <form method="POST" action="{% url 'download_selected_primers' %}">
     {% csrf_token %}
-    <div class="flex items-center justify-between mb-4">
-        <span class="text-sm opacity-70">Select primers to download.</span>
-        <button type="submit" class="btn btn-outline btn-sm">
-            Download selected (Excel)
-        </button>
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <span class="text-sm opacity-70">Select primers to download or delete.</span>
+        <div class="flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-outline btn-sm">
+                Download selected (Excel)
+            </button>
+            <button
+                type="submit"
+                class="btn btn-error btn-sm"
+                formaction="{% url 'delete_selected_primers' %}"
+                onclick="return confirm('Delete selected primers?');"
+            >
+                Delete selected
+            </button>
+        </div>
     </div>
     <div class="overflow-x-auto">
         <table class="table table-zebra w-full">
