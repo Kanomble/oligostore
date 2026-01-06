@@ -5,17 +5,23 @@
 <div class="flex justify-between items-center mb-8">
     <h1 class="text-3xl font-bold">Primers</h1>
 
-    <a href="{% url 'primer_create' %}" class="btn btn-primary">
-        + Add Primer
-    </a>
+    <div class="flex flex-wrap gap-2 justify-end">
+        <a href="{% url 'primer_create' %}" class="btn btn-primary">
+            + Add Primer
+        </a>
+        <a href="{% url 'primer_import_excel' %}" class="btn btn-outline">
+            Import from Excel
+        </a>
+    </div>
 
-    <a href="{% url 'primerpair_create' %}" class="btn btn-primary">
-        + Create Primer Pair
-    </a>
-
-    <a href="{% url 'primerpair_combined_create' %}" class="btn btn-primary">
-        + Create Primer Pair (with new primers)
-    </a>
+    <div class="flex flex-wrap gap-2 justify-end">
+        <a href="{% url 'primerpair_create' %}" class="btn btn-primary">
+            + Create Primer Pair
+        </a>
+        <a href="{% url 'primerpair_combined_create' %}" class="btn btn-primary">
+            + Create Primer Pair (with new primers)
+        </a>
+    </div>
 </div>
 <form method="GET" class="flex flex-wrap gap-4 items-end mb-6">
     <div class="form-control">

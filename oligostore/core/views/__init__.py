@@ -17,6 +17,7 @@ from .primerpairs import (
 from .primers import (
     download_selected_primers,
     primer_create,
+    primer_import_excel,
     primer_delete,
     primer_list,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "primer_create",
     "primer_delete",
     "primer_list",
+    "primer_import_excel",
     "primerpair_combined_create",
     "primerpair_create",
     "primerpair_delete",

@@ -59,6 +59,31 @@ class PrimerForm(forms.ModelForm):
             allow_n=False,
         )
 
+
+class PrimerExcelUploadForm(forms.Form):
+    excel_file = forms.FileField(label="Excel file (.xlsx)")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        apply_tailwind_classes(self.fields)
+
+
+class PrimerExcelColumnMapForm(forms.Form):
+    name_column = forms.ChoiceField(label="Name column")
+    sequence_column = forms.ChoiceField(label="Sequence column")
+    overhang_column = forms.ChoiceField(
+        label="Overhang column (optional)", required=False
+    )
+
+    def __init__(self, *args, **kwargs):
+        columns = kwargs.pop("columns", [])
+        super().__init__(*args, **kwargs)
+        choices = [(col, col) for col in columns]
+        self.fields["name_column"].choices = choices
+        self.fields["sequence_column"].choices = choices
+        self.fields["overhang_column"].choices = [("", "None")] + choices
+        apply_tailwind_classes(self.fields)
+
 class PrimerPairForm(forms.ModelForm ):
     class Meta:
         model = PrimerPair

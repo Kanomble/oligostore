@@ -1,0 +1,60 @@
+{% extends "core/base.html" %}
+{% block title %}Import primers{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl space-y-8">
+    <div>
+        <h1 class="text-2xl font-bold mb-2">Import primers from Excel</h1>
+        <p class="opacity-70">
+            Upload an Excel file, then choose which columns map to primer names and sequences.
+        </p>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm">
+        <div class="card-body space-y-4">
+            <h2 class="text-lg font-semibold">1. Upload Excel file</h2>
+            <form method="POST" enctype="multipart/form-data" class="space-y-4">
+                {% csrf_token %}
+                {{ upload_form.excel_file.label_tag }}
+                {{ upload_form.excel_file }}
+                <button class="btn btn-primary" type="submit" name="upload_excel">
+                    Upload file
+                </button>
+            </form>
+        </div>
+    </div>
+
+    {% if columns %}
+    <div class="card bg-base-100 shadow-sm">
+        <div class="card-body space-y-4">
+            <h2 class="text-lg font-semibold">2. Map columns</h2>
+            <p class="text-sm opacity-70">
+                Available columns: {{ columns|join:", " }}
+            </p>
+            <form method="POST" class="space-y-4">
+                {% csrf_token %}
+                <div>
+                    {{ map_form.name_column.label_tag }}
+                    {{ map_form.name_column }}
+                </div>
+                <div>
+                    {{ map_form.sequence_column.label_tag }}
+                    {{ map_form.sequence_column }}
+                </div>
+                <div>
+                    {{ map_form.overhang_column.label_tag }}
+                    {{ map_form.overhang_column }}
+                </div>
+                <button class="btn btn-primary" type="submit" name="map_columns">
+                    Import primers
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div>
+        <a class="btn btn-ghost" href="{% url 'primer_list' %}">Back to primers</a>
+    </div>
+</div>
+{% endblock %}

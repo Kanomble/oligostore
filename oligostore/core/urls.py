@@ -12,7 +12,8 @@ from .views import primer_list, primer_create,\
     project_primer_list, project_download_sequence_files, \
     primer_binding_analysis_async, primer_binding_status, \
     project_add_sequencefile, project_remove_sequencefile, \
-    download_selected_primers, download_selected_primerpairs
+    download_selected_primers, download_selected_primerpairs, \
+    primer_import_excel
 
 urlpatterns = [
     # Projects
@@ -52,6 +53,7 @@ urlpatterns = [
     path("primerpair_list",primerpair_list,name="primerpair_list"),
     path("project_list",project_list,name="project_list"),
     path("primer_list", primer_list, name="primer_list"),
+    path("primer_list/import/", primer_import_excel, name="primer_import_excel"),
     path(
         "primer_list/download/",
         download_selected_primers,
