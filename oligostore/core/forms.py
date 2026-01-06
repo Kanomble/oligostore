@@ -15,8 +15,12 @@ def apply_tailwind_classes(fields):
         elif isinstance(field, (forms.CharField, forms.IntegerField, forms.FloatField)):
             field.widget.attrs.update({"class": "input input-bordered w-full"})
 
-def clean_sequence_value(value, allow_n=True):
-    seq = (value or "").strip().upper()
+def clean_sequence_value(value, allow_n=True, max_length=None):
+    seq = re.sub(r"\s+", "", value or "").upper()
+    if max_length is not None and len(seq) > max_length:
+        raise forms.ValidationError(
+            f"Sequence must be {max_length} bases or fewer."
+        )
     pattern = r"[ACGTN]+" if allow_n else r"[ACGT]+"
     if not re.fullmatch(pattern, seq):
         raise forms.ValidationError(
@@ -27,7 +31,7 @@ def clean_sequence_value(value, allow_n=True):
     return seq
 
 def clean_optional_sequence_value(value, allow_n=True):
-    seq = (value or "").strip().upper()
+    seq = re.sub(r"\s+", "", value or "").upper()
     if not seq:
         return ""
     return clean_sequence_value(seq, allow_n=allow_n)
@@ -51,7 +55,11 @@ class PrimerForm(forms.ModelForm):
         apply_tailwind_classes(self.fields)
 
     def clean_sequence(self):
-        return clean_sequence_value(self.cleaned_data.get("sequence", ""), allow_n=False)
+        return clean_sequence_value(
+            self.cleaned_data.get("sequence", ""),
+            allow_n=False,
+            max_length=60,
+        )
 
     def clean_overhang_sequence(self):
         return clean_optional_sequence_value(
@@ -117,12 +125,14 @@ class PrimerPairCreateCombinedForm(forms.Form):
         return clean_sequence_value(
             self.cleaned_data.get("forward_sequence", ""),
             allow_n=True,
+            max_length=60,
         )
 
     def clean_reverse_sequence(self):
         return clean_sequence_value(
             self.cleaned_data.get("reverse_sequence", ""),
             allow_n=True,
+            max_length=60,
         )
 
     def clean_forward_overhang(self):
