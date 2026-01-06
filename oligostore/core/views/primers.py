@@ -54,6 +54,7 @@ def primer_list(request):
             "primers": page_obj,
             "page_obj": page_obj,
             "query_string": query_string,
+            "per_page": page_obj.paginator.per_page,
         },
     )
 
