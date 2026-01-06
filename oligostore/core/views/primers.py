@@ -58,6 +58,7 @@ def primer_create(request):
             Primer.create_with_analysis(
                 primer_name=form.cleaned_data["primer_name"],
                 sequence=form.cleaned_data["sequence"],
+                overhang_sequence=form.cleaned_data.get("overhang_sequence", ""),
                 user=request.user,
             )
             return redirect("primer_list")

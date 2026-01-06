@@ -15,11 +15,14 @@
                 <label class="label"><span class="label-text font-bold">Primer Pair Name</span></label>
                 {{ form.pair_name }}
             </div>
-
             <h2 class="text-xl font-bold mt-6">Forward Primer</h2>
             <div class="form-control">
                 <label class="label"><span class="label-text">Name</span></label>
                 {{ form.forward_name }}
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text">5′ Overhang (optional)</span></label>
+                {{ form.forward_overhang }}
             </div>
             <div class="form-control">
                 <label class="label"><span class="label-text">Sequence</span></label>
@@ -30,6 +33,10 @@
             <div class="form-control">
                 <label class="label"><span class="label-text">Name</span></label>
                 {{ form.reverse_name }}
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text">5′ Overhang (optional)</span></label>
+                {{ form.reverse_overhang }}
             </div>
             <div class="form-control">
                 <label class="label"><span class="label-text">Sequence</span></label>

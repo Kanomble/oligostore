@@ -108,6 +108,7 @@ class PrimerAndProjectModelTests(TestCase):
         primer = Primer.create_with_analysis(
             primer_name="Analyzed Primer",
             sequence="ATGCATGC",
+            overhang_sequence="aagcttggatcc",
             user=self.creator,
         )
 
@@ -118,6 +119,9 @@ class PrimerAndProjectModelTests(TestCase):
         self.assertIsNotNone(primer.tm)
         self.assertIsNotNone(primer.hairpin_dg)
         self.assertIsNotNone(primer.self_dimer_dg)
+        self.assertEqual(primer.overhang_sequence, "AAGCTTGGATCC")
+        self.assertIn("HindIII", primer.restriction_site_summary)
+        self.assertIn("BamHI", primer.restriction_site_summary)
 
     def test_project_access_and_pairs(self):
         project = Project.objects.create(

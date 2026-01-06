@@ -7,7 +7,6 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import Workbook
-from openpyxl.styles import Font
 
 from ..forms import PrimerPairForm, PrimerPairCreateCombinedForm
 from ..models import Primer, PrimerPair
@@ -82,12 +81,14 @@ def primerpair_combined_create(request):
             forward = Primer.create_with_analysis(
                 primer_name=form.cleaned_data["forward_name"],
                 sequence=form.cleaned_data["forward_sequence"],
+                overhang_sequence=form.cleaned_data.get("forward_overhang", ""),
                 user=request.user,
             )
 
             reverse = Primer.create_with_analysis(
                 primer_name=form.cleaned_data["reverse_name"],
                 sequence=form.cleaned_data["reverse_sequence"],
+                overhang_sequence=form.cleaned_data.get("reverse_overhang", ""),
                 user=request.user,
             )
 

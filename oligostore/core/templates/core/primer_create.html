@@ -20,6 +20,15 @@
     </div>
 
     <div class="form-control">
+        <label class="label"><span class="label-text">5′ Overhang (optional)</span></label>
+        {{ form.overhang_sequence }}
+
+        {% if form.overhang_sequence.errors %}
+            <p class="text-error text-sm mt-1">{{ form.overhang_sequence.errors.0 }}</p>
+        {% endif %}
+    </div>
+
+    <div class="form-control">
         <label class="label"><span class="label-text">Sequence</span></label>
         {{ form.sequence }}
 

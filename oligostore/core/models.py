@@ -1,6 +1,19 @@
 from django.db import models
 from django.contrib.auth.models import User
 
+RESTRICTION_ENZYMES = {
+    "EcoRI": "GAATTC",
+    "BamHI": "GGATCC",
+    "HindIII": "AAGCTT",
+    "XhoI": "CTCGAG",
+    "XbaI": "TCTAGA",
+    "NheI": "GCTAGC",
+    "SpeI": "ACTAGT",
+    "NotI": "GCGGCCGC",
+    "BsaI": "GGTCTC",
+    "BsmBI": "CGTCTC",
+}
+
 class AccessControllModel(models.Model):
     creator = models.ForeignKey(
         User,
@@ -82,6 +95,7 @@ class Project(AccessControllModel):
 class Primer(AccessControllModel):
     primer_name = models.CharField(max_length=100)
     sequence = models.TextField()
+    overhang_sequence = models.TextField(blank=True, default="")
     length = models.IntegerField(null=True,blank=True)
 
     # --- Analysis fields ---
@@ -94,14 +108,54 @@ class Primer(AccessControllModel):
 
     def __str__(self):
         return self.primer_name
+
+    @property
+    def full_sequence(self):
+        return f"{self.overhang_sequence}{self.sequence}"
+
+    @property
+    def overhang_restriction_sites(self):
+        sequence = (self.overhang_sequence or "").upper()
+        if not sequence:
+            return []
+
+        hits = []
+        for enzyme, site in RESTRICTION_ENZYMES.items():
+            start = 0
+            while True:
+                idx = sequence.find(site, start)
+                if idx == -1:
+                    break
+                hits.append(
+                    {
+                        "enzyme": enzyme,
+                        "site": site,
+                        "start": idx + 1,
+                    }
+                )
+                start = idx + 1
+        return hits
+
+    @property
+    def restriction_site_summary(self):
+        hits = self.overhang_restriction_sites
+        if not hits:
+            return ""
+        return ", ".join(
+            f"{hit['enzyme']} ({hit['site']})" for hit in hits
+        )
+
     @classmethod
-    def create_with_analysis(cls, *, primer_name, sequence, user):
+    def create_with_analysis(
+        cls, *, primer_name, sequence, user, overhang_sequence=""
+    ):
         from .services.primer_analysis import analyze_primer
 
         analysis = analyze_primer(sequence)
         primer = cls(
             primer_name=primer_name,
             sequence=sequence,
+            overhang_sequence=(overhang_sequence or "").strip().upper(),
             length=len(sequence),
             gc_content=analysis["gc_content"],
             tm=analysis["tm"],

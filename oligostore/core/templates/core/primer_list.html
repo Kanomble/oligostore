@@ -75,6 +75,8 @@
                     </th>
                     <th>Name</th>
                     <th>Sequence</th>
+                    <th>5′ Overhang</th>
+                    <th>Restriction Sites</th>
                     <th>Length</th>
                     <th>GC Content</th>
                     <th>Temperature</th>
@@ -98,6 +100,12 @@
                     </td>
                     <td class="font-semibold">{{ primer.primer_name }}</td>
                     <td class="truncate max-w-xs">{{ primer.sequence }}</td>
+                    <td class="truncate max-w-xs">
+                        {{ primer.overhang_sequence|default:"-" }}
+                    </td>
+                    <td class="truncate max-w-xs">
+                        {{ primer.restriction_site_summary|default:"-" }}
+                    </td>
                     <td>{{ primer.length }}</td>
                     <td>{{ primer.gc_content }}</td>
                     <td>{{ primer.tm }}</td>

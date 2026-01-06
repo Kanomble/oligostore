@@ -26,6 +26,12 @@ def clean_sequence_value(value, allow_n=True):
         )
     return seq
 
+def clean_optional_sequence_value(value, allow_n=True):
+    seq = (value or "").strip().upper()
+    if not seq:
+        return ""
+    return clean_sequence_value(seq, allow_n=allow_n)
+
 class ProjectForm(forms.ModelForm):
     class Meta:
         model = Project
@@ -38,7 +44,7 @@ class ProjectForm(forms.ModelForm):
 class PrimerForm(forms.ModelForm):
     class Meta:
         model = Primer
-        fields = ["primer_name", "sequence"]
+        fields = ["primer_name", "overhang_sequence", "sequence"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -46,6 +52,12 @@ class PrimerForm(forms.ModelForm):
 
     def clean_sequence(self):
         return clean_sequence_value(self.cleaned_data.get("sequence", ""), allow_n=False)
+
+    def clean_overhang_sequence(self):
+        return clean_optional_sequence_value(
+            self.cleaned_data.get("overhang_sequence", ""),
+            allow_n=False,
+        )
 
 class PrimerPairForm(forms.ModelForm ):
     class Meta:
@@ -65,20 +77,40 @@ class PrimerPairCreateCombinedForm(forms.Form):
     # forward primer fields
     forward_name = forms.CharField(max_length=100)
     forward_sequence = forms.CharField(widget=forms.Textarea)
+    forward_overhang = forms.CharField(required=False)
 
     # reverse primer fields
     reverse_name = forms.CharField(max_length=100)
     reverse_sequence = forms.CharField(widget=forms.Textarea)
+    reverse_overhang = forms.CharField(required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         apply_tailwind_classes(self.fields)
 
     def clean_forward_sequence(self):
-        return clean_sequence_value(self.cleaned_data.get("forward_sequence", ""), allow_n=True)
+        return clean_sequence_value(
+            self.cleaned_data.get("forward_sequence", ""),
+            allow_n=True,
+        )
 
     def clean_reverse_sequence(self):
-        return clean_sequence_value(self.cleaned_data.get("reverse_sequence", ""), allow_n=True)
+        return clean_sequence_value(
+            self.cleaned_data.get("reverse_sequence", ""),
+            allow_n=True,
+        )
+
+    def clean_forward_overhang(self):
+        return clean_optional_sequence_value(
+            self.cleaned_data.get("forward_overhang", ""),
+            allow_n=False,
+        )
+
+    def clean_reverse_overhang(self):
+        return clean_optional_sequence_value(
+            self.cleaned_data.get("reverse_overhang", ""),
+            allow_n=False,
+        )
 
 class CustomUserCreationForm(UserCreationForm):
     class Meta:
