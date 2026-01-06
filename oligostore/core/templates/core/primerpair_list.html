@@ -67,6 +67,7 @@
                     <th>Forward TM</th>
                     <th>Reverse Sequence</th>
                     <th>Reverse TM</th>
+                    <th>Analysis</th>
                     <th>Delete Primer Pair</th>
                 </tr>
             </thead>
@@ -86,11 +87,27 @@
                     <td>{{ pair.forward_primer.tm }} </td>
                     <td>{{ pair.reverse_primer.sequence }} </td>
                     <td>{{ pair.reverse_primer.tm }}</td>
+                    <td>
+                        <button
+                            type="button"
+                            class="btn btn-info btn-sm analyze-primerpair-btn"
+                            data-forward="{{ pair.forward_primer.sequence }}"
+                            data-reverse="{{ pair.reverse_primer.sequence }}"
+                            data-target="analysis-{{ pair.id }}"
+                        >
+                            Analyze
+                        </button>
+                    </td>
                     <td><a href="{% url 'primerpair_delete' pair.id %}"
                        class="btn btn-error btn-sm"
                        onclick="return confirm('Delete this primer pair?');">
                        Delete
                     </a></td>
+                </tr>
+                <tr id="analysis-{{ pair.id }}" class="hidden">
+                    <td colspan="8">
+                        <div class="analysis-content"></div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -108,6 +125,73 @@
             });
         });
     }
+
+    const analysisButtons = document.querySelectorAll(".analyze-primerpair-btn");
+    const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]")?.value;
+
+    analysisButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const fwd = button.dataset.forward || "";
+            const rev = button.dataset.reverse || "";
+            const targetId = button.dataset.target;
+            const targetRow = document.getElementById(targetId);
+            const content = targetRow?.querySelector(".analysis-content");
+
+            if (!content || !csrfToken) {
+                return;
+            }
+
+            targetRow.classList.remove("hidden");
+            content.innerHTML = "<p class=\"text-sm opacity-70\">Analyzing primer compatibility...</p>";
+
+            fetch("{% url 'analyze_primerpair' %}", {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": csrfToken,
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: new URLSearchParams({
+                    "forward_sequence": fwd,
+                    "reverse_sequence": rev,
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    content.innerHTML = `<p class="text-error">${data.error}</p>`;
+                    return;
+                }
+
+                content.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="card bg-base-200 p-4">
+                            <h3 class="font-bold text-lg mb-2">Forward Primer</h3>
+                            <p><strong>Tm:</strong> ${data.forward.tm}</p>
+                            <p><strong>GC:</strong> ${data.forward.gc}%</p>
+                            <p><strong>Hairpin ΔG:</strong> ${data.forward.hairpin_dg}</p>
+                            <p><strong>Self-Dimer ΔG:</strong> ${data.forward.self_dimer_dg}</p>
+                        </div>
+
+                        <div class="card bg-base-200 p-4">
+                            <h3 class="font-bold text-lg mb-2">Reverse Primer</h3>
+                            <p><strong>Tm:</strong> ${data.reverse.tm}</p>
+                            <p><strong>GC:</strong> ${data.reverse.gc}%</p>
+                            <p><strong>Hairpin ΔG:</strong> ${data.reverse.hairpin_dg}</p>
+                            <p><strong>Self-Dimer ΔG:</strong> ${data.reverse.self_dimer_dg}</p>
+                        </div>
+                    </div>
+
+                    <div class="card bg-base-300 p-4 mt-4">
+                        <h3 class="font-bold text-lg mb-2">Hetero-Dimer (Forward ↔ Reverse)</h3>
+                        <p><strong>ΔG:</strong> ${data.hetero_dimer_dg}</p>
+                    </div>
+                `;
+            })
+            .catch(() => {
+                content.innerHTML = "<p class=\"text-error\">Analysis failed. Please try again.</p>";
+            });
+        });
+    });
 </script>
 {% include "core/pagination.html" %}
 {% else %}
