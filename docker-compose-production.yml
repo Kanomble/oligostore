@@ -1,0 +1,62 @@
+services:
+  web:
+    build: ./oligostore
+    container_name: oligostore_web
+    command: >
+      sh -c "
+        python manage.py collectstatic --noinput &&
+        gunicorn oligostore.wsgi:application --bind 0.0.0.0:8000
+      "
+    volumes:
+      - ./oligostore:/app
+      - ./media:/app/media
+      - staticfiles:/app/staticfiles
+    env_file:
+      - .env.production
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15
+    container_name: oligostore_db
+    restart: always
+    env_file:
+      - .env.production
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: oligostore_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  worker:
+    build: ./oligostore
+    container_name: oligostore_worker
+    command: celery -A oligostore worker -l info
+    volumes:
+      - ./oligostore:/app
+      - ./media:/app/media
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
+  nginx:
+    image: nginx:latest
+    container_name: oligostore_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./oligostore:/app
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  staticfiles:

@@ -17,17 +17,25 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
+def _as_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-=7d9#5&^^$8t=@)%t3^axx1%6q7^rw!x#6rmidw-i434ai92um'
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+DEBUG = _as_bool(os.environ.get("DJANGO_DEBUG"), default=False)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "django-insecure-development-key"
+    else:
+        raise RuntimeError("DJANGO_SECRET_KEY must be set when DEBUG is False")
 
-ALLOWED_HOSTS = ["*"]
-
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if host.strip()
+]
 
 # Application definition
 TAILWIND_APP_NAME = 'theme'
@@ -80,8 +88,8 @@ DATABASES = {
         'NAME': os.environ.get('POSTGRES_DB'),
         'USER': os.environ.get('POSTGRES_USER'),
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD'),
-        'HOST': 'db',  # IMPORTANT: Docker service name, NOT localhost
-        'PORT': 5432,
+        'HOST': os.environ.get('POSTGRES_HOST', 'db'),
+        'PORT': int(os.environ.get('POSTGRES_PORT', '5432')),
     }
 }
 
@@ -147,3 +155,24 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = _as_bool(os.environ.get("DJANGO_SECURE_SSL_REDIRECT"), default=True)
+    SESSION_COOKIE_SECURE = _as_bool(os.environ.get("DJANGO_SESSION_COOKIE_SECURE"), default=True)
+    CSRF_COOKIE_SECURE = _as_bool(os.environ.get("DJANGO_CSRF_COOKIE_SECURE"), default=True)
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "3600"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = _as_bool(
+        os.environ.get("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS"),
+        default=True,
+    )
+    SECURE_HSTS_PRELOAD = _as_bool(os.environ.get("DJANGO_SECURE_HSTS_PRELOAD"), default=True)
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
