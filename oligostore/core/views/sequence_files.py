@@ -9,7 +9,6 @@ from ..services.primer_binding import analyze_primer_binding
 from ..tasks import analyze_primer_binding_task
 from .utils import paginate_queryset
 
-
 @login_required
 def sequencefile_upload(request):
     """
