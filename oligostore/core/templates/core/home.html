@@ -2,59 +2,112 @@
 {% block title %}Oligostore – Home{% endblock %}
 
 {% block content %}
-<div class="text-center py-16">
-    <h1 class="text-5xl font-bold text-primary mb-6">
-        Welcome to Oligostore
-    </h1>
-    <p class="text-lg opacity-80 max-w-2xl mx-auto">
-        A modern platform for managing oligos into associated projects.
-    </p>
-
-    <div class="mt-10 flex justify-center gap-4">
-        <a href="{% url 'primer_list' %}" class="btn btn-primary btn-lg">View Primer</a>
-        <a href="{% url 'primerpair_list' %}" class="btn btn-primary btn-lg">View Primer Pairs</a>
-        <a href="{% url 'project_list' %}", class="btn btn-primary btn-lg">View Projects</a>
-         <a
-            href="{% url 'sequencefile_list' %}"
-            class="btn btn-primary btn-lg"
-          >
-            Sequence Files
-        </a>
+<section class="bg-base-200/60">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+        <div class="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+            <div class="text-center lg:text-left">
+                <span class="badge badge-outline text-sm mb-4">Oligo management made easy</span>
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-primary mb-5">
+                    Welcome to Oligostore
+                </h1>
+                <p class="text-base sm:text-lg opacity-80 max-w-2xl mx-auto lg:mx-0">
+                    A modern platform for organizing oligos, primers, and projects with clear workflows and
+                    lightning-fast access to everything your lab needs.
+                </p>
+                <div class="mt-8 flex flex-col sm:flex-row sm:flex-wrap justify-center lg:justify-start gap-3">
+                    <a href="{% url 'primer_list' %}" class="btn btn-primary btn-md sm:btn-lg">
+                        View Primers
+                    </a>
+                    <a href="{% url 'primerpair_list' %}" class="btn btn-primary btn-md sm:btn-lg">
+                        View Primer Pairs
+                    </a>
+                    <a href="{% url 'project_list' %}" class="btn btn-primary btn-md sm:btn-lg">
+                        View Projects
+                    </a>
+                    <a href="{% url 'sequencefile_list' %}" class="btn btn-primary btn-md sm:btn-lg">
+                        Sequence Files
+                    </a>
+                </div>
+                <div class="mt-4 flex flex-col sm:flex-row sm:flex-wrap justify-center lg:justify-start gap-3">
+                    <a href="{% url 'analyze_sequence' %}" class="btn btn-accent btn-md sm:btn-lg">
+                        Design Primer
+                    </a>
+                    <a href="{% url 'primer_create' %}" class="btn btn-accent btn-md sm:btn-lg">
+                        Create Primer
+                    </a>
+                    <a href="{% url 'primerpair_combined_create' %}" class="btn btn-accent btn-md sm:btn-lg">
+                        Create Primer Pairs
+                    </a>
+                    <a href="{% url 'project_create' %}" class="btn btn-accent btn-md sm:btn-lg">
+                        Create New Project
+                    </a>
+                </div>
+            </div>
+            <div class="card bg-base-100 shadow-xl border border-base-200">
+                <div class="card-body gap-6">
+                    <h2 class="card-title text-2xl">Quick Start</h2>
+                    <div class="space-y-4">
+                        <div class="flex items-start gap-4">
+                            <div class="badge badge-primary badge-lg">1</div>
+                            <div>
+                                <p class="font-semibold">Capture oligos fast</p>
+                                <p class="text-sm opacity-70">Add primers manually or design them directly in-app.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <div class="badge badge-primary badge-lg">2</div>
+                            <div>
+                                <p class="font-semibold">Group into projects</p>
+                                <p class="text-sm opacity-70">Track project progress with primer pairs and files.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <div class="badge badge-primary badge-lg">3</div>
+                            <div>
+                                <p class="font-semibold">Stay organized</p>
+                                <p class="text-sm opacity-70">Search and filter your sequence library in seconds.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alert alert-info text-sm">
+                        Tip: Use the navigation menu on mobile for one-tap access to all tools.
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
+</section>
 
-    <div class="mt-10 flex justify-center gap-4">
-        <a href="{% url 'analyze_sequence' %}" class="btn btn-accent btn-lg">Design Primer</a>
-        <a href="{% url 'primer_create' %}"class="btn btn-accent btn-lg">Create Primer</a>
-        <a href="{% url 'primerpair_combined_create' %}" class="btn btn-accent btn-lg">Create Primer Pairs</a>
-        <a href="{% url 'project_create' %}" class="btn btn-accent btn-lg">Create New Project</a>
+</br>
+
+<section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="card bg-base-100 shadow-md border border-base-200">
+            <div class="card-body">
+                <h2 class="card-title">Manage Oligos</h2>
+                <p class="opacity-80">
+                    Store, search, and annotate your oligonucleotide sequences with clarity.
+                </p>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-md border border-base-200">
+            <div class="card-body">
+                <h2 class="card-title">Project Workflows</h2>
+                <p class="opacity-80">
+                    Organize oligos into projects and keep every experiment on track.
+                </p>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-md border border-base-200">
+            <div class="card-body">
+                <h2 class="card-title">Modern Interface</h2>
+                <p class="opacity-80">
+                    Built with Tailwind and DaisyUI for fast, mobile-friendly navigation.
+                </p>
+            </div>
+        </div>
     </div>
-
-</div>
-
-<!-- Feature Cards -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 px-4">
-
-    <div class="card bg-base-100 shadow-md p-6">
-        <h2 class="card-title">Manage Oligos</h2>
-        <p class="opacity-80">
-            Store, search, and annotate your oligonucleotide sequences easily.
-        </p>
-    </div>
-
-    <div class="card bg-base-100 shadow-md p-6">
-        <h2 class="card-title">Project Workflows</h2>
-        <p class="opacity-80">
-            Organize oligos into projects and streamline your research pipeline.
-        </p>
-    </div>
-
-    <div class="card bg-base-100 shadow-md p-6">
-        <h2 class="card-title">Modern Interface</h2>
-        <p class="opacity-80">
-            Beautiful UI built with Tailwind and DaisyUI for maximum productivity.
-        </p>
-    </div>
-
-</div>
-
+</section>
 {% endblock %}
