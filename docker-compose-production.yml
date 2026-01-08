@@ -10,7 +10,7 @@ services:
     volumes:
       - ./oligostore:/app
       - ./media:/app/media
-      - staticfiles:/app/staticfiles
+      - ./oligostore/staticfiles:/app/staticfiles
     env_file:
       - .env.production
     depends_on:
