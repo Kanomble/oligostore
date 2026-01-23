@@ -22,7 +22,6 @@ services:
   db:
     image: postgres:15
     container_name: oligostore_db
-    restart: always
     env_file:
       - .env
     volumes:
@@ -31,7 +30,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: oligostore_redis
-    restart: always
     ports:
       - "6379:6379"
 

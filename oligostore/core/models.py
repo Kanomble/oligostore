@@ -95,7 +95,7 @@ class Project(AccessControllModel):
 class Primer(AccessControllModel):
     primer_name = models.CharField(max_length=100)
     sequence = models.TextField()
-    overhang_sequence = models.TextField(blank=True, default="")
+    overhang_sequence = models.TextField(null=True, blank=True, default="")
     length = models.IntegerField(null=True,blank=True)
 
     # --- Analysis fields ---
