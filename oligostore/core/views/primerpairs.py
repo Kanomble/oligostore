@@ -1,5 +1,5 @@
 from io import BytesIO
-
+from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -58,18 +58,73 @@ def primerpair_list(request):
 
 @login_required(login_url="login")
 def primerpair_create(request):
+
+    all_primers = Primer.objects.filter(users=request.user)
+    primers = all_primers
+
+    q = request.GET.get("q")
+    if q:
+        primers = primers.filter(
+            Q(primer_name__icontains=q) | Q(sequence__icontains=q)
+        )
+
+    order = request.GET.get("order", "created_desc")
+    allowed_orders = {
+        "created_desc": "-created_at",
+        "created": "created_at",
+        "name": "primer_name",
+        "name_desc": "-primer_name",
+        "length_desc": "-length",
+        "length": "length",
+        "gc_desc": "-gc_content",
+        "gc": "gc_content",
+        "tm_desc": "-tm",
+        "tm": "tm",
+    }
+    primers = primers.order_by(allowed_orders.get(order, "-created_at"))
+
+    page_obj, query_string = paginate_queryset(request, primers)
+
+    selected_forward = None
+    selected_reverse = None
+
     if request.method == "POST":
         form = PrimerPairForm(request.POST, user=request.user)
         if form.is_valid():
             pair = form.save(commit=False)
             pair = assign_creator(pair, request.user)
             pair.save()
+            messages.success(request, "Primer pair created.")
+            form = PrimerPairForm(user=request.user)
+        else:
+            forward_id = form.data.get("forward_primer")
+            reverse_id = form.data.get("reverse_primer")
+            if forward_id:
+                selected_forward = all_primers.filter(id=forward_id).first()
+            if reverse_id:
+                selected_reverse = all_primers.filter(id=reverse_id).first()
 
-            return redirect("primerpair_list")
     else:
         form = PrimerPairForm(user=request.user)
 
-    return render(request, "core/primerpair_form.html", {"form": form})
+    form.fields["forward_primer"].widget = forms.HiddenInput()
+    form.fields["reverse_primer"].widget = forms.HiddenInput()
+
+    return render(
+        request,
+        "core/primerpair_form.html",
+        {
+            "form": form,
+            "primers": page_obj,
+            "page_obj": page_obj,
+            "query_string": query_string,
+            "selected_forward": selected_forward,
+            "selected_reverse": selected_reverse,
+            "search_query": q or "",
+            "order": order,
+        },
+    )
+
 
 
 @login_required
@@ -99,7 +154,8 @@ def primerpair_combined_create(request):
             )
             pair = assign_creator(pair, request.user)
             pair.save()
-            return redirect("primerpair_list")
+            messages.success(request, "Primer pair created.")
+            form = PrimerPairCreateCombinedForm()
 
     else:
         form = PrimerPairCreateCombinedForm()

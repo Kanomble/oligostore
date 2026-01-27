@@ -2,32 +2,354 @@
 {% block title %}Create Primer Pair{% endblock %}
 
 {% block content %}
-<div class="max-w-xl mx-auto mt-10">
-    <div class="flex justify-between items-center mb-6">
+<div class="max-w-6xl mx-auto mt-10 space-y-8">
+    <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 class="text-3xl font-bold">Create Primer Pair</h1>
     </div>
 
-    <div class="card bg-base-100 shadow-xl p-6">
-        <form method="POST" class="space-y-4">
+    <form method="GET" class="flex flex-wrap gap-4 items-end">
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text font-semibold">Search</span>
+            </label>
+            <input
+                type="text"
+                name="q"
+                value="{{ search_query }}"
+                placeholder="Search by name or sequence..."
+                class="input input-bordered"
+            />
+        </div>
+
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text font-semibold">Order by</span>
+            </label>
+            <select name="order" class="select select-bordered">
+                <option value="created_desc" {% if order == "created_desc" or not order %}selected{% endif %}>Newest</option>
+                <option value="created" {% if order == "created" %}selected{% endif %}>Oldest</option>
+                <option value="name" {% if order == "name" %}selected{% endif %}>Name (A-Z)</option>
+                <option value="name_desc" {% if order == "name_desc" %}selected{% endif %}>Name (Z-A)</option>
+                <option value="length_desc" {% if order == "length_desc" %}selected{% endif %}>Length (High-Low)</option>
+                <option value="length" {% if order == "length" %}selected{% endif %}>Length (Low-High)</option>
+                <option value="gc_desc" {% if order == "gc_desc" %}selected{% endif %}>GC% (High-Low)</option>
+                <option value="gc" {% if order == "gc" %}selected{% endif %}>GC% (Low-High)</option>
+                <option value="tm_desc" {% if order == "tm_desc" %}selected{% endif %}>TM (High-Low)</option>
+                <option value="tm" {% if order == "tm" %}selected{% endif %}>TM (Low-High)</option>
+            </select>
+        </div>
+
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text font-semibold">Per page</span>
+            </label>
+            <select name="per_page" class="select select-bordered">
+                <option value="10" {% if page_obj.paginator.per_page == 10 %}selected{% endif %}>10</option>
+                <option value="20" {% if page_obj.paginator.per_page == 20 %}selected{% endif %}>20</option>
+                <option value="50" {% if page_obj.paginator.per_page == 50 %}selected{% endif %}>50</option>
+                <option value="100" {% if page_obj.paginator.per_page == 100 %}selected{% endif %}>100</option>
+            </select>
+        </div>
+
+        <div class="flex gap-2">
+            <button class="btn btn-primary" type="submit">Apply</button>
+            <a class="btn btn-ghost" href="{% url 'primerpair_create' %}">Reset</a>
+        </div>
+    </form>
+
+    <div class="card bg-base-100 shadow-xl p-6 space-y-6">
+        <form method="POST" class="space-y-6" id="primerpair-create-form">
             {% csrf_token %}
+            {{ form.forward_primer }}
+            {{ form.reverse_primer }}
+
+            {% if form.errors %}
+                <div class="alert alert-error">
+                    {% for field in form %}
+                        {% for error in field.errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% if form.non_field_errors %}
+                <div class="alert alert-error">
+                    {% for error in form.non_field_errors %}
+                        <span>{{ error }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
 
             <div class="form-control">
-                <label class="label"><span class="label-text">Pair Name</span></label>
+                <label class="label"><span class="label-text font-semibold">Pair Name</span></label>
                 {{ form.name }}
+                {% if form.name.errors %}
+                    <label class="label">
+                        <span class="label-text-alt text-error">{{ form.name.errors|striptags }}</span>
+                    </label>
+                {% endif %}
             </div>
 
-            <div class="form-control">
-                <label class="label"><span class="label-text">Forward Primer</span></label>
-                {{ form.forward_primer }}
-            </div>
+            <div
+                id="primerpair-selection"
+                data-selected-forward-id="{{ selected_forward.id|default:'' }}"
+                data-selected-forward-name="{{ selected_forward.primer_name|default:'' }}"
+                data-selected-reverse-id="{{ selected_reverse.id|default:'' }}"
+                data-selected-reverse-name="{{ selected_reverse.primer_name|default:'' }}"
+                class="space-y-4"
+            >
+                <div class="alert alert-info">
+                    <span id="selection-step" class="font-semibold"></span>
+                </div>
 
-            <div class="form-control">
-                <label class="label"><span class="label-text">Reverse Primer</span></label>
-                {{ form.reverse_primer }}
-            </div>
+                <div class="grid gap-4 md:grid-cols-2">
+                    <div class="rounded-lg border border-base-300 p-4 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <h2 class="font-semibold">Forward Primer</h2>
+                            <div class="flex gap-2">
+                                <button type="button" class="btn btn-xs btn-outline" data-action="change-forward">Change</button>
+                                <button type="button" class="btn btn-xs btn-ghost" data-action="clear-forward">Clear</button>
+                            </div>
+                        </div>
+                        <p class="text-sm">
+                            <span id="selected-forward" class="font-semibold">None selected</span>
+                        </p>
+                    </div>
 
-            <button class="btn btn-primary w-full mt-4">Create Primer Pair</button>
+                    <div class="rounded-lg border border-base-300 p-4 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <h2 class="font-semibold">Reverse Primer</h2>
+                            <div class="flex gap-2">
+                                <button type="button" class="btn btn-xs btn-outline" data-action="change-reverse">Change</button>
+                                <button type="button" class="btn btn-xs btn-ghost" data-action="clear-reverse">Clear</button>
+                            </div>
+                        </div>
+                        <p class="text-sm">
+                            <span id="selected-reverse" class="font-semibold">None selected</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-primary w-full" id="create-primer-pair" disabled>
+                Create Primer Pair
+            </button>
         </form>
+
+        {% if primers %}
+            <div class="overflow-x-auto">
+                <table class="table table-zebra w-full">
+                    <thead>
+                        <tr>
+                            <th>Select</th>
+                            <th>Name</th>
+                            <th>Sequence</th>
+                            <th>Length</th>
+                            <th>GC Content</th>
+                            <th>Temperature</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for primer in primers %}
+                        <tr
+                            data-primer-row
+                            data-primer-id="{{ primer.id }}"
+                            data-primer-name="{{ primer.primer_name }}"
+                            data-primer-sequence="{{ primer.sequence }}"
+                        >
+                            <td>
+                                <button
+                                    type="button"
+                                    class="btn btn-xs btn-outline"
+                                    data-primer-select
+                                    data-primer-id="{{ primer.id }}"
+                                    data-primer-name="{{ primer.primer_name }}"
+                                    data-primer-sequence="{{ primer.sequence }}"
+                                >
+                                    Select
+                                </button>
+                            </td>
+                            <td class="font-semibold">{{ primer.primer_name }}</td>
+                            <td class="truncate max-w-xs">{{ primer.sequence }}</td>
+                            <td>{{ primer.length }}</td>
+                            <td>{{ primer.gc_content }}</td>
+                            <td>{{ primer.tm }}</td>
+                            <td>{{ primer.created_at|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% include "core/pagination.html" %}
+        {% else %}
+            <p class="text-center opacity-60">No primers available.</p>
+        {% endif %}
+
     </div>
 </div>
+
+
+<script>
+    const selectionContainer = document.getElementById("primerpair-selection");
+    const forwardInput = document.getElementById("id_forward_primer");
+    const reverseInput = document.getElementById("id_reverse_primer");
+    const forwardSummary = document.getElementById("selected-forward");
+    const reverseSummary = document.getElementById("selected-reverse");
+    const stepLabel = document.getElementById("selection-step");
+    const createButton = document.getElementById("create-primer-pair");
+    const actionButtons = selectionContainer.querySelectorAll("[data-action]");
+    const primerButtons = document.querySelectorAll("[data-primer-select]");
+    const primerRows = document.querySelectorAll("[data-primer-row]");
+
+    let forwardId = selectionContainer.dataset.selectedForwardId || "";
+    let forwardName = selectionContainer.dataset.selectedForwardName || "";
+    let reverseId = selectionContainer.dataset.selectedReverseId || "";
+    let reverseName = selectionContainer.dataset.selectedReverseName || "";
+    let activeStep = "forward";
+
+    if (forwardId && !reverseId) {
+        activeStep = "reverse";
+    } else if (forwardId && reverseId) {
+        activeStep = "reverse";
+    }
+
+    function setActiveStep(step) {
+        activeStep = step;
+        updateUI();
+    }
+
+    function updateStepLabel() {
+        if (!forwardId) {
+            stepLabel.textContent = "Select a forward primer.";
+            return;
+        }
+        if (!reverseId) {
+            stepLabel.textContent = "Select a reverse primer.";
+            return;
+        }
+        stepLabel.textContent = activeStep === "forward"
+            ? "Change forward primer if needed."
+            : "Change reverse primer if needed.";
+    }
+
+    function updateSummary() {
+        forwardSummary.textContent = forwardName
+            ? `${forwardName} (ID ${forwardId})`
+            : "None selected";
+        reverseSummary.textContent = reverseName
+            ? `${reverseName} (ID ${reverseId})`
+            : "None selected";
+    }
+
+    function updateHiddenInputs() {
+        forwardInput.value = forwardId || "";
+        reverseInput.value = reverseId || "";
+    }
+
+    function updateCreateButton() {
+        createButton.disabled = !(forwardId && reverseId);
+    }
+
+    function updateRowStyles() {
+        primerRows.forEach((row) => {
+            const primerId = row.dataset.primerId;
+            row.classList.toggle("bg-primary/10", primerId === forwardId);
+            row.classList.toggle("bg-secondary/10", primerId === reverseId);
+        });
+    }
+
+    function updateSelectButtons() {
+        primerButtons.forEach((button) => {
+            const primerId = button.dataset.primerId;
+            button.disabled = activeStep === "reverse" && primerId === forwardId;
+            if (primerId === forwardId) {
+                button.textContent = "Forward";
+                return;
+            }
+            if (primerId === reverseId) {
+                button.textContent = "Reverse";
+                return;
+            }
+            button.textContent = activeStep === "forward" ? "Select Forward" : "Select Reverse";
+        });
+    }
+
+    function updateUI() {
+        updateStepLabel();
+        updateSummary();
+        updateHiddenInputs();
+        updateCreateButton();
+        updateRowStyles();
+        updateSelectButtons();
+    }
+
+    function clearForward() {
+        forwardId = "";
+        forwardName = "";
+        reverseId = "";
+        reverseName = "";
+        activeStep = "forward";
+        updateUI();
+    }
+
+    function clearReverse() {
+        reverseId = "";
+        reverseName = "";
+        activeStep = "reverse";
+        updateUI();
+    }
+
+    primerButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const primerId = button.dataset.primerId;
+            const primerName = button.dataset.primerName;
+
+            if (activeStep === "forward") {
+                forwardId = primerId;
+                forwardName = primerName;
+                if (reverseId === primerId) {
+                    reverseId = "";
+                    reverseName = "";
+                }
+                activeStep = "reverse";
+                updateUI();
+                return;
+            }
+
+            if (activeStep === "reverse") {
+                if (primerId === forwardId) {
+                    return;
+                }
+                reverseId = primerId;
+                reverseName = primerName;
+                updateUI();
+            }
+        });
+    });
+
+    actionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const action = button.dataset.action;
+            if (action === "change-forward") {
+                setActiveStep("forward");
+                return;
+            }
+            if (action === "change-reverse") {
+                setActiveStep("reverse");
+                return;
+            }
+            if (action === "clear-forward") {
+                clearForward();
+                return;
+            }
+            if (action === "clear-reverse") {
+                clearReverse();
+            }
+        });
+    });
+
+    updateUI();
+</script>
+
 {% endblock %}

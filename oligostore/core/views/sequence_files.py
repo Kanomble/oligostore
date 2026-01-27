@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib import messages
 
 from ..models import Primer, SequenceFile
 from ..services.primer_binding import analyze_primer_binding
@@ -148,6 +149,9 @@ def primer_binding_analysis(request):
             .values_list("id", flat=True)
             .first()
         )
+        if not preselected_primer:
+            messages.error(request, "Primer no longer available")
+
 
     if preselected_sequence_file:
         preselected_sequence_file = (

@@ -104,6 +104,17 @@ class PrimerPairForm(forms.ModelForm ):
         self.fields["reverse_primer"].queryset = Primer.objects.filter(users=user)
         apply_tailwind_classes(self.fields)
 
+    def clean(self):
+        cleaned_data = super().clean()
+        forward = cleaned_data.get("forward_primer")
+        reverse = cleaned_data.get("reverse_primer")
+        if forward and reverse and forward == reverse:
+            raise forms.ValidationError(
+                "Forward and reverse primers must be different."
+            )
+        return cleaned_data
+
+
 class PrimerPairCreateCombinedForm(forms.Form):
     pair_name = forms.CharField(max_length=100)
 
