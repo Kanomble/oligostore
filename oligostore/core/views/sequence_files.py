@@ -1,6 +1,6 @@
 from celery.result import AsyncResult
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
@@ -152,6 +152,15 @@ def primer_binding_analysis(request):
         if not preselected_primer:
             messages.error(request, "Primer no longer available")
 
+    if preselected_primer:
+        primers = primers.order_by(
+            Case(
+                When(id=preselected_primer, then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            ),
+            "primer_name",
+        )
 
     if preselected_sequence_file:
         preselected_sequence_file = (
