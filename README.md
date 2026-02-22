@@ -1,139 +1,136 @@
 # oligostore
-Django, Docker web-server for managing oligonucleotides, such as primers and plasmids
 
-# Local HTTPS Setup (OpenSSL + Docker + NGINX + Django)
+`oligostore` is a Django + Docker application for managing oligonucleotides, including primers, primer pairs, projects, and sequence files.
 
-This document describes how to enable **HTTPS locally** using **OpenSSL**, with
-**NGINX terminating TLS** and **Django running behind Gunicorn** in Docker.
+## What the Tool Does
 
-This setup is suitable for:
-- local development
-- internal staging
-- production-like testing
+- Manage primers and primer pairs
+- Group laboratory work into projects
+- Upload and associate sequence files with projects
+- Run sequence and primer-binding analysis workflows
+- Export selected primers and primer pairs
 
-> ⚠️ Browsers will warn about the certificate unless it is explicitly trusted.
-> This is expected for self-signed certificates.
+## Quick Start (Development)
 
----
+### 1. Create `.env`
 
-## Architecture Overview
+Create a `.env` file in the project root with at least:
 
+```env
+DJANGO_SECRET_KEY=change-me
+DJANGO_DEBUG=True
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+POSTGRES_DB=oligostore
+POSTGRES_USER=oligostore
+POSTGRES_PASSWORD=oligostore
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+```
+
+### 2. Start services
+
+```bash
+docker compose up --build
+```
+
+### 3. Run migrations and create an admin user
+
+In a second terminal:
+
+```bash
+docker compose exec web python manage.py migrate
+docker compose exec web python manage.py createsuperuser
+```
+
+### 4. Open the app
+
+Open `http://localhost:8000`.
+
+## How to Use oligostore
+
+After starting the stack and logging in:
+
+1. Create or import primers from `Primer List`.
+2. Create primer pairs from existing primers.
+3. Create a project from `Projects`.
+4. Attach primer pairs and sequence files on the project dashboard.
+5. Run sequence analysis or primer-binding analysis.
+6. Download selected primers, primer pairs, or project sequence files.
+
+## Local HTTPS Setup (OpenSSL + Docker + NGINX + Django)
+
+Use this for production-like local HTTPS.
+
+### Architecture
+
+```text
 Browser
-└── HTTPS (443)
-└── NGINX (TLS termination)
-└── HTTP (8000)
-└── Gunicorn
-└── Django
+  -> HTTPS (443)
+  -> NGINX (TLS termination)
+  -> HTTP (8000)
+  -> Gunicorn
+  -> Django
+```
 
+- TLS is terminated by NGINX.
+- Django and Gunicorn run behind NGINX over internal HTTP.
 
-- TLS is handled **only by NGINX**
-- Django and Gunicorn do **not** manage certificates
-- Docker internal traffic remains HTTP
-
----
-
-## 1. Generate Self-Signed Certificates (OpenSSL)
+### 1. Generate a self-signed certificate
 
 From the project root:
 
 ```bash
 mkdir -p nginx/certs
-
-openssl req -x509 -nodes -days 365 \
-  -newkey rsa:2048 \
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout nginx/certs/localhost.key \
   -out nginx/certs/localhost.crt \
   -subj "/CN=localhost"
-```  
-
-### Directory structure:
-nginx/certs/
-├── localhost.crt   # certificate
-└── localhost.key     # private key
-
-# 2. docker-compose nginx service:
-
-nginx:
-  image: nginx:latest
-  ports:
-    - "80:80"
-    - "443:443"
-  volumes:
-    - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    - ./nginx/certs:/etc/nginx/certs:ro
-  depends_on:
-    - web
-
-# 3. Nginx configuration:
-
-events { }
-
-http {
-    include /etc/nginx/mime.types;
-
-    upstream django_app {
-        server web:8000;
-    }
-
-    # HTTP → HTTPS
-    server {
-        listen 80;
-        server_name localhost;
-        return 301 https://$host$request_uri;
-    }
-
-    # HTTPS
-    server {
-        listen 443 ssl;
-        server_name localhost;
-
-        ssl_certificate     /etc/nginx/certs/fullchain.pem;
-        ssl_certificate_key /etc/nginx/certs/privkey.pem;
-
-        location /static/ {
-            alias /app/staticfiles/;
-        }
-
-        location /media/ {
-            alias /app/media/;
-        }
-
-        location / {
-            proxy_pass http://django_app;
-            proxy_set_header Host $host;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto https;
-            proxy_set_header X-Forwarded-Port 443;
-        }
-    }
-}
-
-# 4. Django Production Settings
-## In settings.py
-```bash
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-SECURE_SSL_REDIRECT = True
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
 ```
-## In .env.production
-```bash
+
+Expected files:
+
+```text
+nginx/certs/localhost.crt
+nginx/certs/localhost.key
+```
+
+### 2. Prepare production env files
+
+`docker-compose-production.yml` uses `.env.production` (and currently `.env` for `worker`), so ensure both files exist with required Django/PostgreSQL values.
+
+At minimum in `.env.production`:
+
+```env
+DJANGO_SECRET_KEY=change-me
 DJANGO_DEBUG=False
-```
-# 5. Start the stack
-```bash
-docker compose down
-docker compose build --no-cache
-docker compose up
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+DJANGO_CSRF_TRUSTED_ORIGINS=https://localhost
+POSTGRES_DB=oligostore
+POSTGRES_USER=oligostore
+POSTGRES_PASSWORD=oligostore
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
 ```
 
-# 6. Verify HTTPS
+### 3. Start the production stack
+
+```bash
+docker compose -f docker-compose-production.yml up --build
+```
+
+### 4. Verify HTTPS
+
 ```bash
 openssl s_client -connect localhost:443 -servername localhost
-curl.exe -vk https://localhost
+curl -vk https://localhost
 ```
 
-# 7. Trust the certificate (windows)
+### 5. Trust certificate on Windows (optional)
+
+Export and import the certificate into your trusted root store:
+
 ```bash
-openssl x509 -in nginx/certs/fullchain.pem -out localhost.crt
+openssl x509 -in nginx/certs/localhost.crt -out localhost.crt
 ```
+
+If the certificate is not trusted, browser warnings are expected for self-signed certificates.
