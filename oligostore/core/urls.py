@@ -9,6 +9,7 @@ from .views import primer_list, primer_create,\
     analyze_sequence_view, save_generated_primerpair, \
     download_product_sequence, primer_binding_analysis, \
     sequencefile_list, sequencefile_upload, \
+    sequencefile_linear_view, \
     project_primer_list, project_download_sequence_files, \
     primer_binding_analysis_async, primer_binding_status, \
     project_add_sequencefile, project_remove_sequencefile, \
@@ -89,6 +90,11 @@ urlpatterns = [
         "sequence-files/upload/",
         sequencefile_upload,
         name="sequencefile_upload",
+    ),
+    path(
+        "sequence-files/<int:sequencefile_id>/linear-view/",
+        sequencefile_linear_view,
+        name="sequencefile_linear_view",
     ),
     # Ajax primer analysis
     path("analyze-primer/", analyze_primer_view, name="analyze_primer"),

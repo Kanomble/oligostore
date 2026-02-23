@@ -7,6 +7,7 @@ from django.contrib import messages
 
 from ..models import Primer, SequenceFile
 from ..services.primer_binding import analyze_primer_binding
+from ..services.sequence_loader import load_sequences
 from ..tasks import analyze_primer_binding_task
 from .utils import paginate_queryset
 
@@ -209,5 +210,77 @@ def primer_binding_analysis(request):
             "sequence_files": sequence_files,
             "preselected_primer": preselected_primer,
             "preselected_sequence_file": preselected_sequence_file,
+        },
+    )
+
+
+@login_required
+def sequencefile_linear_view(request, sequencefile_id):
+    sequence_file = get_object_or_404(
+        SequenceFile,
+        id=sequencefile_id,
+        uploaded_by=request.user,
+    )
+
+    records_payload = []
+    try:
+        records = load_sequences(sequence_file.file.path, sequence_file.file_type)
+    except Exception:
+        messages.error(request, "Could not parse the selected sequence file.")
+        return redirect("sequencefile_list")
+
+    try:
+        for record in records:
+            sequence = str(record.seq).upper()
+            features = []
+
+            for feature in getattr(record, "features", []):
+                try:
+                    start = int(feature.location.start) + 1
+                    end = int(feature.location.end)
+                except (TypeError, ValueError):
+                    continue
+
+                if end < start:
+                    continue
+
+                qualifiers = getattr(feature, "qualifiers", {}) or {}
+                label = (
+                    (qualifiers.get("label") or [None])[0]
+                    or (qualifiers.get("gene") or [None])[0]
+                    or (qualifiers.get("product") or [None])[0]
+                    or feature.type
+                )
+
+                features.append(
+                    {
+                        "start": start,
+                        "end": end,
+                        "type": feature.type,
+                        "strand": getattr(feature.location, "strand", None),
+                        "label": str(label),
+                    }
+                )
+
+            records_payload.append(
+                {
+                    "id": record.id,
+                    "name": record.name,
+                    "description": record.description,
+                    "length": len(sequence),
+                    "sequence": sequence,
+                    "features": features,
+                }
+            )
+    except Exception:
+        messages.error(request, "Could not parse the selected sequence file.")
+        return redirect("sequencefile_list")
+
+    return render(
+        request,
+        "core/sequencefile_linear_view.html",
+        {
+            "sequence_file": sequence_file,
+            "records_payload": records_payload,
         },
     )

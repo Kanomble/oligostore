@@ -37,6 +37,7 @@ from .sequence_files import (
     primer_binding_analysis,
     primer_binding_analysis_async,
     primer_binding_status,
+    sequencefile_linear_view,
     sequencefile_list,
     sequencefile_upload,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "project_remove_primerpair",
     "project_remove_sequencefile",
     "register",
+    "sequencefile_linear_view",
     "save_generated_primerpair",
     "sequencefile_list",
     "sequencefile_upload",

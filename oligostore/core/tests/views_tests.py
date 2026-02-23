@@ -101,6 +101,42 @@ class SequenceFileViewTests(TestCase):
         self.assertTrue(all(item.file_type == SequenceFile.FILE_FASTA for item in listed))
         self.assertEqual({item.name for item in listed}, {"Alpha"})
 
+    def test_sequencefile_linear_view_payload(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Linear",
+            file=SimpleUploadedFile("linear.fasta", b">record1\nATCGATCGAA"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.get(
+            reverse("sequencefile_linear_view", args=[sequence_file.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["sequence_file"].id, sequence_file.id)
+        self.assertEqual(len(response.context["records_payload"]), 1)
+        self.assertEqual(response.context["records_payload"][0]["id"], "record1")
+        self.assertEqual(response.context["records_payload"][0]["length"], 10)
+
+    def test_sequencefile_linear_view_forbidden_for_non_owner(self):
+        other_user = User.objects.create_user(
+            username="viewer_other",
+            email="viewer_other@example.com",
+            password="testpass123",
+        )
+        sequence_file = SequenceFile.objects.create(
+            name="Other private file",
+            file=SimpleUploadedFile("other.fasta", b">record1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=other_user,
+        )
+
+        response = self.client.get(
+            reverse("sequencefile_linear_view", args=[sequence_file.id])
+        )
+        self.assertEqual(response.status_code, 404)
+
 
 class PrimerBindingViewTests(TestCase):
     @classmethod

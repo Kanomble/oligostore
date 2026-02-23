@@ -134,3 +134,6 @@ openssl x509 -in nginx/certs/localhost.crt -out localhost.crt
 ```
 
 If the certificate is not trusted, browser warnings are expected for self-signed certificates.
+
+# TODO's
+- fix startup by adding makemigrations and migrate executions

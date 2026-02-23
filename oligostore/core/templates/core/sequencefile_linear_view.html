@@ -1,0 +1,250 @@
+{% extends "core/base.html" %}
+{% block title %}Linear Sequence View{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-10">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Linear Sequence Viewer</h1>
+      <p class="opacity-70 mt-2">
+        {{ sequence_file.name }} ({{ sequence_file.get_file_type_display }}) - zoom and pan along the sequence.
+      </p>
+    </div>
+    <a class="btn btn-outline" href="{% url 'sequencefile_list' %}">Back to sequence files</a>
+  </div>
+
+  {% if records_payload %}
+    {{ records_payload|json_script:"sequence-records-data" }}
+
+    <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-8">
+      <div class="card-body gap-5">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="form-control">
+            <label class="label"><span class="label-text font-semibold">Record</span></label>
+            <select id="recordSelect" class="select select-bordered w-full"></select>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button id="zoomInBtn" class="btn btn-outline mt-8">Zoom in</button>
+            <button id="zoomOutBtn" class="btn btn-outline mt-8">Zoom out</button>
+            <button id="resetBtn" class="btn btn-ghost mt-8">Reset</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="label"><span class="label-text font-semibold">Visible window size (bp)</span></label>
+          <input id="windowSizeSlider" type="range" class="range range-primary" min="20" max="1000" value="200" />
+          <div class="text-xs opacity-70 mt-1" id="windowSizeHint"></div>
+        </div>
+
+        <div>
+          <label class="label"><span class="label-text font-semibold">Pan position</span></label>
+          <input id="startSlider" type="range" class="range" min="1" max="1" value="1" />
+        </div>
+
+        <div class="rounded-xl border border-base-300 bg-base-200 p-4">
+          <div class="flex justify-between items-center mb-2">
+            <div class="font-semibold">Linear map</div>
+            <div id="windowLabel" class="text-sm opacity-70"></div>
+          </div>
+          <div class="h-8 rounded-full bg-base-300 relative overflow-hidden">
+            <div id="featureTrack" class="absolute inset-0"></div>
+            <div id="viewportBox" class="absolute top-0 h-full bg-primary/30 border-x-2 border-primary"></div>
+          </div>
+          <div id="featureLegend" class="mt-3 text-xs opacity-80"></div>
+        </div>
+
+        <div class="rounded-xl border border-base-300 p-4 bg-base-100">
+          <div class="font-semibold mb-2">Sequence window</div>
+          <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-x-auto whitespace-pre-wrap break-all font-mono"></pre>
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-8">
+      <div class="card-body">
+        <p>No sequence records were found in this file.</p>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<style>
+  .base-a { color: #0f766e; font-weight: 700; }
+  .base-c { color: #1d4ed8; font-weight: 700; }
+  .base-g { color: #a16207; font-weight: 700; }
+  .base-t { color: #b91c1c; font-weight: 700; }
+  .base-n { color: #6b7280; }
+</style>
+
+<script>
+  (() => {
+    const raw = document.getElementById("sequence-records-data");
+    if (!raw) {
+      return;
+    }
+
+    const records = JSON.parse(raw.textContent);
+    if (!records.length) {
+      return;
+    }
+
+    const recordSelect = document.getElementById("recordSelect");
+    const windowSizeSlider = document.getElementById("windowSizeSlider");
+    const startSlider = document.getElementById("startSlider");
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const windowLabel = document.getElementById("windowLabel");
+    const windowSizeHint = document.getElementById("windowSizeHint");
+    const viewportBox = document.getElementById("viewportBox");
+    const featureTrack = document.getElementById("featureTrack");
+    const featureLegend = document.getElementById("featureLegend");
+    const sequenceWindow = document.getElementById("sequenceWindow");
+
+    const state = {
+      recordIndex: 0,
+      windowSize: 200,
+      start: 1,
+    };
+
+    function getRecord() {
+      return records[state.recordIndex];
+    }
+
+    function clampWindowToRecord() {
+      const record = getRecord();
+      const maxWindow = Math.min(5000, Math.max(20, record.length));
+      state.windowSize = Math.min(Math.max(20, state.windowSize), maxWindow);
+      if (state.start > record.length) {
+        state.start = 1;
+      }
+      const maxStart = Math.max(1, record.length - state.windowSize + 1);
+      state.start = Math.min(state.start, maxStart);
+      state.start = Math.max(1, state.start);
+    }
+
+    function formatFeatures(features) {
+      if (!features.length) {
+        return "No annotated features in this record.";
+      }
+      const byType = {};
+      for (const feature of features) {
+        byType[feature.type] = (byType[feature.type] || 0) + 1;
+      }
+      return Object.entries(byType)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([type, count]) => `${type}: ${count}`)
+        .join(" | ");
+    }
+
+    function baseSpan(base) {
+      const value = base.toUpperCase();
+      if (value === "A") return `<span class="base-a">A</span>`;
+      if (value === "C") return `<span class="base-c">C</span>`;
+      if (value === "G") return `<span class="base-g">G</span>`;
+      if (value === "T") return `<span class="base-t">T</span>`;
+      return `<span class="base-n">${value}</span>`;
+    }
+
+    function renderSequenceWindow(seq, start, end) {
+      const visible = seq.slice(start - 1, end);
+      const chunkSize = 10;
+      const lineSize = 100;
+      const lines = [];
+      for (let i = 0; i < visible.length; i += lineSize) {
+        const lineStart = start + i;
+        const lineSegment = visible.slice(i, i + lineSize);
+        const chunks = [];
+        for (let j = 0; j < lineSegment.length; j += chunkSize) {
+          const chunk = lineSegment.slice(j, j + chunkSize);
+          chunks.push(chunk.split("").map(baseSpan).join(""));
+        }
+        lines.push(`${String(lineStart).padStart(8, " ")}  ${chunks.join(" ")}`);
+      }
+      sequenceWindow.innerHTML = lines.join("\n");
+    }
+
+    function renderFeatureTrack(record) {
+      featureTrack.innerHTML = "";
+      const colors = ["bg-secondary/40", "bg-accent/40", "bg-info/40", "bg-success/40", "bg-warning/40"];
+      record.features.forEach((feature, index) => {
+        const left = ((feature.start - 1) / record.length) * 100;
+        const width = Math.max((feature.end - feature.start + 1) / record.length * 100, 0.25);
+        const marker = document.createElement("div");
+        marker.className = `absolute top-1 h-6 rounded ${colors[index % colors.length]}`;
+        marker.style.left = `${left}%`;
+        marker.style.width = `${Math.min(width, 100 - left)}%`;
+        marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
+        featureTrack.appendChild(marker);
+      });
+    }
+
+    function render() {
+      const record = getRecord();
+      clampWindowToRecord();
+
+      windowSizeSlider.max = String(Math.min(5000, Math.max(20, record.length)));
+      windowSizeSlider.value = String(state.windowSize);
+
+      startSlider.max = String(Math.max(1, record.length - state.windowSize + 1));
+      startSlider.value = String(state.start);
+
+      const end = Math.min(record.length, state.start + state.windowSize - 1);
+
+      const leftPct = ((state.start - 1) / record.length) * 100;
+      const widthPct = ((end - state.start + 1) / record.length) * 100;
+      viewportBox.style.left = `${leftPct}%`;
+      viewportBox.style.width = `${Math.max(widthPct, 0.5)}%`;
+
+      windowLabel.textContent = `${record.id} | ${state.start.toLocaleString()}-${end.toLocaleString()} / ${record.length.toLocaleString()} bp`;
+      windowSizeHint.textContent = `${state.windowSize.toLocaleString()} bp visible`;
+      featureLegend.textContent = formatFeatures(record.features);
+      renderFeatureTrack(record);
+      renderSequenceWindow(record.sequence, state.start, end);
+    }
+
+    records.forEach((record, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = `${record.id} (${record.length.toLocaleString()} bp)`;
+      recordSelect.appendChild(option);
+    });
+
+    recordSelect.addEventListener("change", () => {
+      state.recordIndex = Number(recordSelect.value);
+      state.windowSize = Math.min(200, getRecord().length);
+      state.start = 1;
+      render();
+    });
+
+    windowSizeSlider.addEventListener("input", () => {
+      state.windowSize = Number(windowSizeSlider.value);
+      render();
+    });
+
+    startSlider.addEventListener("input", () => {
+      state.start = Number(startSlider.value);
+      render();
+    });
+
+    zoomInBtn.addEventListener("click", () => {
+      state.windowSize = Math.max(20, Math.floor(state.windowSize / 2));
+      render();
+    });
+
+    zoomOutBtn.addEventListener("click", () => {
+      const maxWindow = Math.min(5000, getRecord().length);
+      state.windowSize = Math.min(maxWindow, state.windowSize * 2);
+      render();
+    });
+
+    resetBtn.addEventListener("click", () => {
+      state.windowSize = Math.min(200, getRecord().length);
+      state.start = 1;
+      render();
+    });
+
+    render();
+  })();
+</script>
+{% endblock %}

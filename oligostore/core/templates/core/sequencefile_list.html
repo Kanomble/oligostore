@@ -156,6 +156,12 @@
                     <div class="flex justify-end gap-2">
                       <!-- Optional: link to download raw file (requires media serving) -->
                       <a class="btn btn-ghost btn-sm" href="{{ sf.file.url }}">Download</a>
+                      <a
+                        class="btn btn-outline btn-sm"
+                        href="{% url 'sequencefile_linear_view' sf.id %}"
+                      >
+                        Visualize
+                      </a>
 
                       <!-- Optional: detail page -->
                       {# <a class="btn btn-outline btn-sm" href="{% url 'sequencefile_detail' sf.id %}">View</a> #}
