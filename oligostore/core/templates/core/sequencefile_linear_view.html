@@ -54,6 +54,37 @@
         </div>
 
         <div class="rounded-xl border border-base-300 p-4 bg-base-100">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between mb-2">
+            <div>
+              <div class="font-semibold">Feature viewer</div>
+              <div class="text-xs opacity-70">Inspect and focus annotated features.</div>
+            </div>
+            <div class="form-control w-full sm:max-w-xs">
+              <label class="label py-1"><span class="label-text text-xs">Filter features</span></label>
+              <input id="featureSearchInput" type="text" class="input input-bordered input-sm" placeholder="label, type, position" />
+            </div>
+          </div>
+          <div id="featureCount" class="text-xs opacity-70 mb-3"></div>
+          <div class="border border-base-300 rounded-lg overflow-hidden">
+            <div class="max-h-80 overflow-auto">
+              <table class="table table-zebra table-sm w-full">
+                <thead class="sticky top-0 bg-base-100 z-10">
+                  <tr>
+                    <th>Label</th>
+                    <th>Type</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Length</th>
+                    <th>Strand</th>
+                  </tr>
+                </thead>
+                <tbody id="featureTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-base-300 p-4 bg-base-100">
           <div class="font-semibold mb-2">Sequence window</div>
           <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-x-auto whitespace-pre-wrap break-all font-mono"></pre>
         </div>
@@ -99,12 +130,17 @@
     const viewportBox = document.getElementById("viewportBox");
     const featureTrack = document.getElementById("featureTrack");
     const featureLegend = document.getElementById("featureLegend");
+    const featureSearchInput = document.getElementById("featureSearchInput");
+    const featureCount = document.getElementById("featureCount");
+    const featureTableBody = document.getElementById("featureTableBody");
     const sequenceWindow = document.getElementById("sequenceWindow");
 
     const state = {
       recordIndex: 0,
       windowSize: 200,
       start: 1,
+      selectedFeatureIndex: null,
+      featureQuery: "",
     };
 
     function getRecord() {
@@ -146,6 +182,52 @@
       return `<span class="base-n">${value}</span>`;
     }
 
+    function normalize(value) {
+      return String(value || "").toLowerCase();
+    }
+
+    function getFilteredFeatureIndexes(record) {
+      const query = normalize(state.featureQuery).trim();
+      if (!query) {
+        return record.features.map((_, index) => index);
+      }
+      return record.features
+        .map((feature, index) => ({ feature, index }))
+        .filter(({ feature }) => {
+          const haystack = [
+            feature.label,
+            feature.type,
+            feature.start,
+            feature.end,
+            feature.strand,
+          ].map(normalize).join(" ");
+          return haystack.includes(query);
+        })
+        .map(({ index }) => index);
+    }
+
+    function featureLength(feature) {
+      return feature.end - feature.start + 1;
+    }
+
+    function strandLabel(strand) {
+      if (strand === 1) return "Forward (+)";
+      if (strand === -1) return "Reverse (-)";
+      return "Unknown";
+    }
+
+    function jumpToFeature(record, feature) {
+      const length = featureLength(feature);
+      if (length > state.windowSize) {
+        const maxWindow = Math.min(5000, record.length);
+        state.windowSize = Math.min(maxWindow, Math.max(20, length));
+      }
+      const midpoint = Math.floor((feature.start + feature.end) / 2);
+      const centeredStart = midpoint - Math.floor(state.windowSize / 2);
+      const maxStart = Math.max(1, record.length - state.windowSize + 1);
+      state.start = Math.max(1, Math.min(centeredStart, maxStart));
+    }
+
     function renderSequenceWindow(seq, start, end) {
       const visible = seq.slice(start - 1, end);
       const chunkSize = 10;
@@ -167,15 +249,57 @@
     function renderFeatureTrack(record) {
       featureTrack.innerHTML = "";
       const colors = ["bg-secondary/40", "bg-accent/40", "bg-info/40", "bg-success/40", "bg-warning/40"];
+      const visibleFeatureIndexes = new Set(getFilteredFeatureIndexes(record));
       record.features.forEach((feature, index) => {
         const left = ((feature.start - 1) / record.length) * 100;
         const width = Math.max((feature.end - feature.start + 1) / record.length * 100, 0.25);
         const marker = document.createElement("div");
-        marker.className = `absolute top-1 h-6 rounded ${colors[index % colors.length]}`;
+        const isSelected = state.selectedFeatureIndex === index;
+        const isVisible = visibleFeatureIndexes.has(index);
+        marker.className = `absolute top-1 h-6 rounded cursor-pointer ${colors[index % colors.length]} ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200" : ""} ${isVisible ? "opacity-95" : "opacity-20"}`;
         marker.style.left = `${left}%`;
         marker.style.width = `${Math.min(width, 100 - left)}%`;
         marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
+        marker.addEventListener("click", () => {
+          state.selectedFeatureIndex = index;
+          jumpToFeature(record, feature);
+          render();
+        });
         featureTrack.appendChild(marker);
+      });
+    }
+
+    function renderFeatureViewer(record) {
+      const visibleIndexes = getFilteredFeatureIndexes(record);
+      featureCount.textContent = `${visibleIndexes.length.toLocaleString()} of ${record.features.length.toLocaleString()} features shown`;
+      if (!visibleIndexes.length) {
+        featureTableBody.innerHTML = `<tr><td colspan="6" class="text-center opacity-70 py-3">No features match the current filter.</td></tr>`;
+        return;
+      }
+
+      if (state.selectedFeatureIndex === null || !visibleIndexes.includes(state.selectedFeatureIndex)) {
+        state.selectedFeatureIndex = visibleIndexes[0];
+      }
+
+      featureTableBody.innerHTML = "";
+      visibleIndexes.forEach((index) => {
+        const feature = record.features[index];
+        const row = document.createElement("tr");
+        row.className = `cursor-pointer ${state.selectedFeatureIndex === index ? "bg-base-200" : ""}`;
+        row.innerHTML = `
+          <td class="max-w-56 truncate" title="${feature.label}">${feature.label}</td>
+          <td>${feature.type}</td>
+          <td class="font-mono">${feature.start.toLocaleString()}</td>
+          <td class="font-mono">${feature.end.toLocaleString()}</td>
+          <td class="font-mono">${featureLength(feature).toLocaleString()} bp</td>
+          <td>${strandLabel(feature.strand)}</td>
+        `;
+        row.addEventListener("click", () => {
+          state.selectedFeatureIndex = index;
+          jumpToFeature(record, feature);
+          render();
+        });
+        featureTableBody.appendChild(row);
       });
     }
 
@@ -200,6 +324,7 @@
       windowSizeHint.textContent = `${state.windowSize.toLocaleString()} bp visible`;
       featureLegend.textContent = formatFeatures(record.features);
       renderFeatureTrack(record);
+      renderFeatureViewer(record);
       renderSequenceWindow(record.sequence, state.start, end);
     }
 
@@ -214,6 +339,7 @@
       state.recordIndex = Number(recordSelect.value);
       state.windowSize = Math.min(200, getRecord().length);
       state.start = 1;
+      state.selectedFeatureIndex = null;
       render();
     });
 
@@ -241,6 +367,12 @@
     resetBtn.addEventListener("click", () => {
       state.windowSize = Math.min(200, getRecord().length);
       state.start = 1;
+      render();
+    });
+
+    featureSearchInput.addEventListener("input", () => {
+      state.featureQuery = featureSearchInput.value;
+      state.selectedFeatureIndex = null;
       render();
     });
 
