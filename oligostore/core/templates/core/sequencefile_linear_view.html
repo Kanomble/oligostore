@@ -42,9 +42,20 @@
         </div>
 
         <div class="rounded-xl border border-base-300 bg-base-200 p-4">
-          <div class="flex justify-between items-center mb-2">
-            <div class="font-semibold">Linear map</div>
-            <div id="windowLabel" class="text-sm opacity-70"></div>
+          <div class="flex flex-col gap-3 mb-2">
+            <div class="flex justify-between items-center">
+              <div class="font-semibold">Linear map</div>
+              <div id="windowLabel" class="text-sm opacity-70"></div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button id="mapZoomInBtn" class="btn btn-outline btn-sm">Map zoom in</button>
+              <button id="mapZoomOutBtn" class="btn btn-outline btn-sm">Map zoom out</button>
+              <button id="mapZoomResetBtn" class="btn btn-ghost btn-sm">Map reset</button>
+            </div>
+            <div>
+              <div class="text-xs opacity-70 mb-1" id="mapRangeLabel"></div>
+              <input id="mapStartSlider" type="range" class="range range-sm" min="1" max="1" value="1" />
+            </div>
           </div>
           <div class="h-8 rounded-full bg-base-300 relative overflow-hidden">
             <div id="featureTrack" class="absolute inset-0"></div>
@@ -59,9 +70,22 @@
               <div class="font-semibold">Feature viewer</div>
               <div class="text-xs opacity-70">Inspect and focus annotated features.</div>
             </div>
-            <div class="form-control w-full sm:max-w-xs">
+            <div class="form-control w-full sm:max-w-sm">
               <label class="label py-1"><span class="label-text text-xs">Filter features</span></label>
               <input id="featureSearchInput" type="text" class="input input-bordered input-sm" placeholder="label, type, position" />
+            </div>
+          </div>
+          <div class="flex flex-wrap items-end gap-2 mb-2">
+            <button id="showMapSelectedBtn" class="btn btn-outline btn-sm">Show map-selected</button>
+            <button id="showAllFeaturesBtn" class="btn btn-outline btn-sm">Show all</button>
+            <button id="clearMapSelectionBtn" class="btn btn-ghost btn-sm">Clear map selection</button>
+            <div class="form-control w-24">
+              <label class="label py-1"><span class="label-text text-xs">Rows</span></label>
+              <select id="featurePageSizeSelect" class="select select-bordered select-sm">
+                <option value="10" selected>10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+              </select>
             </div>
           </div>
           <div id="featureCount" class="text-xs opacity-70 mb-3"></div>
@@ -80,6 +104,13 @@
                 </thead>
                 <tbody id="featureTableBody"></tbody>
               </table>
+            </div>
+          </div>
+          <div class="mt-3 flex items-center justify-between gap-2">
+            <div id="featurePageInfo" class="text-xs opacity-70"></div>
+            <div class="join">
+              <button id="featurePrevPageBtn" class="btn btn-xs join-item">Prev</button>
+              <button id="featureNextPageBtn" class="btn btn-xs join-item">Next</button>
             </div>
           </div>
         </div>
@@ -125,6 +156,11 @@
     const zoomInBtn = document.getElementById("zoomInBtn");
     const zoomOutBtn = document.getElementById("zoomOutBtn");
     const resetBtn = document.getElementById("resetBtn");
+    const mapZoomInBtn = document.getElementById("mapZoomInBtn");
+    const mapZoomOutBtn = document.getElementById("mapZoomOutBtn");
+    const mapZoomResetBtn = document.getElementById("mapZoomResetBtn");
+    const mapStartSlider = document.getElementById("mapStartSlider");
+    const mapRangeLabel = document.getElementById("mapRangeLabel");
     const windowLabel = document.getElementById("windowLabel");
     const windowSizeHint = document.getElementById("windowSizeHint");
     const viewportBox = document.getElementById("viewportBox");
@@ -133,14 +169,27 @@
     const featureSearchInput = document.getElementById("featureSearchInput");
     const featureCount = document.getElementById("featureCount");
     const featureTableBody = document.getElementById("featureTableBody");
+    const showMapSelectedBtn = document.getElementById("showMapSelectedBtn");
+    const showAllFeaturesBtn = document.getElementById("showAllFeaturesBtn");
+    const clearMapSelectionBtn = document.getElementById("clearMapSelectionBtn");
+    const featurePageSizeSelect = document.getElementById("featurePageSizeSelect");
+    const featurePageInfo = document.getElementById("featurePageInfo");
+    const featurePrevPageBtn = document.getElementById("featurePrevPageBtn");
+    const featureNextPageBtn = document.getElementById("featureNextPageBtn");
     const sequenceWindow = document.getElementById("sequenceWindow");
 
     const state = {
       recordIndex: 0,
       windowSize: 200,
       start: 1,
+      mapWindowSize: 1000,
+      mapStart: 1,
       selectedFeatureIndex: null,
       featureQuery: "",
+      tablePage: 1,
+      tablePageSize: 10,
+      showMapSelectedOnly: false,
+      mapSelectedFeatureIndexes: new Set(),
     };
 
     function getRecord() {
@@ -157,6 +206,22 @@
       const maxStart = Math.max(1, record.length - state.windowSize + 1);
       state.start = Math.min(state.start, maxStart);
       state.start = Math.max(1, state.start);
+    }
+
+    function defaultMapWindowSize(recordLength) {
+      return Math.min(recordLength, Math.max(200, Math.floor(recordLength / 5)));
+    }
+
+    function clampMapToRecord() {
+      const record = getRecord();
+      const maxMapWindow = Math.max(50, record.length);
+      state.mapWindowSize = Math.min(Math.max(50, state.mapWindowSize), maxMapWindow);
+      if (state.mapStart > record.length) {
+        state.mapStart = 1;
+      }
+      const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
+      state.mapStart = Math.min(state.mapStart, maxMapStart);
+      state.mapStart = Math.max(1, state.mapStart);
     }
 
     function formatFeatures(features) {
@@ -206,6 +271,14 @@
         .map(({ index }) => index);
     }
 
+    function getTableFeatureIndexes(record) {
+      const filtered = getFilteredFeatureIndexes(record);
+      if (!state.showMapSelectedOnly) {
+        return filtered;
+      }
+      return filtered.filter((index) => state.mapSelectedFeatureIndexes.has(index));
+    }
+
     function featureLength(feature) {
       return feature.end - feature.start + 1;
     }
@@ -226,6 +299,16 @@
       const centeredStart = midpoint - Math.floor(state.windowSize / 2);
       const maxStart = Math.max(1, record.length - state.windowSize + 1);
       state.start = Math.max(1, Math.min(centeredStart, maxStart));
+      const mapMidpoint = Math.floor((feature.start + feature.end) / 2);
+      const centeredMapStart = mapMidpoint - Math.floor(state.mapWindowSize / 2);
+      const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
+      state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
+    }
+
+    function displayMapSelectedFeaturesInTable() {
+      state.showMapSelectedOnly = true;
+      state.tablePage = 1;
+      render();
     }
 
     function renderSequenceWindow(seq, start, end) {
@@ -250,9 +333,17 @@
       featureTrack.innerHTML = "";
       const colors = ["bg-secondary/40", "bg-accent/40", "bg-info/40", "bg-success/40", "bg-warning/40"];
       const visibleFeatureIndexes = new Set(getFilteredFeatureIndexes(record));
+      const mapStart = state.mapStart;
+      const mapEnd = Math.min(record.length, mapStart + state.mapWindowSize - 1);
+      const mapLength = mapEnd - mapStart + 1;
       record.features.forEach((feature, index) => {
-        const left = ((feature.start - 1) / record.length) * 100;
-        const width = Math.max((feature.end - feature.start + 1) / record.length * 100, 0.25);
+        if (feature.end < mapStart || feature.start > mapEnd) {
+          return;
+        }
+        const visibleStart = Math.max(feature.start, mapStart);
+        const visibleEnd = Math.min(feature.end, mapEnd);
+        const left = ((visibleStart - mapStart) / mapLength) * 100;
+        const width = Math.max((visibleEnd - visibleStart + 1) / mapLength * 100, 0.5);
         const marker = document.createElement("div");
         const isSelected = state.selectedFeatureIndex === index;
         const isVisible = visibleFeatureIndexes.has(index);
@@ -262,6 +353,9 @@
         marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
         marker.addEventListener("click", () => {
           state.selectedFeatureIndex = index;
+          state.mapSelectedFeatureIndexes.add(index);
+          state.showMapSelectedOnly = true;
+          state.tablePage = 1;
           jumpToFeature(record, feature);
           render();
         });
@@ -270,19 +364,37 @@
     }
 
     function renderFeatureViewer(record) {
-      const visibleIndexes = getFilteredFeatureIndexes(record);
-      featureCount.textContent = `${visibleIndexes.length.toLocaleString()} of ${record.features.length.toLocaleString()} features shown`;
-      if (!visibleIndexes.length) {
-        featureTableBody.innerHTML = `<tr><td colspan="6" class="text-center opacity-70 py-3">No features match the current filter.</td></tr>`;
+      const tableIndexes = getTableFeatureIndexes(record);
+      const selectedCount = state.mapSelectedFeatureIndexes.size;
+      const modeLabel = state.showMapSelectedOnly ? "map-selected mode" : "all features mode";
+      featureCount.textContent = `${tableIndexes.length.toLocaleString()} of ${record.features.length.toLocaleString()} features shown | map-selected: ${selectedCount.toLocaleString()} | ${modeLabel}`;
+      if (!tableIndexes.length) {
+        const emptyMessage = state.showMapSelectedOnly
+          ? "No map-selected features match the current filter."
+          : "No features match the current filter.";
+        featureTableBody.innerHTML = `<tr><td colspan="6" class="text-center opacity-70 py-3">${emptyMessage}</td></tr>`;
+        featurePageInfo.textContent = "Page 0 of 0";
+        featurePrevPageBtn.disabled = true;
+        featureNextPageBtn.disabled = true;
         return;
       }
 
-      if (state.selectedFeatureIndex === null || !visibleIndexes.includes(state.selectedFeatureIndex)) {
-        state.selectedFeatureIndex = visibleIndexes[0];
+      if (state.selectedFeatureIndex === null || !tableIndexes.includes(state.selectedFeatureIndex)) {
+        state.selectedFeatureIndex = tableIndexes[0];
       }
 
+      const totalPages = Math.max(1, Math.ceil(tableIndexes.length / state.tablePageSize));
+      state.tablePage = Math.min(Math.max(1, state.tablePage), totalPages);
+      const pageStart = (state.tablePage - 1) * state.tablePageSize;
+      const pageEnd = pageStart + state.tablePageSize;
+      const pageIndexes = tableIndexes.slice(pageStart, pageEnd);
+
+      featurePageInfo.textContent = `Page ${state.tablePage.toLocaleString()} of ${totalPages.toLocaleString()}`;
+      featurePrevPageBtn.disabled = state.tablePage <= 1;
+      featureNextPageBtn.disabled = state.tablePage >= totalPages;
+
       featureTableBody.innerHTML = "";
-      visibleIndexes.forEach((index) => {
+      pageIndexes.forEach((index) => {
         const feature = record.features[index];
         const row = document.createElement("tr");
         row.className = `cursor-pointer ${state.selectedFeatureIndex === index ? "bg-base-200" : ""}`;
@@ -306,6 +418,7 @@
     function render() {
       const record = getRecord();
       clampWindowToRecord();
+      clampMapToRecord();
 
       windowSizeSlider.max = String(Math.min(5000, Math.max(20, record.length)));
       windowSizeSlider.value = String(state.windowSize);
@@ -314,11 +427,24 @@
       startSlider.value = String(state.start);
 
       const end = Math.min(record.length, state.start + state.windowSize - 1);
+      const mapEnd = Math.min(record.length, state.mapStart + state.mapWindowSize - 1);
+      const mapLength = mapEnd - state.mapStart + 1;
 
-      const leftPct = ((state.start - 1) / record.length) * 100;
-      const widthPct = ((end - state.start + 1) / record.length) * 100;
-      viewportBox.style.left = `${leftPct}%`;
-      viewportBox.style.width = `${Math.max(widthPct, 0.5)}%`;
+      mapStartSlider.max = String(Math.max(1, record.length - state.mapWindowSize + 1));
+      mapStartSlider.value = String(state.mapStart);
+      mapRangeLabel.textContent = `Map range: ${state.mapStart.toLocaleString()}-${mapEnd.toLocaleString()} (${mapLength.toLocaleString()} bp)`;
+
+      if (end < state.mapStart || state.start > mapEnd) {
+        viewportBox.style.left = "0%";
+        viewportBox.style.width = "0%";
+      } else {
+        const visibleWindowStart = Math.max(state.start, state.mapStart);
+        const visibleWindowEnd = Math.min(end, mapEnd);
+        const leftPct = ((visibleWindowStart - state.mapStart) / mapLength) * 100;
+        const widthPct = ((visibleWindowEnd - visibleWindowStart + 1) / mapLength) * 100;
+        viewportBox.style.left = `${leftPct}%`;
+        viewportBox.style.width = `${Math.max(widthPct, 0.5)}%`;
+      }
 
       windowLabel.textContent = `${record.id} | ${state.start.toLocaleString()}-${end.toLocaleString()} / ${record.length.toLocaleString()} bp`;
       windowSizeHint.textContent = `${state.windowSize.toLocaleString()} bp visible`;
@@ -339,7 +465,12 @@
       state.recordIndex = Number(recordSelect.value);
       state.windowSize = Math.min(200, getRecord().length);
       state.start = 1;
+      state.mapWindowSize = defaultMapWindowSize(getRecord().length);
+      state.mapStart = 1;
       state.selectedFeatureIndex = null;
+      state.tablePage = 1;
+      state.showMapSelectedOnly = false;
+      state.mapSelectedFeatureIndexes = new Set();
       render();
     });
 
@@ -370,12 +501,67 @@
       render();
     });
 
-    featureSearchInput.addEventListener("input", () => {
-      state.featureQuery = featureSearchInput.value;
-      state.selectedFeatureIndex = null;
+    mapStartSlider.addEventListener("input", () => {
+      state.mapStart = Number(mapStartSlider.value);
       render();
     });
 
+    mapZoomInBtn.addEventListener("click", () => {
+      state.mapWindowSize = Math.max(50, Math.floor(state.mapWindowSize / 2));
+      render();
+    });
+
+    mapZoomOutBtn.addEventListener("click", () => {
+      state.mapWindowSize = Math.min(getRecord().length, state.mapWindowSize * 2);
+      render();
+    });
+
+    mapZoomResetBtn.addEventListener("click", () => {
+      state.mapWindowSize = defaultMapWindowSize(getRecord().length);
+      state.mapStart = 1;
+      render();
+    });
+
+    featureSearchInput.addEventListener("input", () => {
+      state.featureQuery = featureSearchInput.value;
+      state.selectedFeatureIndex = null;
+      state.tablePage = 1;
+      render();
+    });
+
+    featurePageSizeSelect.addEventListener("change", () => {
+      state.tablePageSize = Number(featurePageSizeSelect.value);
+      state.tablePage = 1;
+      render();
+    });
+
+    featurePrevPageBtn.addEventListener("click", () => {
+      state.tablePage = Math.max(1, state.tablePage - 1);
+      render();
+    });
+
+    featureNextPageBtn.addEventListener("click", () => {
+      state.tablePage = state.tablePage + 1;
+      render();
+    });
+
+    showMapSelectedBtn.addEventListener("click", () => {
+      displayMapSelectedFeaturesInTable();
+    });
+
+    showAllFeaturesBtn.addEventListener("click", () => {
+      state.showMapSelectedOnly = false;
+      state.tablePage = 1;
+      render();
+    });
+
+    clearMapSelectionBtn.addEventListener("click", () => {
+      state.mapSelectedFeatureIndexes = new Set();
+      state.tablePage = 1;
+      render();
+    });
+
+    state.mapWindowSize = defaultMapWindowSize(getRecord().length);
     render();
   })();
 </script>
