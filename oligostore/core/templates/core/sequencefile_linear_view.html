@@ -57,9 +57,23 @@
               <input id="mapStartSlider" type="range" class="range range-sm" min="1" max="1" value="1" />
             </div>
           </div>
-          <div class="h-8 rounded-full bg-base-300 relative overflow-hidden">
-            <div id="featureTrack" class="absolute inset-0"></div>
-            <div id="viewportBox" class="absolute top-0 h-full bg-primary/30 border-x-2 border-primary"></div>
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <div class="text-[11px] opacity-70 w-24">Forward primers</div>
+              <div class="h-4 rounded-full bg-base-300/60 relative overflow-hidden flex-1">
+                <div id="forwardPrimerTrack" class="absolute inset-0"></div>
+              </div>
+            </div>
+            <div class="h-8 rounded-full bg-base-300 relative overflow-hidden">
+              <div id="featureTrack" class="absolute inset-0"></div>
+              <div id="viewportBox" class="absolute top-0 h-full bg-primary/30 border-x-2 border-primary"></div>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="text-[11px] opacity-70 w-24">Reverse primers</div>
+              <div class="h-4 rounded-full bg-base-300/60 relative overflow-hidden flex-1">
+                <div id="reversePrimerTrack" class="absolute inset-0"></div>
+              </div>
+            </div>
           </div>
           <div id="featureLegend" class="mt-3 text-xs opacity-80"></div>
         </div>
@@ -165,6 +179,8 @@
     const windowSizeHint = document.getElementById("windowSizeHint");
     const viewportBox = document.getElementById("viewportBox");
     const featureTrack = document.getElementById("featureTrack");
+    const forwardPrimerTrack = document.getElementById("forwardPrimerTrack");
+    const reversePrimerTrack = document.getElementById("reversePrimerTrack");
     const featureLegend = document.getElementById("featureLegend");
     const featureSearchInput = document.getElementById("featureSearchInput");
     const featureCount = document.getElementById("featureCount");
@@ -283,6 +299,10 @@
       return feature.end - feature.start + 1;
     }
 
+    function isPrimerBindingFeature(feature) {
+      return normalize(feature.type).includes("primer");
+    }
+
     function strandLabel(strand) {
       if (strand === 1) return "Forward (+)";
       if (strand === -1) return "Reverse (-)";
@@ -331,11 +351,56 @@
 
     function renderFeatureTrack(record) {
       featureTrack.innerHTML = "";
+      forwardPrimerTrack.innerHTML = "";
+      reversePrimerTrack.innerHTML = "";
       const colors = ["bg-secondary/40", "bg-accent/40", "bg-info/40", "bg-success/40", "bg-warning/40"];
       const visibleFeatureIndexes = new Set(getFilteredFeatureIndexes(record));
       const mapStart = state.mapStart;
       const mapEnd = Math.min(record.length, mapStart + state.mapWindowSize - 1);
       const mapLength = mapEnd - mapStart + 1;
+
+      function buildPrimerArrow(color, isForward) {
+        const marker = document.createElement("div");
+        marker.style.position = "absolute";
+        marker.style.top = "0";
+        marker.style.height = "100%";
+
+        const body = document.createElement("div");
+        body.style.position = "absolute";
+        body.style.top = "50%";
+        body.style.transform = "translateY(-50%)";
+        body.style.height = "6px";
+        body.style.borderRadius = "9999px";
+        body.style.backgroundColor = color;
+        if (isForward) {
+          body.style.left = "0";
+          body.style.right = "8px";
+        } else {
+          body.style.left = "8px";
+          body.style.right = "0";
+        }
+
+        const head = document.createElement("div");
+        head.style.position = "absolute";
+        head.style.top = "50%";
+        head.style.transform = "translateY(-50%)";
+        head.style.width = "0";
+        head.style.height = "0";
+        head.style.borderTop = "5px solid transparent";
+        head.style.borderBottom = "5px solid transparent";
+        if (isForward) {
+          head.style.right = "0";
+          head.style.borderLeft = `8px solid ${color}`;
+        } else {
+          head.style.left = "0";
+          head.style.borderRight = `8px solid ${color}`;
+        }
+
+        marker.appendChild(body);
+        marker.appendChild(head);
+        return marker;
+      }
+
       record.features.forEach((feature, index) => {
         if (feature.end < mapStart || feature.start > mapEnd) {
           return;
@@ -344,21 +409,40 @@
         const visibleEnd = Math.min(feature.end, mapEnd);
         const left = ((visibleStart - mapStart) / mapLength) * 100;
         const width = Math.max((visibleEnd - visibleStart + 1) / mapLength * 100, 0.5);
-        const marker = document.createElement("div");
         const isSelected = state.selectedFeatureIndex === index;
         const isVisible = visibleFeatureIndexes.has(index);
-        marker.className = `absolute top-1 h-6 rounded cursor-pointer ${colors[index % colors.length]} ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200" : ""} ${isVisible ? "opacity-95" : "opacity-20"}`;
-        marker.style.left = `${left}%`;
-        marker.style.width = `${Math.min(width, 100 - left)}%`;
-        marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
-        marker.addEventListener("click", () => {
+        const handleClick = () => {
           state.selectedFeatureIndex = index;
           state.mapSelectedFeatureIndexes.add(index);
           state.showMapSelectedOnly = true;
           state.tablePage = 1;
           jumpToFeature(record, feature);
           render();
-        });
+        };
+
+        if (isPrimerBindingFeature(feature)) {
+          const isForward = feature.strand !== -1;
+          const primerColor = isForward ? "rgba(37, 99, 235, 0.75)" : "rgba(220, 38, 38, 0.75)";
+          const primerMarker = buildPrimerArrow(primerColor, isForward);
+          primerMarker.className = `cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200 rounded" : ""} ${isVisible ? "opacity-100" : "opacity-30"}`;
+          primerMarker.style.left = `${left}%`;
+          primerMarker.style.width = `${Math.min(width, 100 - left)}%`;
+          primerMarker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
+          primerMarker.addEventListener("click", handleClick);
+          if (isForward) {
+            forwardPrimerTrack.appendChild(primerMarker);
+          } else {
+            reversePrimerTrack.appendChild(primerMarker);
+          }
+          return;
+        }
+
+        const marker = document.createElement("div");
+        marker.className = `absolute top-1 h-6 rounded cursor-pointer ${colors[index % colors.length]} ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200" : ""} ${isVisible ? "opacity-95" : "opacity-20"}`;
+        marker.style.left = `${left}%`;
+        marker.style.width = `${Math.min(width, 100 - left)}%`;
+        marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
+        marker.addEventListener("click", handleClick);
         featureTrack.appendChild(marker);
       });
     }
