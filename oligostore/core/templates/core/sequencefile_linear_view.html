@@ -60,21 +60,30 @@
           <div class="space-y-1">
             <div class="flex items-center gap-2">
               <div class="text-[11px] opacity-70 w-24">Forward primers</div>
-              <div class="h-4 rounded-full bg-base-300/60 relative overflow-hidden flex-1">
+              <div class="h-5 rounded-full bg-base-300/60 relative overflow-hidden flex-1">
                 <div id="forwardPrimerTrack" class="absolute inset-0"></div>
               </div>
             </div>
-            <div class="h-8 rounded-full bg-base-300 relative overflow-hidden">
-              <div id="featureTrack" class="absolute inset-0"></div>
-              <div id="viewportBox" class="absolute top-0 h-full bg-primary/30 border-x-2 border-primary"></div>
+            <div id="featureTrackContainer" class="h-10 rounded-xl bg-base-300 relative overflow-hidden map-track-grid">
+              <div id="viewportBox" class="absolute top-0 h-full border-x-2 border-primary/70 bg-primary/10 pointer-events-none z-0"></div>
+              <div id="featureTrack" class="absolute inset-0 z-10"></div>
             </div>
             <div class="flex items-center gap-2">
               <div class="text-[11px] opacity-70 w-24">Reverse primers</div>
-              <div class="h-4 rounded-full bg-base-300/60 relative overflow-hidden flex-1">
+              <div class="h-5 rounded-full bg-base-300/60 relative overflow-hidden flex-1">
                 <div id="reversePrimerTrack" class="absolute inset-0"></div>
               </div>
             </div>
           </div>
+          <div class="mt-2">
+            <div id="mapTickTrack" class="relative h-4"></div>
+            <div class="flex justify-between text-[11px] opacity-70">
+              <span id="mapLeftLabel"></span>
+              <span id="mapRightLabel"></span>
+            </div>
+          </div>
+          <div id="primerCountSummary" class="mt-1 text-[11px] opacity-70"></div>
+          <div id="mapSelectionSummary" class="mt-2 text-xs opacity-70"></div>
           <div id="featureLegend" class="mt-3 text-xs opacity-80"></div>
         </div>
 
@@ -150,6 +159,15 @@
   .base-g { color: #a16207; font-weight: 700; }
   .base-t { color: #b91c1c; font-weight: 700; }
   .base-n { color: #6b7280; }
+  .map-track-grid {
+    background-image: repeating-linear-gradient(
+      to right,
+      rgba(100, 116, 139, 0.16) 0,
+      rgba(100, 116, 139, 0.16) 1px,
+      transparent 1px,
+      transparent 10%
+    );
+  }
 </style>
 
 <script>
@@ -175,9 +193,15 @@
     const mapZoomResetBtn = document.getElementById("mapZoomResetBtn");
     const mapStartSlider = document.getElementById("mapStartSlider");
     const mapRangeLabel = document.getElementById("mapRangeLabel");
+    const mapTickTrack = document.getElementById("mapTickTrack");
+    const mapLeftLabel = document.getElementById("mapLeftLabel");
+    const mapRightLabel = document.getElementById("mapRightLabel");
+    const primerCountSummary = document.getElementById("primerCountSummary");
+    const mapSelectionSummary = document.getElementById("mapSelectionSummary");
     const windowLabel = document.getElementById("windowLabel");
     const windowSizeHint = document.getElementById("windowSizeHint");
     const viewportBox = document.getElementById("viewportBox");
+    const featureTrackContainer = document.getElementById("featureTrackContainer");
     const featureTrack = document.getElementById("featureTrack");
     const forwardPrimerTrack = document.getElementById("forwardPrimerTrack");
     const reversePrimerTrack = document.getElementById("reversePrimerTrack");
@@ -206,6 +230,7 @@
       tablePageSize: 10,
       showMapSelectedOnly: false,
       mapSelectedFeatureIndexes: new Set(),
+      pendingFocusFeatureIndex: null,
     };
 
     function getRecord() {
@@ -225,7 +250,7 @@
     }
 
     function defaultMapWindowSize(recordLength) {
-      return Math.min(recordLength, Math.max(200, Math.floor(recordLength / 5)));
+      return Math.max(1, recordLength);
     }
 
     function clampMapToRecord() {
@@ -296,11 +321,53 @@
     }
 
     function featureLength(feature) {
-      return feature.end - feature.start + 1;
+      const bounds = featureBounds(feature);
+      return bounds.end - bounds.start + 1;
+    }
+
+    function featureBounds(feature) {
+      const rawStart = Number(feature.start);
+      const rawEnd = Number(feature.end);
+      const safeStart = Number.isFinite(rawStart) ? rawStart : 1;
+      const safeEnd = Number.isFinite(rawEnd) ? rawEnd : safeStart;
+      return {
+        start: Math.min(safeStart, safeEnd),
+        end: Math.max(safeStart, safeEnd),
+      };
     }
 
     function isPrimerBindingFeature(feature) {
-      return normalize(feature.type).includes("primer");
+      const typeValue = normalize(feature.type);
+      const labelValue = normalize(feature.label);
+      const noteValue = normalize(feature.note);
+      if (typeValue.includes("primer") || typeValue.includes("primer_bind")) {
+        return true;
+      }
+      if (labelValue.includes("primer") || noteValue.includes("primer")) {
+        return true;
+      }
+      if (labelValue.includes("_fw") || labelValue.includes("_rv") || labelValue.includes("_rev")) {
+        return true;
+      }
+      return false;
+    }
+
+    function normalizedStrandValue(strand) {
+      if (strand === -1 || strand === 1) {
+        return strand;
+      }
+      const numeric = Number(strand);
+      if (numeric === -1 || numeric === 1) {
+        return numeric;
+      }
+      const strandText = normalize(strand);
+      if (strandText.includes("reverse") || strandText.includes("complement") || strandText === "-") {
+        return -1;
+      }
+      if (strandText.includes("forward") || strandText === "+") {
+        return 1;
+      }
+      return 1;
     }
 
     function strandLabel(strand) {
@@ -309,17 +376,24 @@
       return "Unknown";
     }
 
-    function jumpToFeature(record, feature) {
+    function jumpToFeature(record, feature, options = {}) {
+      const fitWindow = options.fitWindow !== false;
+      const tightWindow = options.tightWindow === true;
       const length = featureLength(feature);
-      if (length > state.windowSize) {
+      const bounds = featureBounds(feature);
+      if (tightWindow) {
+        const maxWindow = Math.min(5000, record.length);
+        const desired = Math.max(20, Math.min(maxWindow, Math.max(length * 4, 40)));
+        state.windowSize = desired;
+      } else if (fitWindow && length > state.windowSize) {
         const maxWindow = Math.min(5000, record.length);
         state.windowSize = Math.min(maxWindow, Math.max(20, length));
       }
-      const midpoint = Math.floor((feature.start + feature.end) / 2);
+      const midpoint = Math.floor((bounds.start + bounds.end) / 2);
       const centeredStart = midpoint - Math.floor(state.windowSize / 2);
       const maxStart = Math.max(1, record.length - state.windowSize + 1);
       state.start = Math.max(1, Math.min(centeredStart, maxStart));
-      const mapMidpoint = Math.floor((feature.start + feature.end) / 2);
+      const mapMidpoint = Math.floor((bounds.start + bounds.end) / 2);
       const centeredMapStart = mapMidpoint - Math.floor(state.mapWindowSize / 2);
       const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
       state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
@@ -353,98 +427,171 @@
       featureTrack.innerHTML = "";
       forwardPrimerTrack.innerHTML = "";
       reversePrimerTrack.innerHTML = "";
-      const colors = ["bg-secondary/40", "bg-accent/40", "bg-info/40", "bg-success/40", "bg-warning/40"];
+      const colors = [
+        "rgba(14, 165, 233, 0.55)",
+        "rgba(234, 179, 8, 0.55)",
+        "rgba(16, 185, 129, 0.55)",
+        "rgba(244, 114, 182, 0.55)",
+        "rgba(59, 130, 246, 0.55)",
+      ];
       const visibleFeatureIndexes = new Set(getFilteredFeatureIndexes(record));
       const mapStart = state.mapStart;
       const mapEnd = Math.min(record.length, mapStart + state.mapWindowSize - 1);
       const mapLength = mapEnd - mapStart + 1;
+      const nonPrimerLanes = [];
+      let forwardPrimerCount = 0;
+      let reversePrimerCount = 0;
 
       function buildPrimerArrow(color, isForward) {
         const marker = document.createElement("div");
         marker.style.position = "absolute";
         marker.style.top = "0";
         marker.style.height = "100%";
-
-        const body = document.createElement("div");
-        body.style.position = "absolute";
-        body.style.top = "50%";
-        body.style.transform = "translateY(-50%)";
-        body.style.height = "6px";
-        body.style.borderRadius = "9999px";
-        body.style.backgroundColor = color;
-        if (isForward) {
-          body.style.left = "0";
-          body.style.right = "8px";
-        } else {
-          body.style.left = "8px";
-          body.style.right = "0";
-        }
-
-        const head = document.createElement("div");
-        head.style.position = "absolute";
-        head.style.top = "50%";
-        head.style.transform = "translateY(-50%)";
-        head.style.width = "0";
-        head.style.height = "0";
-        head.style.borderTop = "5px solid transparent";
-        head.style.borderBottom = "5px solid transparent";
-        if (isForward) {
-          head.style.right = "0";
-          head.style.borderLeft = `8px solid ${color}`;
-        } else {
-          head.style.left = "0";
-          head.style.borderRight = `8px solid ${color}`;
-        }
-
-        marker.appendChild(body);
-        marker.appendChild(head);
+        marker.style.borderRadius = "9999px";
+        marker.style.backgroundColor = color;
+        marker.style.border = "1px solid rgba(15, 23, 42, 0.35)";
+        marker.style.clipPath = isForward
+          ? "polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%)"
+          : "polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 50%)";
         return marker;
       }
 
-      record.features.forEach((feature, index) => {
-        if (feature.end < mapStart || feature.start > mapEnd) {
+      function handleFeatureMouseDown(event, index, feature) {
+        if (event.button !== 0) {
           return;
         }
-        const visibleStart = Math.max(feature.start, mapStart);
-        const visibleEnd = Math.min(feature.end, mapEnd);
+        event.preventDefault();
+        const isShift = event.shiftKey;
+        state.selectedFeatureIndex = index;
+        if (isShift) {
+          state.mapSelectedFeatureIndexes.add(index);
+        } else {
+          state.mapSelectedFeatureIndexes = new Set([index]);
+        }
+        state.showMapSelectedOnly = true;
+        state.pendingFocusFeatureIndex = index;
+        state.tablePage = 1;
+        jumpToFeature(record, feature, {
+          fitWindow: !isPrimerBindingFeature(feature),
+          tightWindow: isPrimerBindingFeature(feature),
+        });
+        render();
+      }
+
+      const visibleFeatures = record.features
+        .map((feature, index) => ({ feature, index }))
+        .filter(({ feature }) => {
+          const bounds = featureBounds(feature);
+          return !(bounds.end < mapStart || bounds.start > mapEnd);
+        })
+        .sort((a, b) => {
+          const aBounds = featureBounds(a.feature);
+          const bBounds = featureBounds(b.feature);
+          const startDelta = aBounds.start - bBounds.start;
+          if (startDelta !== 0) {
+            return startDelta;
+          }
+          return (aBounds.end - aBounds.start) - (bBounds.end - bBounds.start);
+        });
+
+      visibleFeatures.forEach(({ feature, index }) => {
+        const bounds = featureBounds(feature);
+        if (bounds.end < mapStart || bounds.start > mapEnd) {
+          return;
+        }
+        const visibleStart = Math.max(bounds.start, mapStart);
+        const visibleEnd = Math.min(bounds.end, mapEnd);
         const left = ((visibleStart - mapStart) / mapLength) * 100;
-        const width = Math.max((visibleEnd - visibleStart + 1) / mapLength * 100, 0.5);
+        const width = Math.max((visibleEnd - visibleStart + 1) / mapLength * 100, 1.2);
         const isSelected = state.selectedFeatureIndex === index;
         const isVisible = visibleFeatureIndexes.has(index);
-        const handleClick = () => {
-          state.selectedFeatureIndex = index;
-          state.mapSelectedFeatureIndexes.add(index);
-          state.showMapSelectedOnly = true;
-          state.tablePage = 1;
-          jumpToFeature(record, feature);
-          render();
-        };
-
         if (isPrimerBindingFeature(feature)) {
-          const isForward = feature.strand !== -1;
-          const primerColor = isForward ? "rgba(37, 99, 235, 0.75)" : "rgba(220, 38, 38, 0.75)";
+          const isForward = normalizedStrandValue(feature.strand) !== -1;
+          const primerColor = isForward ? "rgba(37, 99, 235, 0.92)" : "rgba(220, 38, 38, 0.92)";
           const primerMarker = buildPrimerArrow(primerColor, isForward);
-          primerMarker.className = `cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200 rounded" : ""} ${isVisible ? "opacity-100" : "opacity-30"}`;
+          primerMarker.className = `cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200 rounded" : ""} ${isVisible ? "opacity-100" : "opacity-45"}`;
           primerMarker.style.left = `${left}%`;
           primerMarker.style.width = `${Math.min(width, 100 - left)}%`;
+          primerMarker.style.minWidth = "20px";
           primerMarker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
-          primerMarker.addEventListener("click", handleClick);
+          primerMarker.addEventListener("mousedown", (event) => handleFeatureMouseDown(event, index, feature));
           if (isForward) {
             forwardPrimerTrack.appendChild(primerMarker);
+            forwardPrimerCount += 1;
           } else {
             reversePrimerTrack.appendChild(primerMarker);
+            reversePrimerCount += 1;
           }
           return;
         }
 
+        let lane = 0;
+        while (lane < nonPrimerLanes.length && visibleStart <= nonPrimerLanes[lane]) {
+          lane += 1;
+        }
+        nonPrimerLanes[lane] = visibleEnd;
+
         const marker = document.createElement("div");
-        marker.className = `absolute top-1 h-6 rounded cursor-pointer ${colors[index % colors.length]} ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200" : ""} ${isVisible ? "opacity-95" : "opacity-20"}`;
+        marker.className = `absolute h-6 rounded cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200" : ""} ${isVisible ? "opacity-95" : "opacity-20"}`;
         marker.style.left = `${left}%`;
         marker.style.width = `${Math.min(width, 100 - left)}%`;
+        marker.style.top = `${lane * 22 + 2}px`;
+        marker.style.backgroundColor = colors[index % colors.length];
+        marker.style.border = "1px solid rgba(15, 23, 42, 0.22)";
         marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
-        marker.addEventListener("click", handleClick);
+        marker.addEventListener("mousedown", (event) => handleFeatureMouseDown(event, index, feature));
         featureTrack.appendChild(marker);
       });
+
+      const laneCount = Math.max(1, nonPrimerLanes.length);
+      const laneHeight = 22;
+      const containerHeight = Math.max(44, laneCount * laneHeight + 6);
+      featureTrackContainer.style.height = `${containerHeight}px`;
+      primerCountSummary.textContent = `Primers in map range: forward ${forwardPrimerCount.toLocaleString()} | reverse ${reversePrimerCount.toLocaleString()}`;
+    }
+
+    function renderMapAxis(record) {
+      mapTickTrack.innerHTML = "";
+      const mapStart = state.mapStart;
+      const mapEnd = Math.min(record.length, mapStart + state.mapWindowSize - 1);
+      const mapLength = mapEnd - mapStart + 1;
+      const targetTicks = 6;
+      const step = Math.max(1, Math.floor(mapLength / targetTicks));
+
+      const tickValues = [];
+      for (let value = mapStart; value <= mapEnd; value += step) {
+        tickValues.push(value);
+      }
+      if (tickValues[tickValues.length - 1] !== mapEnd) {
+        tickValues.push(mapEnd);
+      }
+
+      tickValues.forEach((value) => {
+        const pct = ((value - mapStart) / mapLength) * 100;
+        const tick = document.createElement("div");
+        tick.className = "absolute top-0 h-3 w-px bg-base-content/35";
+        tick.style.left = `${Math.min(100, Math.max(0, pct))}%`;
+        mapTickTrack.appendChild(tick);
+
+        const label = document.createElement("div");
+        label.className = "absolute top-0 text-[10px] opacity-60";
+        label.style.left = `${Math.min(100, Math.max(0, pct))}%`;
+        label.style.transform = "translateX(-50%)";
+        label.textContent = value.toLocaleString();
+        mapTickTrack.appendChild(label);
+      });
+
+      mapLeftLabel.textContent = `${mapStart.toLocaleString()} bp`;
+      mapRightLabel.textContent = `${mapEnd.toLocaleString()} bp`;
+    }
+
+    function renderMapSelectionSummary(record) {
+      if (state.selectedFeatureIndex === null || !record.features[state.selectedFeatureIndex]) {
+        mapSelectionSummary.textContent = "No feature selected on map.";
+        return;
+      }
+      const feature = record.features[state.selectedFeatureIndex];
+      mapSelectionSummary.textContent = `Selected: ${feature.label} (${feature.type}) ${feature.start.toLocaleString()}-${feature.end.toLocaleString()} | ${featureLength(feature).toLocaleString()} bp | ${strandLabel(feature.strand)}`;
     }
 
     function renderFeatureViewer(record) {
@@ -465,6 +612,15 @@
 
       if (state.selectedFeatureIndex === null || !tableIndexes.includes(state.selectedFeatureIndex)) {
         state.selectedFeatureIndex = tableIndexes[0];
+      }
+
+      if (state.pendingFocusFeatureIndex !== null && tableIndexes.includes(state.pendingFocusFeatureIndex)) {
+        state.selectedFeatureIndex = state.pendingFocusFeatureIndex;
+        const focusedPosition = tableIndexes.indexOf(state.pendingFocusFeatureIndex);
+        state.tablePage = Math.floor(focusedPosition / state.tablePageSize) + 1;
+        state.pendingFocusFeatureIndex = null;
+      } else if (state.pendingFocusFeatureIndex !== null && !tableIndexes.includes(state.pendingFocusFeatureIndex)) {
+        state.pendingFocusFeatureIndex = null;
       }
 
       const totalPages = Math.max(1, Math.ceil(tableIndexes.length / state.tablePageSize));
@@ -492,6 +648,7 @@
         `;
         row.addEventListener("click", () => {
           state.selectedFeatureIndex = index;
+          state.pendingFocusFeatureIndex = index;
           jumpToFeature(record, feature);
           render();
         });
@@ -534,6 +691,8 @@
       windowSizeHint.textContent = `${state.windowSize.toLocaleString()} bp visible`;
       featureLegend.textContent = formatFeatures(record.features);
       renderFeatureTrack(record);
+      renderMapAxis(record);
+      renderMapSelectionSummary(record);
       renderFeatureViewer(record);
       renderSequenceWindow(record.sequence, state.start, end);
     }
@@ -641,6 +800,9 @@
 
     clearMapSelectionBtn.addEventListener("click", () => {
       state.mapSelectedFeatureIndexes = new Set();
+      state.selectedFeatureIndex = null;
+      state.pendingFocusFeatureIndex = null;
+      state.showMapSelectedOnly = false;
       state.tablePage = 1;
       render();
     });
