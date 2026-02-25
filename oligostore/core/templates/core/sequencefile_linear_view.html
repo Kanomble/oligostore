@@ -32,7 +32,7 @@
 
         <div>
           <label class="label"><span class="label-text font-semibold">Visible window size (bp)</span></label>
-          <input id="windowSizeSlider" type="range" class="range range-primary" min="20" max="1000" value="200" />
+          <input id="windowSizeSlider" type="range" class="range range-primary" min="1" max="1000" value="200" />
           <div class="text-xs opacity-70 mt-1" id="windowSizeHint"></div>
         </div>
 
@@ -60,30 +60,38 @@
           <div class="space-y-1">
             <div class="flex items-center gap-2">
               <div class="text-[11px] opacity-70 w-24">Forward primers</div>
-              <div class="h-5 rounded-full bg-base-300/60 relative overflow-hidden flex-1">
+              <div class="h-5 rounded-full bg-base-300/60 relative overflow-hidden flex-1" style="height: 28px;">
                 <div id="forwardPrimerTrack" class="absolute inset-0"></div>
               </div>
             </div>
-            <div id="featureTrackContainer" class="h-10 rounded-xl bg-base-300 relative overflow-hidden map-track-grid">
-              <div id="viewportBox" class="absolute top-0 h-full border-x-2 border-primary/70 bg-primary/10 pointer-events-none z-0"></div>
-              <div id="featureTrack" class="absolute inset-0 z-10"></div>
+            <div class="flex items-center gap-2">
+              <div class="text-[11px] opacity-70 w-24">Features</div>
+              <div id="featureTrackContainer" class="h-10 rounded-xl bg-base-300 relative overflow-hidden map-track-grid flex-1">
+                <div id="viewportBox" class="absolute top-0 h-full border-x-2 border-primary/70 bg-primary/10 pointer-events-none z-0"></div>
+                <div id="featureTrack" class="absolute inset-0 z-10"></div>
+              </div>
             </div>
             <div class="flex items-center gap-2">
               <div class="text-[11px] opacity-70 w-24">Reverse primers</div>
-              <div class="h-5 rounded-full bg-base-300/60 relative overflow-hidden flex-1">
+              <div class="h-5 rounded-full bg-base-300/60 relative overflow-hidden flex-1" style="height: 28px;">
                 <div id="reversePrimerTrack" class="absolute inset-0"></div>
               </div>
             </div>
           </div>
-          <div class="mt-2">
-            <div id="mapTickTrack" class="relative h-4"></div>
-            <div class="flex justify-between text-[11px] opacity-70">
-              <span id="mapLeftLabel"></span>
-              <span id="mapRightLabel"></span>
+          <div class="mt-2 flex items-start gap-2">
+            <div class="w-24"></div>
+            <div class="flex-1">
+              <div id="mapTickTrack" class="relative h-4"></div>
+              <div class="flex justify-between text-[11px] opacity-70">
+                <span id="mapLeftLabel"></span>
+                <span id="mapRightLabel"></span>
+              </div>
             </div>
           </div>
           <div id="primerCountSummary" class="mt-1 text-[11px] opacity-70"></div>
           <div id="mapSelectionSummary" class="mt-2 text-xs opacity-70"></div>
+          <div id="pcrProductSummary" class="mt-2 text-xs opacity-70"></div>
+          <pre id="pcrProductSequence" class="mt-2 text-[11px] leading-5 overflow-x-auto whitespace-pre-wrap break-all font-mono"></pre>
           <div id="featureLegend" class="mt-3 text-xs opacity-80"></div>
         </div>
 
@@ -111,6 +119,7 @@
               </select>
             </div>
           </div>
+          <div class="text-xs opacity-70 mb-3">Tip: Shift-click one forward and one reverse primer on the map to generate a possible PCR product.</div>
           <div id="featureCount" class="text-xs opacity-70 mb-3"></div>
           <div class="border border-base-300 rounded-lg overflow-hidden">
             <div class="max-h-80 overflow-auto">
@@ -198,6 +207,8 @@
     const mapRightLabel = document.getElementById("mapRightLabel");
     const primerCountSummary = document.getElementById("primerCountSummary");
     const mapSelectionSummary = document.getElementById("mapSelectionSummary");
+    const pcrProductSummary = document.getElementById("pcrProductSummary");
+    const pcrProductSequence = document.getElementById("pcrProductSequence");
     const windowLabel = document.getElementById("windowLabel");
     const windowSizeHint = document.getElementById("windowSizeHint");
     const viewportBox = document.getElementById("viewportBox");
@@ -231,7 +242,11 @@
       showMapSelectedOnly: false,
       mapSelectedFeatureIndexes: new Set(),
       pendingFocusFeatureIndex: null,
+      selectedForwardPrimerIndex: null,
+      selectedReversePrimerIndex: null,
     };
+
+    const MIN_WINDOW_BP = 1;
 
     function getRecord() {
       return records[state.recordIndex];
@@ -239,8 +254,8 @@
 
     function clampWindowToRecord() {
       const record = getRecord();
-      const maxWindow = Math.min(5000, Math.max(20, record.length));
-      state.windowSize = Math.min(Math.max(20, state.windowSize), maxWindow);
+      const maxWindow = Math.min(5000, Math.max(MIN_WINDOW_BP, record.length));
+      state.windowSize = Math.min(Math.max(MIN_WINDOW_BP, state.windowSize), maxWindow);
       if (state.start > record.length) {
         state.start = 1;
       }
@@ -376,19 +391,11 @@
       return "Unknown";
     }
 
-    function jumpToFeature(record, feature, options = {}) {
-      const fitWindow = options.fitWindow !== false;
-      const tightWindow = options.tightWindow === true;
+    function jumpToFeature(record, feature) {
       const length = featureLength(feature);
       const bounds = featureBounds(feature);
-      if (tightWindow) {
-        const maxWindow = Math.min(5000, record.length);
-        const desired = Math.max(20, Math.min(maxWindow, Math.max(length * 4, 40)));
-        state.windowSize = desired;
-      } else if (fitWindow && length > state.windowSize) {
-        const maxWindow = Math.min(5000, record.length);
-        state.windowSize = Math.min(maxWindow, Math.max(20, length));
-      }
+      const maxWindow = Math.min(5000, record.length);
+      state.windowSize = Math.max(MIN_WINDOW_BP, Math.min(maxWindow, length));
       const midpoint = Math.floor((bounds.start + bounds.end) / 2);
       const centeredStart = midpoint - Math.floor(state.windowSize / 2);
       const maxStart = Math.max(1, record.length - state.windowSize + 1);
@@ -397,6 +404,68 @@
       const centeredMapStart = mapMidpoint - Math.floor(state.mapWindowSize / 2);
       const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
       state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
+    }
+
+    function computePCRProduct(record) {
+      if (state.selectedForwardPrimerIndex === null || state.selectedReversePrimerIndex === null) {
+        return null;
+      }
+      const forwardPrimer = record.features[state.selectedForwardPrimerIndex];
+      const reversePrimer = record.features[state.selectedReversePrimerIndex];
+      if (!forwardPrimer || !reversePrimer) {
+        return null;
+      }
+      const fwdBounds = featureBounds(forwardPrimer);
+      const revBounds = featureBounds(reversePrimer);
+      const productStart = fwdBounds.start;
+      const productEnd = revBounds.end;
+      if (productStart > productEnd) {
+        return {
+          valid: false,
+          reason: "Forward primer is downstream of reverse primer in this linear view.",
+        };
+      }
+      const sequence = record.sequence.slice(productStart - 1, productEnd);
+      return {
+        valid: true,
+        start: productStart,
+        end: productEnd,
+        length: sequence.length,
+        sequence,
+        forwardLabel: forwardPrimer.label,
+        reverseLabel: reversePrimer.label,
+      };
+    }
+
+    function renderPCRProduct(record) {
+      const product = computePCRProduct(record);
+      if (!product) {
+        pcrProductSummary.textContent = "PCR product: shift-click one forward and one reverse primer to generate a candidate amplicon.";
+        pcrProductSequence.textContent = "";
+        return;
+      }
+      if (!product.valid) {
+        pcrProductSummary.textContent = `PCR product unavailable: ${product.reason}`;
+        pcrProductSequence.textContent = "";
+        return;
+      }
+      pcrProductSummary.textContent = `PCR product: ${product.start.toLocaleString()}-${product.end.toLocaleString()} (${product.length.toLocaleString()} bp) | Fwd: ${product.forwardLabel} | Rev: ${product.reverseLabel}`;
+      pcrProductSequence.textContent = product.sequence;
+    }
+
+    function focusWindowOnPCRProduct(record) {
+      const product = computePCRProduct(record);
+      if (!product || !product.valid) {
+        return false;
+      }
+      const maxWindow = Math.min(5000, record.length);
+      state.windowSize = Math.max(MIN_WINDOW_BP, Math.min(maxWindow, product.length));
+      state.start = Math.max(1, Math.min(product.start, record.length - state.windowSize + 1));
+      const midpoint = Math.floor((product.start + product.end) / 2);
+      const centeredMapStart = midpoint - Math.floor(state.mapWindowSize / 2);
+      const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
+      state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
+      return true;
     }
 
     function displayMapSelectedFeaturesInTable() {
@@ -470,11 +539,24 @@
         }
         state.showMapSelectedOnly = true;
         state.pendingFocusFeatureIndex = index;
+        if (isShift && isPrimerBindingFeature(feature)) {
+          if (state.selectedForwardPrimerIndex !== null && state.selectedReversePrimerIndex !== null) {
+            state.selectedForwardPrimerIndex = null;
+            state.selectedReversePrimerIndex = null;
+            state.mapSelectedFeatureIndexes = new Set([index]);
+          }
+          const strand = normalizedStrandValue(feature.strand);
+          if (strand === -1) {
+            state.selectedReversePrimerIndex = index;
+          } else {
+            state.selectedForwardPrimerIndex = index;
+          }
+        }
         state.tablePage = 1;
-        jumpToFeature(record, feature, {
-          fitWindow: !isPrimerBindingFeature(feature),
-          tightWindow: isPrimerBindingFeature(feature),
-        });
+        const didFocusPCRProduct = isShift && isPrimerBindingFeature(feature) && focusWindowOnPCRProduct(record);
+        if (!didFocusPCRProduct) {
+          jumpToFeature(record, feature);
+        }
         render();
       }
 
@@ -502,7 +584,7 @@
         const visibleStart = Math.max(bounds.start, mapStart);
         const visibleEnd = Math.min(bounds.end, mapEnd);
         const left = ((visibleStart - mapStart) / mapLength) * 100;
-        const width = Math.max((visibleEnd - visibleStart + 1) / mapLength * 100, 1.2);
+        const width = (visibleEnd - visibleStart + 1) / mapLength * 100;
         const isSelected = state.selectedFeatureIndex === index;
         const isVisible = visibleFeatureIndexes.has(index);
         if (isPrimerBindingFeature(feature)) {
@@ -511,8 +593,8 @@
           const primerMarker = buildPrimerArrow(primerColor, isForward);
           primerMarker.className = `cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200 rounded" : ""} ${isVisible ? "opacity-100" : "opacity-45"}`;
           primerMarker.style.left = `${left}%`;
-          primerMarker.style.width = `${Math.min(width, 100 - left)}%`;
-          primerMarker.style.minWidth = "20px";
+          primerMarker.style.width = `${Math.max(0.1, Math.min(width, 100 - left))}%`;
+          primerMarker.style.minWidth = "12px";
           primerMarker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
           primerMarker.addEventListener("mousedown", (event) => handleFeatureMouseDown(event, index, feature));
           if (isForward) {
@@ -661,7 +743,8 @@
       clampWindowToRecord();
       clampMapToRecord();
 
-      windowSizeSlider.max = String(Math.min(5000, Math.max(20, record.length)));
+      windowSizeSlider.min = String(Math.min(MIN_WINDOW_BP, record.length));
+      windowSizeSlider.max = String(Math.min(5000, Math.max(MIN_WINDOW_BP, record.length)));
       windowSizeSlider.value = String(state.windowSize);
 
       startSlider.max = String(Math.max(1, record.length - state.windowSize + 1));
@@ -693,6 +776,7 @@
       renderFeatureTrack(record);
       renderMapAxis(record);
       renderMapSelectionSummary(record);
+      renderPCRProduct(record);
       renderFeatureViewer(record);
       renderSequenceWindow(record.sequence, state.start, end);
     }
@@ -714,6 +798,8 @@
       state.tablePage = 1;
       state.showMapSelectedOnly = false;
       state.mapSelectedFeatureIndexes = new Set();
+      state.selectedForwardPrimerIndex = null;
+      state.selectedReversePrimerIndex = null;
       render();
     });
 
@@ -728,7 +814,7 @@
     });
 
     zoomInBtn.addEventListener("click", () => {
-      state.windowSize = Math.max(20, Math.floor(state.windowSize / 2));
+      state.windowSize = Math.max(MIN_WINDOW_BP, Math.floor(state.windowSize / 2));
       render();
     });
 
@@ -803,6 +889,8 @@
       state.selectedFeatureIndex = null;
       state.pendingFocusFeatureIndex = null;
       state.showMapSelectedOnly = false;
+      state.selectedForwardPrimerIndex = null;
+      state.selectedReversePrimerIndex = null;
       state.tablePage = 1;
       render();
     });
