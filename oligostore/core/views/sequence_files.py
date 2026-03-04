@@ -4,6 +4,8 @@ from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
+from Bio.Seq import Seq
+from Bio.Restriction import CommOnly
 
 from ..models import Primer, SequenceFile
 from ..services.primer_binding import analyze_primer_binding
@@ -233,6 +235,7 @@ def sequencefile_linear_view(request, sequencefile_id):
         for record in records:
             sequence = str(record.seq).upper()
             features = []
+            restriction_sites = []
 
             for feature in getattr(record, "features", []):
                 try:
@@ -262,6 +265,28 @@ def sequencefile_linear_view(request, sequencefile_id):
                     }
                 )
 
+            try:
+                restriction_results = CommOnly.search(Seq(sequence), linear=True)
+                for enzyme, cut_positions in restriction_results.items():
+                    site_length = len(getattr(enzyme, "site", "") or "")
+                    if site_length <= 0:
+                        continue
+                    for cut_position in cut_positions:
+                        start = int(cut_position) - int(getattr(enzyme, "fst5", 0))
+                        end = start + site_length - 1
+                        if start < 1 or end > len(sequence):
+                            continue
+                        restriction_sites.append(
+                            {
+                                "enzyme": str(enzyme),
+                                "site": str(getattr(enzyme, "site", "")),
+                                "start": start,
+                                "end": end,
+                            }
+                        )
+            except Exception:
+                restriction_sites = []
+
             records_payload.append(
                 {
                     "id": record.id,
@@ -270,6 +295,7 @@ def sequencefile_linear_view(request, sequencefile_id):
                     "length": len(sequence),
                     "sequence": sequence,
                     "features": features,
+                    "restriction_sites": restriction_sites,
                 }
             )
     except Exception:

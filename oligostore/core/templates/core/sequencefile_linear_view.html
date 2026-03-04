@@ -149,6 +149,40 @@
 
         <div class="rounded-xl border border-base-300 p-4 bg-base-100">
           <div class="font-semibold mb-2">Sequence window</div>
+          <div class="rounded-lg border border-base-300 p-3 mb-3">
+            <div class="flex flex-wrap items-end gap-2 mb-2">
+              <div class="form-control w-full sm:max-w-xs">
+                <label class="label py-1"><span class="label-text text-xs">Filter restriction enzymes</span></label>
+                <input id="restrictionEnzymeSearchInput" type="text" class="input input-bordered input-sm" placeholder="Search enzyme" />
+              </div>
+              <button id="selectTopRestrictionEnzymesBtn" type="button" class="btn btn-outline btn-sm">Top 5</button>
+              <button id="clearRestrictionSelectionBtn" type="button" class="btn btn-ghost btn-sm">Clear</button>
+            </div>
+            <div id="restrictionSelectionCount" class="text-xs opacity-70 mb-2"></div>
+            <div class="border border-base-300 rounded-lg overflow-hidden">
+              <div class="max-h-52 overflow-auto">
+                <table class="table table-zebra table-sm w-full">
+                  <thead class="sticky top-0 bg-base-100 z-10">
+                    <tr>
+                      <th>Show</th>
+                      <th>Enzyme</th>
+                      <th>Cut site</th>
+                      <th>Sites</th>
+                    </tr>
+                  </thead>
+                  <tbody id="restrictionEnzymeTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="mt-2 flex items-center justify-between gap-2">
+              <div id="restrictionEnzymePageInfo" class="text-xs opacity-70"></div>
+              <div class="join">
+                <button id="restrictionEnzymePrevPageBtn" class="btn btn-xs join-item">Prev</button>
+                <button id="restrictionEnzymeNextPageBtn" class="btn btn-xs join-item">Next</button>
+              </div>
+            </div>
+          </div>
+          <div id="restrictionSiteSummary" class="text-xs opacity-70 mb-2"></div>
           <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-x-auto whitespace-pre-wrap break-all font-mono"></pre>
         </div>
       </div>
@@ -168,6 +202,14 @@
   .base-g { color: #a16207; font-weight: 700; }
   .base-t { color: #b91c1c; font-weight: 700; }
   .base-n { color: #6b7280; }
+  .restriction-hit {
+    background: rgba(234, 179, 8, 0.32);
+    box-shadow: inset 0 -1px 0 rgba(161, 98, 7, 0.45);
+  }
+  .restriction-row {
+    color: #92400e;
+    font-size: 0.75rem;
+  }
   .map-track-grid {
     background-image: repeating-linear-gradient(
       to right,
@@ -227,6 +269,15 @@
     const featurePageInfo = document.getElementById("featurePageInfo");
     const featurePrevPageBtn = document.getElementById("featurePrevPageBtn");
     const featureNextPageBtn = document.getElementById("featureNextPageBtn");
+    const selectTopRestrictionEnzymesBtn = document.getElementById("selectTopRestrictionEnzymesBtn");
+    const clearRestrictionSelectionBtn = document.getElementById("clearRestrictionSelectionBtn");
+    const restrictionEnzymeSearchInput = document.getElementById("restrictionEnzymeSearchInput");
+    const restrictionEnzymeTableBody = document.getElementById("restrictionEnzymeTableBody");
+    const restrictionEnzymePageInfo = document.getElementById("restrictionEnzymePageInfo");
+    const restrictionEnzymePrevPageBtn = document.getElementById("restrictionEnzymePrevPageBtn");
+    const restrictionEnzymeNextPageBtn = document.getElementById("restrictionEnzymeNextPageBtn");
+    const restrictionSelectionCount = document.getElementById("restrictionSelectionCount");
+    const restrictionSiteSummary = document.getElementById("restrictionSiteSummary");
     const sequenceWindow = document.getElementById("sequenceWindow");
 
     const state = {
@@ -244,6 +295,10 @@
       pendingFocusFeatureIndex: null,
       selectedForwardPrimerIndex: null,
       selectedReversePrimerIndex: null,
+      selectedRestrictionEnzymes: new Set(),
+      restrictionEnzymeQuery: "",
+      restrictionTablePage: 1,
+      restrictionTablePageSize: 10,
     };
 
     const MIN_WINDOW_BP = 1;
@@ -294,13 +349,145 @@
         .join(" | ");
     }
 
-    function baseSpan(base) {
+    function baseSpan(base, highlightRestriction = false) {
       const value = base.toUpperCase();
-      if (value === "A") return `<span class="base-a">A</span>`;
-      if (value === "C") return `<span class="base-c">C</span>`;
-      if (value === "G") return `<span class="base-g">G</span>`;
-      if (value === "T") return `<span class="base-t">T</span>`;
-      return `<span class="base-n">${value}</span>`;
+      const restrictionClass = highlightRestriction ? " restriction-hit" : "";
+      if (value === "A") return `<span class="base-a${restrictionClass}">A</span>`;
+      if (value === "C") return `<span class="base-c${restrictionClass}">C</span>`;
+      if (value === "G") return `<span class="base-g${restrictionClass}">G</span>`;
+      if (value === "T") return `<span class="base-t${restrictionClass}">T</span>`;
+      return `<span class="base-n${restrictionClass}">${value}</span>`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function getRestrictionHitsInWindow(record, start, end) {
+      return (record.restriction_sites || []).filter((site) => !(site.end < start || site.start > end));
+    }
+
+    function getRestrictionEnzymeStats(record) {
+      const stats = {};
+      (record.restriction_sites || []).forEach((site) => {
+        if (!stats[site.enzyme]) {
+          stats[site.enzyme] = {
+            enzyme: site.enzyme,
+            count: 0,
+            site: site.site || "",
+          };
+        }
+        stats[site.enzyme].count += 1;
+        if (!stats[site.enzyme].site && site.site) {
+          stats[site.enzyme].site = site.site;
+        }
+      });
+      return stats;
+    }
+
+    function getSortedRestrictionEnzymes(record) {
+      const stats = getRestrictionEnzymeStats(record);
+      return Object.values(stats)
+        .sort((a, b) => {
+          const countDelta = b.count - a.count;
+          if (countDelta !== 0) {
+            return countDelta;
+          }
+          return a.enzyme.localeCompare(b.enzyme);
+        });
+    }
+
+    function applyTopRestrictionSelection(record, limit = 5) {
+      const sorted = getSortedRestrictionEnzymes(record);
+      state.selectedRestrictionEnzymes = new Set(
+        sorted.slice(0, limit).map((item) => item.enzyme)
+      );
+    }
+
+    function renderRestrictionEnzymeTable(record) {
+      const sorted = getSortedRestrictionEnzymes(record);
+      const available = new Set(sorted.map((item) => item.enzyme));
+      state.selectedRestrictionEnzymes = new Set(
+        [...state.selectedRestrictionEnzymes].filter((enzyme) => available.has(enzyme))
+      );
+      const query = normalize(state.restrictionEnzymeQuery).trim();
+      const selectedItems = sorted.filter((item) => state.selectedRestrictionEnzymes.has(item.enzyme));
+      const unselectedItems = sorted.filter((item) => !state.selectedRestrictionEnzymes.has(item.enzyme));
+      const filteredUnselectedItems = !query
+        ? unselectedItems
+        : unselectedItems.filter(({ enzyme }) => normalize(enzyme).includes(query));
+
+      if (!sorted.length) {
+        restrictionEnzymeTableBody.innerHTML = '<tr><td colspan="4" class="text-center opacity-70 py-3">No restriction sites in this record.</td></tr>';
+        restrictionSelectionCount.textContent = "0 selected";
+        restrictionEnzymePageInfo.textContent = "Page 0 of 0";
+        restrictionEnzymePrevPageBtn.disabled = true;
+        restrictionEnzymeNextPageBtn.disabled = true;
+        return;
+      }
+
+      if (!selectedItems.length && !filteredUnselectedItems.length) {
+        restrictionEnzymeTableBody.innerHTML = '<tr><td colspan="4" class="text-center opacity-70 py-3">No enzymes match this search.</td></tr>';
+        restrictionSelectionCount.textContent = `${state.selectedRestrictionEnzymes.size.toLocaleString()} selected | 0 matching`;
+        restrictionEnzymePageInfo.textContent = "Page 0 of 0";
+        restrictionEnzymePrevPageBtn.disabled = true;
+        restrictionEnzymeNextPageBtn.disabled = true;
+        return;
+      }
+
+      const totalPages = Math.max(1, Math.ceil(filteredUnselectedItems.length / state.restrictionTablePageSize));
+      state.restrictionTablePage = Math.min(Math.max(1, state.restrictionTablePage), totalPages);
+      const pageStart = (state.restrictionTablePage - 1) * state.restrictionTablePageSize;
+      const pageEnd = pageStart + state.restrictionTablePageSize;
+      const pageItems = filteredUnselectedItems.slice(pageStart, pageEnd);
+      const rowsToRender = [...selectedItems, ...pageItems];
+
+      restrictionEnzymeTableBody.innerHTML = "";
+      rowsToRender.forEach(({ enzyme, count, site }) => {
+        const row = document.createElement("tr");
+        row.className = "hover";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.className = "checkbox checkbox-xs checkbox-primary";
+        input.value = enzyme;
+        input.checked = state.selectedRestrictionEnzymes.has(enzyme);
+        input.addEventListener("change", () => {
+          if (input.checked) {
+            state.selectedRestrictionEnzymes.add(enzyme);
+          } else {
+            state.selectedRestrictionEnzymes.delete(enzyme);
+          }
+          render();
+        });
+
+        const selectCell = document.createElement("td");
+        selectCell.appendChild(input);
+        const enzymeCell = document.createElement("td");
+        enzymeCell.className = "font-mono";
+        enzymeCell.textContent = enzyme;
+        const siteCell = document.createElement("td");
+        siteCell.className = "font-mono";
+        siteCell.textContent = site || "-";
+        const countCell = document.createElement("td");
+        countCell.textContent = count.toLocaleString();
+
+        row.appendChild(selectCell);
+        row.appendChild(enzymeCell);
+        row.appendChild(siteCell);
+        row.appendChild(countCell);
+        restrictionEnzymeTableBody.appendChild(row);
+      });
+
+      const matchingTotal = selectedItems.length + filteredUnselectedItems.length;
+      restrictionSelectionCount.textContent = `${state.selectedRestrictionEnzymes.size.toLocaleString()} selected | ${matchingTotal.toLocaleString()} matching`;
+      restrictionEnzymePageInfo.textContent = `Page ${state.restrictionTablePage.toLocaleString()} of ${totalPages.toLocaleString()}`;
+      restrictionEnzymePrevPageBtn.disabled = state.restrictionTablePage <= 1;
+      restrictionEnzymeNextPageBtn.disabled = state.restrictionTablePage >= totalPages;
     }
 
     function normalize(value) {
@@ -474,20 +661,54 @@
       render();
     }
 
-    function renderSequenceWindow(seq, start, end) {
+    function renderSequenceWindow(record, start, end) {
+      const seq = record.sequence;
       const visible = seq.slice(start - 1, end);
       const chunkSize = 10;
       const lineSize = 100;
       const lines = [];
+      const hasRestrictionSelection = state.selectedRestrictionEnzymes.size > 0;
+      const windowRestrictionHits = getRestrictionHitsInWindow(record, start, end)
+        .filter((site) => state.selectedRestrictionEnzymes.has(site.enzyme));
+      const highlightedPositions = new Set();
+      if (hasRestrictionSelection) {
+        windowRestrictionHits.forEach((site) => {
+          const siteStart = Math.max(start, site.start);
+          const siteEnd = Math.min(end, site.end);
+          for (let position = siteStart; position <= siteEnd; position += 1) {
+            highlightedPositions.add(position);
+          }
+        });
+      }
+
       for (let i = 0; i < visible.length; i += lineSize) {
         const lineStart = start + i;
+        const lineEnd = Math.min(end, lineStart + lineSize - 1);
         const lineSegment = visible.slice(i, i + lineSize);
         const chunks = [];
         for (let j = 0; j < lineSegment.length; j += chunkSize) {
           const chunk = lineSegment.slice(j, j + chunkSize);
-          chunks.push(chunk.split("").map(baseSpan).join(""));
+          const chunkBaseIndex = lineStart + j;
+          const renderedChunk = chunk.split("").map((base, offset) => {
+            const position = chunkBaseIndex + offset;
+            return baseSpan(base, highlightedPositions.has(position));
+          }).join("");
+          chunks.push(renderedChunk);
         }
         lines.push(`${String(lineStart).padStart(8, " ")}  ${chunks.join(" ")}`);
+        if (hasRestrictionSelection) {
+          const lineSites = windowRestrictionHits
+            .filter((site) => !(site.end < lineStart || site.start > lineEnd))
+            .map((site) => `${escapeHtml(site.enzyme)} ${site.start.toLocaleString()}-${site.end.toLocaleString()}`);
+          if (lineSites.length) {
+            lines.push(`${" ".repeat(8)}  <span class="restriction-row">RE: ${lineSites.join(" | ")}</span>`);
+          }
+        }
+      }
+      if (hasRestrictionSelection) {
+        restrictionSiteSummary.textContent = `${windowRestrictionHits.length.toLocaleString()} restriction site(s) in current window`;
+      } else {
+        restrictionSiteSummary.textContent = "Select one or more enzymes from the table to visualize binding regions";
       }
       sequenceWindow.innerHTML = lines.join("\n");
     }
@@ -773,12 +994,13 @@
       windowLabel.textContent = `${record.id} | ${state.start.toLocaleString()}-${end.toLocaleString()} / ${record.length.toLocaleString()} bp`;
       windowSizeHint.textContent = `${state.windowSize.toLocaleString()} bp visible`;
       featureLegend.textContent = formatFeatures(record.features);
+      renderRestrictionEnzymeTable(record);
       renderFeatureTrack(record);
       renderMapAxis(record);
       renderMapSelectionSummary(record);
       renderPCRProduct(record);
       renderFeatureViewer(record);
-      renderSequenceWindow(record.sequence, state.start, end);
+      renderSequenceWindow(record, state.start, end);
     }
 
     records.forEach((record, index) => {
@@ -800,6 +1022,10 @@
       state.mapSelectedFeatureIndexes = new Set();
       state.selectedForwardPrimerIndex = null;
       state.selectedReversePrimerIndex = null;
+      state.restrictionEnzymeQuery = "";
+      state.restrictionTablePage = 1;
+      applyTopRestrictionSelection(getRecord());
+      restrictionEnzymeSearchInput.value = state.restrictionEnzymeQuery;
       render();
     });
 
@@ -895,7 +1121,37 @@
       render();
     });
 
+    selectTopRestrictionEnzymesBtn.addEventListener("click", () => {
+      applyTopRestrictionSelection(getRecord());
+      state.restrictionTablePage = 1;
+      render();
+    });
+
+    clearRestrictionSelectionBtn.addEventListener("click", () => {
+      state.selectedRestrictionEnzymes = new Set();
+      state.restrictionTablePage = 1;
+      render();
+    });
+
+    restrictionEnzymeSearchInput.addEventListener("input", () => {
+      state.restrictionEnzymeQuery = restrictionEnzymeSearchInput.value;
+      state.restrictionTablePage = 1;
+      render();
+    });
+
+    restrictionEnzymePrevPageBtn.addEventListener("click", () => {
+      state.restrictionTablePage = Math.max(1, state.restrictionTablePage - 1);
+      render();
+    });
+
+    restrictionEnzymeNextPageBtn.addEventListener("click", () => {
+      state.restrictionTablePage = state.restrictionTablePage + 1;
+      render();
+    });
+
     state.mapWindowSize = defaultMapWindowSize(getRecord().length);
+    applyTopRestrictionSelection(getRecord());
+    restrictionEnzymeSearchInput.value = state.restrictionEnzymeQuery;
     render();
   })();
 </script>
