@@ -9,7 +9,7 @@ from .views import primer_list, primer_create,\
     analyze_sequence_view, save_generated_primerpair, \
     download_product_sequence, primer_binding_analysis, \
     sequencefile_list, sequencefile_upload, \
-    sequencefile_linear_view, \
+    sequencefile_linear_view, sequencefile_linear_record_data, \
     project_primer_list, project_download_sequence_files, \
     primer_binding_analysis_async, primer_binding_status, \
     project_add_sequencefile, project_remove_sequencefile, \
@@ -95,6 +95,11 @@ urlpatterns = [
         "sequence-files/<int:sequencefile_id>/linear-view/",
         sequencefile_linear_view,
         name="sequencefile_linear_view",
+    ),
+    path(
+        "sequence-files/<int:sequencefile_id>/linear-view/record-data/",
+        sequencefile_linear_record_data,
+        name="sequencefile_linear_record_data",
     ),
     # Ajax primer analysis
     path("analyze-primer/", analyze_primer_view, name="analyze_primer"),

@@ -228,10 +228,12 @@
       return;
     }
 
-    const records = JSON.parse(raw.textContent);
-    if (!records.length) {
+    const recordSummaries = JSON.parse(raw.textContent);
+    if (!recordSummaries.length) {
       return;
     }
+    const recordDetails = new Map();
+    const recordDataUrl = "{% url 'sequencefile_linear_record_data' sequence_file.id %}";
 
     const recordSelect = document.getElementById("recordSelect");
     const windowSizeSlider = document.getElementById("windowSizeSlider");
@@ -299,38 +301,110 @@
       restrictionEnzymeQuery: "",
       restrictionTablePage: 1,
       restrictionTablePageSize: 10,
+      loadingRecord: false,
+      loadError: "",
+      pendingRegionRequest: null,
     };
 
     const MIN_WINDOW_BP = 1;
 
-    function getRecord() {
-      return records[state.recordIndex];
+    function getRecord(index = state.recordIndex) {
+      return recordDetails.get(index) || null;
+    }
+
+    function getRecordSummary() {
+      return recordSummaries[state.recordIndex] || null;
+    }
+
+    function getCurrentRecordLength() {
+      const loaded = getRecord();
+      if (loaded) {
+        return loaded.length;
+      }
+      const summary = getRecordSummary();
+      return summary ? summary.length : 1;
+    }
+
+    function getActiveRegionBounds() {
+      const recordLength = getCurrentRecordLength();
+      const sequenceEnd = Math.min(recordLength, state.start + state.windowSize - 1);
+      const mapEnd = Math.min(recordLength, state.mapStart + state.mapWindowSize - 1);
+      const regionStart = Math.max(1, Math.min(state.start, state.mapStart));
+      const regionEnd = Math.max(regionStart, Math.max(sequenceEnd, mapEnd));
+      return { regionStart, regionEnd };
+    }
+
+    function isRangeCovered(record, neededStart, neededEnd) {
+      if (!record) {
+        return false;
+      }
+      return record.region_start <= neededStart && record.region_end >= neededEnd;
+    }
+
+    async function ensureRecordRegionLoaded(index, neededStart, neededEnd) {
+      const cached = getRecord(index);
+      if (isRangeCovered(cached, neededStart, neededEnd)) {
+        return;
+      }
+      if (state.loadingRecord) {
+        state.pendingRegionRequest = { index, start: neededStart, end: neededEnd };
+        return;
+      }
+      if (state.recordIndex === index) {
+        state.loadingRecord = true;
+        state.loadError = "";
+        render();
+      }
+      try {
+        const response = await fetch(
+          `${recordDataUrl}?record_index=${index}&start=${neededStart}&end=${neededEnd}`
+        );
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        recordDetails.set(index, payload);
+      } catch (error) {
+        if (state.recordIndex === index) {
+          state.loadError = `Could not load sequence record data (${error.message}).`;
+        }
+      } finally {
+        if (state.recordIndex === index) {
+          state.loadingRecord = false;
+          render();
+        }
+        const pending = state.pendingRegionRequest;
+        state.pendingRegionRequest = null;
+        if (pending) {
+          void ensureRecordRegionLoaded(pending.index, pending.start, pending.end);
+        }
+      }
     }
 
     function clampWindowToRecord() {
-      const record = getRecord();
-      const maxWindow = Math.min(5000, Math.max(MIN_WINDOW_BP, record.length));
+      const recordLength = getCurrentRecordLength();
+      const maxWindow = Math.min(5000, Math.max(MIN_WINDOW_BP, recordLength));
       state.windowSize = Math.min(Math.max(MIN_WINDOW_BP, state.windowSize), maxWindow);
-      if (state.start > record.length) {
+      if (state.start > recordLength) {
         state.start = 1;
       }
-      const maxStart = Math.max(1, record.length - state.windowSize + 1);
+      const maxStart = Math.max(1, recordLength - state.windowSize + 1);
       state.start = Math.min(state.start, maxStart);
       state.start = Math.max(1, state.start);
     }
 
     function defaultMapWindowSize(recordLength) {
-      return Math.max(1, recordLength);
+      return Math.max(50, Math.min(5000, Math.max(1, recordLength)));
     }
 
     function clampMapToRecord() {
-      const record = getRecord();
-      const maxMapWindow = Math.max(50, record.length);
+      const recordLength = getCurrentRecordLength();
+      const maxMapWindow = Math.max(50, recordLength);
       state.mapWindowSize = Math.min(Math.max(50, state.mapWindowSize), maxMapWindow);
-      if (state.mapStart > record.length) {
+      if (state.mapStart > recordLength) {
         state.mapStart = 1;
       }
-      const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
+      const maxMapStart = Math.max(1, recordLength - state.mapWindowSize + 1);
       state.mapStart = Math.min(state.mapStart, maxMapStart);
       state.mapStart = Math.max(1, state.mapStart);
     }
@@ -646,7 +720,13 @@
           reason: "Forward primer is downstream of reverse primer in this linear view.",
         };
       }
-      const sequence = record.sequence.slice(productStart - 1, productEnd);
+      const sequence = getSequenceSlice(record, productStart, productEnd);
+      if (sequence === null) {
+        return {
+          valid: false,
+          reason: "PCR product sequence is outside the loaded region. Pan/zoom to load that region.",
+        };
+      }
       return {
         valid: true,
         start: productStart,
@@ -696,8 +776,14 @@
     }
 
     function renderSequenceWindow(record, start, end) {
-      const seq = record.sequence;
-      const visible = seq.slice(start - 1, end);
+      const visible = getSequenceSlice(record, start, end);
+      if (visible === null) {
+        restrictionSiteSummary.textContent = state.loadingRecord
+          ? "Loading sequence window..."
+          : "Sequence window is outside the loaded region. Adjust pan/zoom to load it.";
+        sequenceWindow.textContent = state.loadingRecord ? "Loading sequence..." : "Region not loaded.";
+        return;
+      }
       const chunkSize = 10;
       const lineSize = 100;
       const lines = [];
@@ -745,6 +831,20 @@
         restrictionSiteSummary.textContent = "Select one or more enzymes from the table to visualize binding regions";
       }
       sequenceWindow.innerHTML = lines.join("\n");
+    }
+
+    function getSequenceSlice(record, start, end) {
+      const regionStart = Number(record.region_start);
+      const regionEnd = Number(record.region_end);
+      if (!Number.isFinite(regionStart) || !Number.isFinite(regionEnd)) {
+        return null;
+      }
+      if (start < regionStart || end > regionEnd) {
+        return null;
+      }
+      const localStart = start - regionStart;
+      const localEndExclusive = end - regionStart + 1;
+      return record.sequence.slice(localStart, localEndExclusive);
     }
 
     function renderFeatureTrack(record) {
@@ -994,22 +1094,24 @@
     }
 
     function render() {
+      const summary = getRecordSummary();
       const record = getRecord();
       clampWindowToRecord();
       clampMapToRecord();
+      const recordLength = getCurrentRecordLength();
 
-      windowSizeSlider.min = String(Math.min(MIN_WINDOW_BP, record.length));
-      windowSizeSlider.max = String(Math.min(5000, Math.max(MIN_WINDOW_BP, record.length)));
+      windowSizeSlider.min = String(Math.min(MIN_WINDOW_BP, recordLength));
+      windowSizeSlider.max = String(Math.min(5000, Math.max(MIN_WINDOW_BP, recordLength)));
       windowSizeSlider.value = String(state.windowSize);
 
-      startSlider.max = String(Math.max(1, record.length - state.windowSize + 1));
+      startSlider.max = String(Math.max(1, recordLength - state.windowSize + 1));
       startSlider.value = String(state.start);
 
-      const end = Math.min(record.length, state.start + state.windowSize - 1);
-      const mapEnd = Math.min(record.length, state.mapStart + state.mapWindowSize - 1);
+      const end = Math.min(recordLength, state.start + state.windowSize - 1);
+      const mapEnd = Math.min(recordLength, state.mapStart + state.mapWindowSize - 1);
       const mapLength = mapEnd - state.mapStart + 1;
 
-      mapStartSlider.max = String(Math.max(1, record.length - state.mapWindowSize + 1));
+      mapStartSlider.max = String(Math.max(1, recordLength - state.mapWindowSize + 1));
       mapStartSlider.value = String(state.mapStart);
       mapRangeLabel.textContent = `Map range: ${state.mapStart.toLocaleString()}-${mapEnd.toLocaleString()} (${mapLength.toLocaleString()} bp)`;
 
@@ -1025,8 +1127,42 @@
         viewportBox.style.width = `${Math.max(widthPct, 0.5)}%`;
       }
 
-      windowLabel.textContent = `${record.id} | ${state.start.toLocaleString()}-${end.toLocaleString()} / ${record.length.toLocaleString()} bp`;
+      const recordLabel = summary ? summary.id : `Record ${state.recordIndex + 1}`;
+      windowLabel.textContent = `${recordLabel} | ${state.start.toLocaleString()}-${end.toLocaleString()} / ${recordLength.toLocaleString()} bp`;
       windowSizeHint.textContent = `${state.windowSize.toLocaleString()} bp visible`;
+
+      if (!record) {
+        featureLegend.textContent = state.loadingRecord
+          ? "Loading record details..."
+          : (state.loadError || "Record details are not available.");
+        restrictionSelectionCount.textContent = "0 selected";
+        restrictionEnzymeTableBody.innerHTML = `<tr><td colspan="4" class="text-center opacity-70 py-3">${state.loadingRecord ? "Loading..." : "No data loaded."}</td></tr>`;
+        restrictionEnzymePageInfo.textContent = "Page 0 of 0";
+        restrictionEnzymePrevPageBtn.disabled = true;
+        restrictionEnzymeNextPageBtn.disabled = true;
+        featureTrack.innerHTML = "";
+        forwardPrimerTrack.innerHTML = "";
+        reversePrimerTrack.innerHTML = "";
+        mapTickTrack.innerHTML = "";
+        mapSelectionSummary.textContent = "No feature selected on map.";
+        primerCountSummary.textContent = "";
+        pcrProductSummary.textContent = "";
+        pcrProductSequence.textContent = "";
+        featureCount.textContent = "";
+        featureTableBody.innerHTML = `<tr><td colspan="6" class="text-center opacity-70 py-3">${state.loadingRecord ? "Loading..." : "No feature data loaded."}</td></tr>`;
+        featurePageInfo.textContent = "Page 0 of 0";
+        featurePrevPageBtn.disabled = true;
+        featureNextPageBtn.disabled = true;
+        restrictionSiteSummary.textContent = state.loadingRecord ? "Loading sequence window..." : (state.loadError || "Sequence data not loaded.");
+        sequenceWindow.textContent = state.loadingRecord ? "Loading sequence..." : "No sequence data loaded.";
+        return;
+      }
+
+      const needed = getActiveRegionBounds();
+      if (!isRangeCovered(record, needed.regionStart, needed.regionEnd)) {
+        void ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
+      }
+
       featureLegend.textContent = formatFeatures(record.features);
       renderRestrictionEnzymeTable(record);
       renderFeatureTrack(record);
@@ -1037,7 +1173,7 @@
       renderSequenceWindow(record, state.start, end);
     }
 
-    records.forEach((record, index) => {
+    recordSummaries.forEach((record, index) => {
       const option = document.createElement("option");
       option.value = String(index);
       option.textContent = `${record.id} (${record.length.toLocaleString()} bp)`;
@@ -1046,9 +1182,9 @@
 
     recordSelect.addEventListener("change", () => {
       state.recordIndex = Number(recordSelect.value);
-      state.windowSize = Math.min(200, getRecord().length);
+      state.windowSize = Math.min(200, getCurrentRecordLength());
       state.start = 1;
-      state.mapWindowSize = defaultMapWindowSize(getRecord().length);
+      state.mapWindowSize = defaultMapWindowSize(getCurrentRecordLength());
       state.mapStart = 1;
       state.selectedFeatureIndex = null;
       state.tablePage = 1;
@@ -1058,9 +1194,13 @@
       state.selectedReversePrimerIndex = null;
       state.restrictionEnzymeQuery = "";
       state.restrictionTablePage = 1;
-      applyTopRestrictionSelection(getRecord());
+      state.selectedRestrictionEnzymes = new Set();
+      state.loadError = "";
+      state.loadingRecord = false;
       restrictionEnzymeSearchInput.value = state.restrictionEnzymeQuery;
       render();
+      const needed = getActiveRegionBounds();
+      void ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
     });
 
     windowSizeSlider.addEventListener("input", () => {
@@ -1079,13 +1219,13 @@
     });
 
     zoomOutBtn.addEventListener("click", () => {
-      const maxWindow = Math.min(5000, getRecord().length);
+      const maxWindow = Math.min(5000, getCurrentRecordLength());
       state.windowSize = Math.min(maxWindow, state.windowSize * 2);
       render();
     });
 
     resetBtn.addEventListener("click", () => {
-      state.windowSize = Math.min(200, getRecord().length);
+      state.windowSize = Math.min(200, getCurrentRecordLength());
       state.start = 1;
       render();
     });
@@ -1101,12 +1241,12 @@
     });
 
     mapZoomOutBtn.addEventListener("click", () => {
-      state.mapWindowSize = Math.min(getRecord().length, state.mapWindowSize * 2);
+      state.mapWindowSize = Math.min(getCurrentRecordLength(), state.mapWindowSize * 2);
       render();
     });
 
     mapZoomResetBtn.addEventListener("click", () => {
-      state.mapWindowSize = defaultMapWindowSize(getRecord().length);
+      state.mapWindowSize = defaultMapWindowSize(getCurrentRecordLength());
       state.mapStart = 1;
       render();
     });
@@ -1156,7 +1296,11 @@
     });
 
     selectTopRestrictionEnzymesBtn.addEventListener("click", () => {
-      applyTopRestrictionSelection(getRecord());
+      const record = getRecord();
+      if (!record) {
+        return;
+      }
+      applyTopRestrictionSelection(record);
       state.restrictionTablePage = 1;
       render();
     });
@@ -1183,10 +1327,11 @@
       render();
     });
 
-    state.mapWindowSize = defaultMapWindowSize(getRecord().length);
-    applyTopRestrictionSelection(getRecord());
+    state.mapWindowSize = defaultMapWindowSize(getCurrentRecordLength());
     restrictionEnzymeSearchInput.value = state.restrictionEnzymeQuery;
     render();
+    const needed = getActiveRegionBounds();
+    void ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
   })();
 </script>
 {% endblock %}

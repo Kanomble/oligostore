@@ -1,3 +1,6 @@
+import os
+from functools import lru_cache
+
 from celery.result import AsyncResult
 from django.contrib.auth.decorators import login_required
 from django.db.models import Case, IntegerField, Q, Value, When
@@ -12,6 +15,112 @@ from ..services.primer_binding import analyze_primer_binding
 from ..services.sequence_loader import load_sequences
 from ..tasks import analyze_primer_binding_task
 from .utils import paginate_queryset
+
+
+@lru_cache(maxsize=8)
+def _load_sequences_cached(file_path, file_type, mtime):
+    # mtime participates in the cache key so file updates invalidate cache.
+    return tuple(load_sequences(file_path, file_type))
+
+
+def _get_sequence_records(sequence_file):
+    file_path = sequence_file.file.path
+    file_mtime = os.path.getmtime(file_path)
+    return _load_sequences_cached(file_path, sequence_file.file_type, file_mtime)
+
+
+def _extract_record_features(record):
+    features = []
+    for feature in getattr(record, "features", []):
+        try:
+            start = int(feature.location.start) + 1
+            end = int(feature.location.end)
+        except (TypeError, ValueError):
+            continue
+
+        if end < start:
+            continue
+
+        qualifiers = getattr(feature, "qualifiers", {}) or {}
+        label = (
+            (qualifiers.get("label") or [None])[0]
+            or (qualifiers.get("gene") or [None])[0]
+            or (qualifiers.get("product") or [None])[0]
+            or feature.type
+        )
+
+        features.append(
+            {
+                "start": start,
+                "end": end,
+                "type": feature.type,
+                "strand": getattr(feature.location, "strand", None),
+                "label": str(label),
+            }
+        )
+    return features
+
+
+def _extract_restriction_sites_in_range(window_sequence, range_start, range_end, record_length):
+    restriction_sites = []
+    try:
+        restriction_results = CommOnly.search(Seq(window_sequence), linear=True)
+        for enzyme, cut_positions in restriction_results.items():
+            site_length = len(getattr(enzyme, "site", "") or "")
+            if site_length <= 0:
+                continue
+            cut_offset = int(getattr(enzyme, "fst5", 0))
+            for cut_position in cut_positions:
+                global_cut_position = range_start + int(cut_position) - 1
+                start = global_cut_position - cut_offset
+                end = start + site_length - 1
+                if start < 1 or end > record_length:
+                    continue
+                if end < range_start or start > range_end:
+                    continue
+                restriction_sites.append(
+                    {
+                        "enzyme": str(enzyme),
+                        "site": str(getattr(enzyme, "site", "")),
+                        "cut_offset": cut_offset,
+                        "start": start,
+                        "end": end,
+                    }
+                )
+    except Exception:
+        restriction_sites = []
+    return restriction_sites
+
+
+def _serialize_record_summary(record):
+    return {
+        "id": record.id,
+        "name": record.name,
+        "description": record.description,
+        "length": len(record.seq),
+    }
+
+
+def _serialize_record_region(record, range_start, range_end):
+    record_length = len(record.seq)
+    range_start = max(1, min(range_start, record_length))
+    range_end = max(1, min(range_end, record_length))
+    if range_end < range_start:
+        range_start, range_end = range_end, range_start
+    window_sequence = str(record.seq[range_start - 1:range_end]).upper()
+
+    return {
+        "id": record.id,
+        "name": record.name,
+        "description": record.description,
+        "length": record_length,
+        "region_start": range_start,
+        "region_end": range_end,
+        "sequence": window_sequence,
+        "features": _extract_record_features(record),
+        "restriction_sites": _extract_restriction_sites_in_range(window_sequence, range_start, range_end, record_length),
+    }
+
 
 @login_required
 def sequencefile_upload(request):
@@ -226,79 +335,14 @@ def sequencefile_linear_view(request, sequencefile_id):
 
     records_payload = []
     try:
-        records = load_sequences(sequence_file.file.path, sequence_file.file_type)
+        records = _get_sequence_records(sequence_file)
     except Exception:
         messages.error(request, "Could not parse the selected sequence file.")
         return redirect("sequencefile_list")
 
     try:
         for record in records:
-            sequence = str(record.seq).upper()
-            features = []
-            restriction_sites = []
-
-            for feature in getattr(record, "features", []):
-                try:
-                    start = int(feature.location.start) + 1
-                    end = int(feature.location.end)
-                except (TypeError, ValueError):
-                    continue
-
-                if end < start:
-                    continue
-
-                qualifiers = getattr(feature, "qualifiers", {}) or {}
-                label = (
-                    (qualifiers.get("label") or [None])[0]
-                    or (qualifiers.get("gene") or [None])[0]
-                    or (qualifiers.get("product") or [None])[0]
-                    or feature.type
-                )
-
-                features.append(
-                    {
-                        "start": start,
-                        "end": end,
-                        "type": feature.type,
-                        "strand": getattr(feature.location, "strand", None),
-                        "label": str(label),
-                    }
-                )
-
-            try:
-                restriction_results = CommOnly.search(Seq(sequence), linear=True)
-                for enzyme, cut_positions in restriction_results.items():
-                    site_length = len(getattr(enzyme, "site", "") or "")
-                    if site_length <= 0:
-                        continue
-                    for cut_position in cut_positions:
-                        start = int(cut_position) - int(getattr(enzyme, "fst5", 0))
-                        end = start + site_length - 1
-                        if start < 1 or end > len(sequence):
-                            continue
-                        restriction_sites.append(
-                            {
-                                "enzyme": str(enzyme),
-                                "site": str(getattr(enzyme, "site", "")),
-                                "cut_offset": int(getattr(enzyme, "fst5", 0)),
-                                "start": start,
-                                "end": end,
-                            }
-                        )
-            except Exception:
-                restriction_sites = []
-
-            records_payload.append(
-                {
-                    "id": record.id,
-                    "name": record.name,
-                    "description": record.description,
-                    "length": len(sequence),
-                    "sequence": sequence,
-                    "features": features,
-                    "restriction_sites": restriction_sites,
-                }
-            )
+            records_payload.append(_serialize_record_summary(record))
     except Exception:
         messages.error(request, "Could not parse the selected sequence file.")
         return redirect("sequencefile_list")
@@ -311,3 +355,43 @@ def sequencefile_linear_view(request, sequencefile_id):
             "records_payload": records_payload,
         },
     )
+
+
+@login_required
+def sequencefile_linear_record_data(request, sequencefile_id):
+    sequence_file = get_object_or_404(
+        SequenceFile,
+        id=sequencefile_id,
+        uploaded_by=request.user,
+    )
+
+    try:
+        records = _get_sequence_records(sequence_file)
+    except Exception:
+        return JsonResponse({"error": "Could not parse the selected sequence file."}, status=400)
+
+    if not records:
+        return JsonResponse({"error": "No sequence records were found in this file."}, status=404)
+
+    try:
+        record_index = int(request.GET.get("record_index", 0))
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "record_index must be an integer."}, status=400)
+
+    if record_index < 0 or record_index >= len(records):
+        return JsonResponse({"error": "record_index out of range."}, status=400)
+
+    record = records[record_index]
+    record_length = len(record.seq)
+    try:
+        range_start = int(request.GET.get("start", 1))
+        range_end = int(request.GET.get("end", min(record_length, 5000)))
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "start/end must be integers."}, status=400)
+
+    try:
+        payload = _serialize_record_region(record, range_start, range_end)
+    except Exception:
+        return JsonResponse({"error": "Could not parse selected sequence record."}, status=400)
+
+    return JsonResponse(payload)
