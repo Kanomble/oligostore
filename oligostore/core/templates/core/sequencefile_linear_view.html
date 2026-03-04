@@ -380,14 +380,46 @@
             enzyme: site.enzyme,
             count: 0,
             site: site.site || "",
+            cutOffset: Number(site.cut_offset),
           };
         }
         stats[site.enzyme].count += 1;
         if (!stats[site.enzyme].site && site.site) {
           stats[site.enzyme].site = site.site;
         }
+        if (!Number.isFinite(stats[site.enzyme].cutOffset) && Number.isFinite(Number(site.cut_offset))) {
+          stats[site.enzyme].cutOffset = Number(site.cut_offset);
+        }
       });
       return stats;
+    }
+
+    function formatNRun(count) {
+      if (count <= 0) {
+        return "";
+      }
+      if (count <= 8) {
+        return "N".repeat(count);
+      }
+      return `N(${count})`;
+    }
+
+    function formatCutSite(site, cutOffset) {
+      const motif = String(site || "").toUpperCase();
+      if (!motif) {
+        return "-";
+      }
+      if (!Number.isFinite(cutOffset)) {
+        return motif;
+      }
+      const offset = Math.trunc(cutOffset);
+      if (offset >= 0 && offset <= motif.length) {
+        return `${motif.slice(0, offset)}/${motif.slice(offset)}`;
+      }
+      if (offset < 0) {
+        return `${formatNRun(Math.abs(offset))}/${motif}`;
+      }
+      return `${motif}/${formatNRun(offset - motif.length)}`;
     }
 
     function getSortedRestrictionEnzymes(record) {
@@ -448,7 +480,7 @@
       const rowsToRender = [...selectedItems, ...pageItems];
 
       restrictionEnzymeTableBody.innerHTML = "";
-      rowsToRender.forEach(({ enzyme, count, site }) => {
+      rowsToRender.forEach(({ enzyme, count, site, cutOffset }) => {
         const row = document.createElement("tr");
         row.className = "hover";
         const input = document.createElement("input");
@@ -472,7 +504,9 @@
         enzymeCell.textContent = enzyme;
         const siteCell = document.createElement("td");
         siteCell.className = "font-mono";
-        siteCell.textContent = site || "-";
+        const cutSiteLabel = formatCutSite(site, cutOffset);
+        siteCell.textContent = cutSiteLabel;
+        siteCell.title = `${site || "-"} | cut offset: ${Number.isFinite(cutOffset) ? cutOffset : "n/a"}`;
         const countCell = document.createElement("td");
         countCell.textContent = count.toLocaleString();
 

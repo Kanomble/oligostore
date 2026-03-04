@@ -280,6 +280,7 @@ def sequencefile_linear_view(request, sequencefile_id):
                             {
                                 "enzyme": str(enzyme),
                                 "site": str(getattr(enzyme, "site", "")),
+                                "cut_offset": int(getattr(enzyme, "fst5", 0)),
                                 "start": start,
                                 "end": end,
                             }
