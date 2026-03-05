@@ -427,14 +427,24 @@ class PrimerViewTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    @patch("core.views.primers.analyze_primer")
-    def test_primer_create_and_list(self, analyze_primer):
-        analyze_primer.return_value = {
-            "gc_content": 0.5,
-            "tm": 60.0,
-            "hairpin_dg": -1.0,
-            "self_dimer_dg": -2.0,
-        }
+    @patch("core.views.primers.Primer.create_with_analysis")
+    def test_primer_create_and_list(self, create_with_analysis):
+        def _create_primer(**kwargs):
+            primer = Primer.objects.create(
+                primer_name=kwargs["primer_name"],
+                sequence=kwargs["sequence"],
+                overhang_sequence=kwargs.get("overhang_sequence", ""),
+                length=len(kwargs["sequence"]),
+                gc_content=50.0,
+                tm=60.0,
+                hairpin_dg=-1.0,
+                self_dimer_dg=-2.0,
+                creator=kwargs["user"],
+            )
+            primer.users.add(kwargs["user"])
+            return primer
+
+        create_with_analysis.side_effect = _create_primer
         response = self.client.post(
             reverse("primer_create"),
             {"primer_name": "Primer Z", "sequence": "ATCG"},
@@ -504,17 +514,30 @@ class PrimerPairViewTests(TestCase):
 
         response = self.client.post(reverse("primerpair_create"), {"name": "Pair Test"})
 
-        self.assertRedirects(response, reverse("primerpair_list"))
+        self.assertEqual(response.status_code, 200)
         self.assertTrue(PrimerPair.objects.filter(name="Pair Test").exists())
 
-    @patch("core.views.primerpairs.analyze_primer")
-    def test_primerpair_combined_create(self, analyze_primer):
-        analyze_primer.return_value = {
-            "gc_content": 0.5,
-            "tm": 60.0,
-            "hairpin_dg": -1.0,
-            "self_dimer_dg": -2.0,
-        }
+    @patch("core.views.primerpairs.Primer.create_with_analysis")
+    def test_primerpair_combined_create(self, create_with_analysis):
+        created_primers = []
+
+        def _create_primer(**kwargs):
+            primer = Primer.objects.create(
+                primer_name=kwargs["primer_name"],
+                sequence=kwargs["sequence"],
+                overhang_sequence=kwargs.get("overhang_sequence", ""),
+                length=len(kwargs["sequence"]),
+                gc_content=50.0,
+                tm=60.0,
+                hairpin_dg=-1.0,
+                self_dimer_dg=-2.0,
+                creator=kwargs["user"],
+            )
+            primer.users.add(kwargs["user"])
+            created_primers.append(primer)
+            return primer
+
+        create_with_analysis.side_effect = _create_primer
         response = self.client.post(
             reverse("primerpair_combined_create"),
             {
@@ -525,8 +548,11 @@ class PrimerPairViewTests(TestCase):
                 "reverse_sequence": "CGAT",
             },
         )
-        self.assertRedirects(response, reverse("primerpair_list"))
-        self.assertTrue(PrimerPair.objects.filter(name="Combined Pair").exists())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(create_with_analysis.call_count, 2)
+        pair = PrimerPair.objects.get(name="Combined Pair")
+        self.assertEqual(pair.forward_primer, created_primers[0])
+        self.assertEqual(pair.reverse_primer, created_primers[1])
 
     def test_primerpair_delete_permission(self):
         pair = PrimerPair.objects.create(

@@ -1,18 +1,44 @@
 from django.db import models
 from django.contrib.auth.models import User
+from functools import lru_cache
+from Bio.Seq import Seq
+from Bio.Restriction import CommOnly
 
-RESTRICTION_ENZYMES = {
-    "EcoRI": "GAATTC",
-    "BamHI": "GGATCC",
-    "HindIII": "AAGCTT",
-    "XhoI": "CTCGAG",
-    "XbaI": "TCTAGA",
-    "NheI": "GCTAGC",
-    "SpeI": "ACTAGT",
-    "NotI": "GCGGCCGC",
-    "BsaI": "GGTCTC",
-    "BsmBI": "CGTCTC",
-}
+
+@lru_cache(maxsize=1024)
+def _find_overhang_restriction_sites(sequence: str):
+    sequence = (sequence or "").upper().strip()
+    if not sequence:
+        return tuple()
+
+    hits = []
+    try:
+        restriction_results = CommOnly.search(Seq(sequence), linear=True)
+        for enzyme, cut_positions in restriction_results.items():
+            site = str(getattr(enzyme, "site", "") or "")
+            site_length = len(site)
+            if site_length <= 0:
+                continue
+
+            cut_offset = int(getattr(enzyme, "fst5", 0))
+            for cut_position in cut_positions:
+                start = int(cut_position) - cut_offset
+                end = start + site_length - 1
+                if start < 1 or end > len(sequence):
+                    continue
+                hits.append(
+                    {
+                        "enzyme": str(enzyme),
+                        "site": site,
+                        "cut_offset": cut_offset,
+                        "start": start,
+                        "end": end,
+                    }
+                )
+    except Exception:
+        return tuple()
+
+    return tuple(sorted(hits, key=lambda hit: (hit["start"], hit["enzyme"])))
 
 class AccessControllModel(models.Model):
     creator = models.ForeignKey(
@@ -115,26 +141,7 @@ class Primer(AccessControllModel):
 
     @property
     def overhang_restriction_sites(self):
-        sequence = (self.overhang_sequence or "").upper()
-        if not sequence:
-            return []
-
-        hits = []
-        for enzyme, site in RESTRICTION_ENZYMES.items():
-            start = 0
-            while True:
-                idx = sequence.find(site, start)
-                if idx == -1:
-                    break
-                hits.append(
-                    {
-                        "enzyme": enzyme,
-                        "site": site,
-                        "start": idx + 1,
-                    }
-                )
-                start = idx + 1
-        return hits
+        return list(_find_overhang_restriction_sites(self.overhang_sequence or ""))
 
     @property
     def restriction_site_summary(self):

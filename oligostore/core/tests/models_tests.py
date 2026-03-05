@@ -123,6 +123,16 @@ class PrimerAndProjectModelTests(TestCase):
         self.assertIn("HindIII", primer.restriction_site_summary)
         self.assertIn("BamHI", primer.restriction_site_summary)
 
+    def test_overhang_detects_restriction_sites_beyond_legacy_set(self):
+        primer = Primer.create_with_analysis(
+            primer_name="Expanded Restriction Primer",
+            sequence="ATGCATGC",
+            overhang_sequence="GGGCCC",  # ApaI site, not part of legacy hardcoded set
+            user=self.creator,
+        )
+
+        self.assertIn("ApaI", primer.restriction_site_summary)
+
     def test_project_access_and_pairs(self):
         project = Project.objects.create(
             name="Project Alpha",
