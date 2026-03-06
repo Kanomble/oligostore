@@ -1,8 +1,10 @@
 import os
+import json
 from functools import lru_cache
 
 from celery.result import AsyncResult
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -11,6 +13,7 @@ from Bio.Seq import Seq
 from Bio.Restriction import CommOnly
 
 from ..models import Primer, SequenceFile
+from ..forms import clean_optional_sequence_value, clean_sequence_value
 from ..services.primer_binding import analyze_primer_binding
 from ..services.sequence_loader import load_sequences
 from ..tasks import analyze_primer_binding_task
@@ -395,3 +398,62 @@ def sequencefile_linear_record_data(request, sequencefile_id):
         return JsonResponse({"error": "Could not parse selected sequence record."}, status=400)
 
     return JsonResponse(payload)
+
+
+@login_required
+def sequencefile_linear_create_primer(request, sequencefile_id):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required."}, status=405)
+
+    get_object_or_404(
+        SequenceFile,
+        id=sequencefile_id,
+        uploaded_by=request.user,
+    )
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+    else:
+        payload = request.POST
+
+    primer_name = str(payload.get("primer_name", "")).strip()
+    sequence = str(payload.get("sequence", "")).strip()
+    overhang_sequence = str(payload.get("overhang_sequence", "")).strip()
+
+    if not primer_name:
+        return JsonResponse({"error": "Primer name is required."}, status=400)
+
+    try:
+        sequence = clean_sequence_value(sequence, allow_n=False, max_length=60)
+        overhang_sequence = clean_optional_sequence_value(
+            overhang_sequence,
+            allow_n=False,
+        )
+    except ValidationError as exc:
+        message = exc.messages[0] if exc.messages else "Invalid primer input."
+        return JsonResponse({"error": message}, status=400)
+
+    primer = Primer.create_with_analysis(
+        primer_name=primer_name,
+        sequence=sequence,
+        overhang_sequence=overhang_sequence,
+        user=request.user,
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "primer": {
+                "id": primer.id,
+                "name": primer.primer_name,
+                "sequence": primer.sequence,
+                "overhang_sequence": primer.overhang_sequence or "",
+                "length": primer.length,
+            },
+        },
+        status=201,
+    )

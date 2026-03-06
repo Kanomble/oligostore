@@ -183,6 +183,32 @@
             </div>
           </div>
           <div id="restrictionSiteSummary" class="text-xs opacity-70 mb-2"></div>
+          <div class="mb-3">
+            <button id="togglePrimerCreatePanelBtn" type="button" class="btn btn-outline btn-sm">Show primer creation</button>
+          </div>
+          <div id="primerCreatePanel" class="rounded-lg border border-base-300 p-3 mb-3 hidden">
+            <div class="font-semibold mb-2">Add primer from sequence window</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div class="form-control">
+                <label class="label py-1"><span class="label-text text-xs">Primer name</span></label>
+                <input id="primerNameInput" type="text" class="input input-bordered input-sm" placeholder="e.g. GeneX_FWD_1" />
+              </div>
+              <div class="form-control">
+                <label class="label py-1"><span class="label-text text-xs">5' overhang (optional)</span></label>
+                <input id="primerOverhangInput" type="text" class="input input-bordered input-sm font-mono" placeholder="ACGT..." />
+              </div>
+            </div>
+            <div class="form-control mt-2">
+              <label class="label py-1"><span class="label-text text-xs">Primer sequence (A/C/G/T, max 60)</span></label>
+              <textarea id="primerSequenceInput" class="textarea textarea-bordered textarea-sm font-mono" rows="2" placeholder="Paste or fill from current window"></textarea>
+            </div>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <button id="fillPrimerFromWindowBtn" type="button" class="btn btn-outline btn-sm">Use first 20 bp in window</button>
+              <button id="reverseComplementPrimerBtn" type="button" class="btn btn-outline btn-sm">Reverse complement</button>
+              <button id="savePrimerFromWindowBtn" type="button" class="btn btn-primary btn-sm">Create primer</button>
+            </div>
+            <div id="primerCreateStatus" class="text-xs opacity-80 mt-2"></div>
+          </div>
           <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-auto whitespace-pre font-mono pr-2 pb-4"></pre>
         </div>
       </div>
@@ -240,6 +266,7 @@
     }
     const recordDetails = new Map();
     const recordDataUrl = "{% url 'sequencefile_linear_record_data' sequence_file.id %}";
+    const createPrimerUrl = "{% url 'sequencefile_linear_create_primer' sequence_file.id %}";
 
     const recordSelect = document.getElementById("recordSelect");
     const windowSizeSlider = document.getElementById("windowSizeSlider");
@@ -287,6 +314,15 @@
     const restrictionSelectionCount = document.getElementById("restrictionSelectionCount");
     const restrictionSiteSummary = document.getElementById("restrictionSiteSummary");
     const sequenceWindow = document.getElementById("sequenceWindow");
+    const togglePrimerCreatePanelBtn = document.getElementById("togglePrimerCreatePanelBtn");
+    const primerCreatePanel = document.getElementById("primerCreatePanel");
+    const primerNameInput = document.getElementById("primerNameInput");
+    const primerOverhangInput = document.getElementById("primerOverhangInput");
+    const primerSequenceInput = document.getElementById("primerSequenceInput");
+    const fillPrimerFromWindowBtn = document.getElementById("fillPrimerFromWindowBtn");
+    const reverseComplementPrimerBtn = document.getElementById("reverseComplementPrimerBtn");
+    const savePrimerFromWindowBtn = document.getElementById("savePrimerFromWindowBtn");
+    const primerCreateStatus = document.getElementById("primerCreateStatus");
 
     const state = {
       recordIndex: 0,
@@ -307,6 +343,7 @@
       restrictionEnzymeQuery: "",
       restrictionTablePage: 1,
       restrictionTablePageSize: 10,
+      primerSubmitting: false,
       loadingRecord: false,
       loadError: "",
       pendingRegionRequest: null,
@@ -833,6 +870,44 @@
       return { width, prefix };
     }
 
+    function getCsrfToken() {
+      const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+      return match ? decodeURIComponent(match[1]) : "";
+    }
+
+    function reverseComplementSequence(sequence) {
+      return String(sequence || "")
+        .toUpperCase()
+        .split("")
+        .reverse()
+        .map((base) => complementBase(base))
+        .join("");
+    }
+
+    function setPrimerStatus(message, isError = false) {
+      primerCreateStatus.textContent = message;
+      primerCreateStatus.className = `text-xs mt-2 ${isError ? "text-error" : "text-success"}`;
+    }
+
+    function fillPrimerSequenceFromWindow(record) {
+      if (!record) {
+        return;
+      }
+      const windowEnd = Math.min(record.length, state.start + state.windowSize - 1);
+      const primerEnd = Math.min(windowEnd, state.start + 20 - 1);
+      const sequence = getSequenceSlice(record, state.start, primerEnd);
+      if (!sequence) {
+        setPrimerStatus("Sequence window not loaded yet. Pan/zoom and retry.", true);
+        return;
+      }
+      primerSequenceInput.value = sequence;
+      if (!primerNameInput.value.trim()) {
+        const safeRecord = String(record.id || `record_${state.recordIndex + 1}`).replace(/[^A-Za-z0-9_-]/g, "_");
+        primerNameInput.value = `${safeRecord}_${state.start}_${primerEnd}_F`;
+      }
+      setPrimerStatus(`Prefilled ${sequence.length.toLocaleString()} bp from ${state.start.toLocaleString()}-${primerEnd.toLocaleString()}.`);
+    }
+
     function renderSequenceWindow(record, start, end) {
       const visible = getSequenceSlice(record, start, end);
       if (visible === null) {
@@ -1198,6 +1273,9 @@
         featureNextPageBtn.disabled = true;
         restrictionSiteSummary.textContent = state.loadingRecord ? "Loading sequence window..." : (state.loadError || "Sequence data not loaded.");
         sequenceWindow.textContent = state.loadingRecord ? "Loading sequence..." : "No sequence data loaded.";
+        fillPrimerFromWindowBtn.disabled = true;
+        reverseComplementPrimerBtn.disabled = true;
+        savePrimerFromWindowBtn.disabled = true;
         return;
       }
 
@@ -1214,6 +1292,9 @@
       renderPCRProduct(record);
       renderFeatureViewer(record);
       renderSequenceWindow(record, state.start, end);
+      fillPrimerFromWindowBtn.disabled = false;
+      reverseComplementPrimerBtn.disabled = false;
+      savePrimerFromWindowBtn.disabled = state.primerSubmitting;
     }
 
     recordSummaries.forEach((record, index) => {
@@ -1241,6 +1322,7 @@
       state.loadError = "";
       state.loadingRecord = false;
       restrictionEnzymeSearchInput.value = state.restrictionEnzymeQuery;
+      setPrimerStatus("");
       render();
       const needed = getActiveRegionBounds();
       void ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
@@ -1368,6 +1450,76 @@
     restrictionEnzymeNextPageBtn.addEventListener("click", () => {
       state.restrictionTablePage = state.restrictionTablePage + 1;
       render();
+    });
+
+    togglePrimerCreatePanelBtn.addEventListener("click", () => {
+      const isHidden = primerCreatePanel.classList.contains("hidden");
+      primerCreatePanel.classList.toggle("hidden", !isHidden);
+      togglePrimerCreatePanelBtn.textContent = isHidden
+        ? "Hide primer creation"
+        : "Show primer creation";
+    });
+
+    fillPrimerFromWindowBtn.addEventListener("click", () => {
+      const record = getRecord();
+      fillPrimerSequenceFromWindow(record);
+    });
+
+    reverseComplementPrimerBtn.addEventListener("click", () => {
+      const current = primerSequenceInput.value;
+      if (!current.trim()) {
+        setPrimerStatus("Enter or prefill a sequence first.", true);
+        return;
+      }
+      primerSequenceInput.value = reverseComplementSequence(current);
+      setPrimerStatus("Sequence reverse-complemented.");
+    });
+
+    savePrimerFromWindowBtn.addEventListener("click", async () => {
+      if (state.primerSubmitting) {
+        return;
+      }
+      const primerName = primerNameInput.value.trim();
+      const sequence = primerSequenceInput.value.trim();
+      const overhangSequence = primerOverhangInput.value.trim();
+
+      if (!primerName) {
+        setPrimerStatus("Primer name is required.", true);
+        return;
+      }
+      if (!sequence) {
+        setPrimerStatus("Primer sequence is required.", true);
+        return;
+      }
+
+      state.primerSubmitting = true;
+      render();
+      setPrimerStatus("Creating primer...");
+
+      try {
+        const response = await fetch(createPrimerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCsrfToken(),
+          },
+          body: JSON.stringify({
+            primer_name: primerName,
+            sequence,
+            overhang_sequence: overhangSequence,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        setPrimerStatus(`Primer created: ${payload.primer.name} (${payload.primer.length} bp).`);
+      } catch (error) {
+        setPrimerStatus(`Could not create primer: ${error.message}`, true);
+      } finally {
+        state.primerSubmitting = false;
+        render();
+      }
     });
 
     state.mapWindowSize = defaultMapWindowSize(getCurrentRecordLength());
