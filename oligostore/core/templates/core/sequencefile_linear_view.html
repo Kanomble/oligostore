@@ -183,7 +183,7 @@
             </div>
           </div>
           <div id="restrictionSiteSummary" class="text-xs opacity-70 mb-2"></div>
-          <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-x-auto whitespace-pre-wrap break-all font-mono"></pre>
+          <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-auto whitespace-pre font-mono pr-2 pb-4"></pre>
         </div>
       </div>
     </div>
@@ -209,6 +209,12 @@
   .restriction-row {
     color: #92400e;
     font-size: 0.75rem;
+  }
+  .bottom-strand-row {
+    display: inline;
+    background: rgba(15, 23, 42, 0.08);
+    border-radius: 0.125rem;
+    padding: 0;
   }
   .map-track-grid {
     background-image: repeating-linear-gradient(
@@ -431,6 +437,20 @@
       if (value === "G") return `<span class="base-g${restrictionClass}">G</span>`;
       if (value === "T") return `<span class="base-t${restrictionClass}">T</span>`;
       return `<span class="base-n${restrictionClass}">${value}</span>`;
+    }
+
+    const COMPLEMENT_BY_BASE = {
+      A: "T",
+      T: "A",
+      C: "G",
+      G: "C",
+    };
+    const SEQUENCE_WINDOW_CHUNK_SIZE = 10;
+    const SEQUENCE_WINDOW_LINE_SIZE = 100;
+
+    function complementBase(base) {
+      const value = String(base || "").toUpperCase();
+      return COMPLEMENT_BY_BASE[value] || "N";
     }
 
     function escapeHtml(value) {
@@ -775,6 +795,44 @@
       render();
     }
 
+    function getHighlightedRestrictionPositions(windowRestrictionHits, start, end) {
+      const highlightedPositions = new Set();
+      windowRestrictionHits.forEach((site) => {
+        const siteStart = Math.max(start, site.start);
+        const siteEnd = Math.min(end, site.end);
+        for (let position = siteStart; position <= siteEnd; position += 1) {
+          highlightedPositions.add(position);
+        }
+      });
+      return highlightedPositions;
+    }
+
+    function renderStrandChunks(lineSegment, lineStart, highlightedPositions, baseTransform = (base) => base) {
+      const chunks = [];
+      for (let offset = 0; offset < lineSegment.length; offset += SEQUENCE_WINDOW_CHUNK_SIZE) {
+        const chunk = lineSegment.slice(offset, offset + SEQUENCE_WINDOW_CHUNK_SIZE);
+        const chunkBaseIndex = lineStart + offset;
+        const renderedChunk = chunk.split("").map((base, chunkOffset) => {
+          const position = chunkBaseIndex + chunkOffset;
+          return baseSpan(baseTransform(base), highlightedPositions.has(position));
+        }).join("");
+        chunks.push(renderedChunk);
+      }
+      return chunks.join(" ");
+    }
+
+    function renderLineRestrictionSites(windowRestrictionHits, lineStart, lineEnd) {
+      return windowRestrictionHits
+        .filter((site) => !(site.end < lineStart || site.start > lineEnd))
+        .map((site) => `${escapeHtml(site.enzyme)} ${site.start.toLocaleString()}-${site.end.toLocaleString()}`);
+    }
+
+    function getLineNumberLayout(end) {
+      const width = String(Number(end).toLocaleString()).length;
+      const prefix = " ".repeat(width + 2);
+      return { width, prefix };
+    }
+
     function renderSequenceWindow(record, start, end) {
       const visible = getSequenceSlice(record, start, end);
       if (visible === null) {
@@ -784,44 +842,29 @@
         sequenceWindow.textContent = state.loadingRecord ? "Loading sequence..." : "Region not loaded.";
         return;
       }
-      const chunkSize = 10;
-      const lineSize = 100;
       const lines = [];
       const hasRestrictionSelection = state.selectedRestrictionEnzymes.size > 0;
       const windowRestrictionHits = getRestrictionHitsInWindow(record, start, end)
         .filter((site) => state.selectedRestrictionEnzymes.has(site.enzyme));
-      const highlightedPositions = new Set();
-      if (hasRestrictionSelection) {
-        windowRestrictionHits.forEach((site) => {
-          const siteStart = Math.max(start, site.start);
-          const siteEnd = Math.min(end, site.end);
-          for (let position = siteStart; position <= siteEnd; position += 1) {
-            highlightedPositions.add(position);
-          }
-        });
-      }
+      const highlightedPositions = hasRestrictionSelection
+        ? getHighlightedRestrictionPositions(windowRestrictionHits, start, end)
+        : new Set();
+      const lineNumberLayout = getLineNumberLayout(end);
 
-      for (let i = 0; i < visible.length; i += lineSize) {
+      for (let i = 0; i < visible.length; i += SEQUENCE_WINDOW_LINE_SIZE) {
         const lineStart = start + i;
-        const lineEnd = Math.min(end, lineStart + lineSize - 1);
-        const lineSegment = visible.slice(i, i + lineSize);
-        const chunks = [];
-        for (let j = 0; j < lineSegment.length; j += chunkSize) {
-          const chunk = lineSegment.slice(j, j + chunkSize);
-          const chunkBaseIndex = lineStart + j;
-          const renderedChunk = chunk.split("").map((base, offset) => {
-            const position = chunkBaseIndex + offset;
-            return baseSpan(base, highlightedPositions.has(position));
-          }).join("");
-          chunks.push(renderedChunk);
-        }
-        lines.push(`${String(lineStart).padStart(8, " ")}  ${chunks.join(" ")}`);
+        const lineEnd = Math.min(end, lineStart + SEQUENCE_WINDOW_LINE_SIZE - 1);
+        const lineSegment = visible.slice(i, i + SEQUENCE_WINDOW_LINE_SIZE);
+        const forwardLine = renderStrandChunks(lineSegment, lineStart, highlightedPositions);
+        const reverseLine = renderStrandChunks(lineSegment, lineStart, highlightedPositions, complementBase);
+        const lineNumber = lineStart.toLocaleString().padStart(lineNumberLayout.width, " ");
+
+        lines.push(`${lineNumber}  5' ${forwardLine} 3'`);
+        lines.push(`${lineNumberLayout.prefix}<span class="bottom-strand-row">3' ${reverseLine} 5'</span>`);
         if (hasRestrictionSelection) {
-          const lineSites = windowRestrictionHits
-            .filter((site) => !(site.end < lineStart || site.start > lineEnd))
-            .map((site) => `${escapeHtml(site.enzyme)} ${site.start.toLocaleString()}-${site.end.toLocaleString()}`);
+          const lineSites = renderLineRestrictionSites(windowRestrictionHits, lineStart, lineEnd);
           if (lineSites.length) {
-            lines.push(`${" ".repeat(8)}  <span class="restriction-row">RE: ${lineSites.join(" | ")}</span>`);
+            lines.push(`${lineNumberLayout.prefix}<span class="restriction-row">RE: ${lineSites.join(" | ")}</span>`);
           }
         }
       }
