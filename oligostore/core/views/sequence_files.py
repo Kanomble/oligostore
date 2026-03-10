@@ -78,6 +78,7 @@ def _extract_user_features(sequence_file, record_id):
                 "strand": int(feature.strand),
                 "label": str(feature.label),
                 "source": "user",
+                "feature_id": feature.id,
                 "primer_id": feature.primer_id,
             }
         )
@@ -600,4 +601,59 @@ def sequencefile_linear_create_primer(request, sequencefile_id):
             ),
         },
         status=201,
+    )
+
+
+@login_required
+def sequencefile_linear_delete_primer(request, sequencefile_id):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required."}, status=405)
+
+    sequence_file = get_object_or_404(
+        SequenceFile,
+        id=sequencefile_id,
+        uploaded_by=request.user,
+    )
+
+    try:
+        payload = _parse_json_or_form_payload(request)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    try:
+        feature_id = int(payload.get("feature_id", 0))
+    except (TypeError, ValueError):
+        feature_id = 0
+    delete_primer = _parse_bool(payload.get("delete_primer", False))
+
+    if feature_id < 1:
+        return JsonResponse({"error": "feature_id is required."}, status=400)
+
+    feature = get_object_or_404(
+        SequenceFeature,
+        id=feature_id,
+        sequence_file=sequence_file,
+    )
+
+    primer = feature.primer
+    deleted_primer_id = None
+    if delete_primer:
+        if not primer:
+            return JsonResponse({"error": "This sequence feature is not linked to an oligostore primer."}, status=400)
+        if primer.creator_id != request.user.id:
+            return JsonResponse({"error": "You do not have permission to delete this primer from oligostore."}, status=403)
+        deleted_primer_id = primer.id
+
+    deleted_feature_id = feature.id
+    feature.delete()
+
+    if delete_primer and primer:
+        primer.delete()
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "deleted_feature_id": deleted_feature_id,
+            "deleted_primer_id": deleted_primer_id,
+        }
     )

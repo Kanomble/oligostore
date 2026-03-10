@@ -90,6 +90,10 @@
           </div>
           <div id="primerCountSummary" class="mt-1 text-[11px] opacity-70"></div>
           <div id="mapSelectionSummary" class="mt-2 text-xs opacity-70"></div>
+          <div id="mapSelectionActions" class="mt-2 flex flex-wrap gap-2 hidden">
+            <button id="removePrimerFeatureBtn" type="button" class="btn btn-outline btn-xs">Remove from sequence file</button>
+            <button id="deletePrimerEverywhereBtn" type="button" class="btn btn-error btn-xs">Delete from oligostore too</button>
+          </div>
           <div id="pcrProductSummary" class="mt-2 text-xs opacity-70"></div>
           <pre id="pcrProductSequence" class="mt-2 text-[11px] leading-5 overflow-x-auto whitespace-pre-wrap break-all font-mono"></pre>
           <div id="featureLegend" class="mt-3 text-xs opacity-80"></div>
@@ -314,6 +318,7 @@
     const recordDetails = new Map();
     const recordDataUrl = "{% url 'sequencefile_linear_record_data' sequence_file.id %}";
     const createPrimerUrl = "{% url 'sequencefile_linear_create_primer' sequence_file.id %}";
+    const deletePrimerUrl = "{% url 'sequencefile_linear_delete_primer' sequence_file.id %}";
     const analyzePrimerUrl = "{% url 'analyze_primer' %}";
 
     const recordSelect = document.getElementById("recordSelect");
@@ -332,6 +337,9 @@
     const mapRightLabel = document.getElementById("mapRightLabel");
     const primerCountSummary = document.getElementById("primerCountSummary");
     const mapSelectionSummary = document.getElementById("mapSelectionSummary");
+    const mapSelectionActions = document.getElementById("mapSelectionActions");
+    const removePrimerFeatureBtn = document.getElementById("removePrimerFeatureBtn");
+    const deletePrimerEverywhereBtn = document.getElementById("deletePrimerEverywhereBtn");
     const pcrProductSummary = document.getElementById("pcrProductSummary");
     const pcrProductSequence = document.getElementById("pcrProductSequence");
     const windowLabel = document.getElementById("windowLabel");
@@ -403,6 +411,7 @@
       pendingRegionRequest: null,
       selectedPrimerCandidate: null,
       primerAnalysisLoading: false,
+      primerDeleteSubmitting: false,
     };
 
     const MIN_WINDOW_BP = 1;
@@ -1145,6 +1154,60 @@
       void analyzePrimerCandidate(candidate);
     }
 
+    async function deleteSelectedPrimerFeature(deletePrimer) {
+      const record = getRecord();
+      const feature = record && state.selectedFeatureIndex !== null
+        ? record.features[state.selectedFeatureIndex]
+        : null;
+      if (!feature || feature.source !== "user" || !Number(feature.feature_id)) {
+        return;
+      }
+
+      state.primerDeleteSubmitting = true;
+      render();
+      mapSelectionSummary.textContent = deletePrimer
+        ? "Deleting primer from sequence file and oligostore..."
+        : "Removing primer from sequence file...";
+
+      try {
+        const response = await fetch(deletePrimerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCsrfToken(),
+          },
+          body: JSON.stringify({
+            feature_id: feature.feature_id,
+            delete_primer: deletePrimer,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+
+        recordDetails.delete(state.recordIndex);
+        state.selectedFeatureIndex = null;
+        state.pendingFocusFeatureIndex = null;
+        state.mapSelectedFeatureIndexes = new Set();
+        state.selectedForwardPrimerIndex = null;
+        state.selectedReversePrimerIndex = null;
+        state.showMapSelectedOnly = false;
+        state.tablePage = 1;
+        render();
+
+        const needed = getActiveRegionBounds();
+        void ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
+      } catch (error) {
+        mapSelectionSummary.textContent = deletePrimer
+          ? `Could not delete primer: ${error.message}`
+          : `Could not remove primer: ${error.message}`;
+      } finally {
+        state.primerDeleteSubmitting = false;
+        render();
+      }
+    }
+
     function renderSequenceWindow(record, start, end) {
       const visible = getSequenceSlice(record, start, end);
       if (visible === null) {
@@ -1389,10 +1452,19 @@
     function renderMapSelectionSummary(record) {
       if (state.selectedFeatureIndex === null || !record.features[state.selectedFeatureIndex]) {
         mapSelectionSummary.textContent = "No feature selected on map.";
+        mapSelectionActions.classList.add("hidden");
         return;
       }
       const feature = record.features[state.selectedFeatureIndex];
       mapSelectionSummary.textContent = `Selected: ${feature.label} (${feature.type}) ${feature.start.toLocaleString()}-${feature.end.toLocaleString()} | ${featureLength(feature).toLocaleString()} bp | ${strandLabel(feature.strand)}`;
+      const canRemovePrimer = isPrimerBindingFeature(feature) && feature.source === "user" && Number(feature.feature_id) > 0;
+      if (!canRemovePrimer) {
+        mapSelectionActions.classList.add("hidden");
+        return;
+      }
+      mapSelectionActions.classList.remove("hidden");
+      removePrimerFeatureBtn.disabled = state.primerDeleteSubmitting;
+      deletePrimerEverywhereBtn.disabled = state.primerDeleteSubmitting || !Number(feature.primer_id);
     }
 
     function renderFeatureViewer(record) {
@@ -1509,6 +1581,7 @@
         reversePrimerTrack.innerHTML = "";
         mapTickTrack.innerHTML = "";
         mapSelectionSummary.textContent = "No feature selected on map.";
+        mapSelectionActions.classList.add("hidden");
         primerCountSummary.textContent = "";
         pcrProductSummary.textContent = "";
         pcrProductSequence.textContent = "";
@@ -1712,6 +1785,28 @@
 
     closePrimerSelectionMenuBtn.addEventListener("click", () => {
       closePrimerSelectionMenu();
+    });
+
+    removePrimerFeatureBtn.addEventListener("click", async () => {
+      if (state.primerDeleteSubmitting) {
+        return;
+      }
+      const confirmed = window.confirm("Remove this primer annotation from the sequence file?");
+      if (!confirmed) {
+        return;
+      }
+      await deleteSelectedPrimerFeature(false);
+    });
+
+    deletePrimerEverywhereBtn.addEventListener("click", async () => {
+      if (state.primerDeleteSubmitting) {
+        return;
+      }
+      const confirmed = window.confirm("Delete this primer from the sequence file and oligostore primers?");
+      if (!confirmed) {
+        return;
+      }
+      await deleteSelectedPrimerFeature(true);
     });
 
     document.addEventListener("click", (event) => {

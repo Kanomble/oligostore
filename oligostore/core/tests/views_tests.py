@@ -176,6 +176,7 @@ class SequenceFileViewTests(TestCase):
         self.assertTrue(any(f.get("label") == "MergedPrimer" for f in payload["features"]))
         merged = next(f for f in payload["features"] if f.get("label") == "MergedPrimer")
         self.assertEqual(merged["source"], "user")
+        self.assertIn("feature_id", merged)
         self.assertEqual(merged["primer_id"], primer.id)
 
     @patch("core.views.sequence_files.Primer.create_with_analysis")
@@ -289,6 +290,119 @@ class SequenceFileViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Select at least one destination", response.json()["error"])
         create_with_analysis.assert_not_called()
+
+    def test_sequencefile_linear_delete_primer_feature_only(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Delete Feature Only",
+            file=SimpleUploadedFile("delete_feature_only.fasta", b">record1\nATCGATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        primer = Primer.objects.create(
+            primer_name="FeatureOnlyPrimer",
+            sequence="ATCGATCG",
+            length=8,
+            creator=self.user,
+        )
+        primer.users.add(self.user)
+        feature = SequenceFeature.objects.create(
+            sequence_file=sequence_file,
+            primer=primer,
+            record_id="record1",
+            start=1,
+            end=8,
+            strand=1,
+            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
+            label="FeatureOnlyPrimer",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_delete_primer", args=[sequence_file.id]),
+            data=json.dumps({"feature_id": feature.id, "delete_primer": False}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(SequenceFeature.objects.filter(id=feature.id).exists())
+        self.assertTrue(Primer.objects.filter(id=primer.id).exists())
+
+    def test_sequencefile_linear_delete_primer_feature_and_oligostore_primer(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Delete Primer Everywhere",
+            file=SimpleUploadedFile("delete_everywhere.fasta", b">record1\nATCGATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        primer = Primer.objects.create(
+            primer_name="EverywherePrimer",
+            sequence="ATCGATCG",
+            length=8,
+            creator=self.user,
+        )
+        primer.users.add(self.user)
+        feature = SequenceFeature.objects.create(
+            sequence_file=sequence_file,
+            primer=primer,
+            record_id="record1",
+            start=2,
+            end=9,
+            strand=-1,
+            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
+            label="EverywherePrimer",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_delete_primer", args=[sequence_file.id]),
+            data=json.dumps({"feature_id": feature.id, "delete_primer": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(SequenceFeature.objects.filter(id=feature.id).exists())
+        self.assertFalse(Primer.objects.filter(id=primer.id).exists())
+
+    def test_sequencefile_linear_delete_primer_forbidden_for_unowned_primer(self):
+        other_user = User.objects.create_user(
+            username="primer_owner_other",
+            email="primer_owner_other@example.com",
+            password="testpass123",
+        )
+        sequence_file = SequenceFile.objects.create(
+            name="Delete Primer Forbidden",
+            file=SimpleUploadedFile("delete_forbidden.fasta", b">record1\nATCGATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        primer = Primer.objects.create(
+            primer_name="SharedPrimer",
+            sequence="ATCGATCG",
+            length=8,
+            creator=other_user,
+        )
+        primer.users.add(self.user)
+        feature = SequenceFeature.objects.create(
+            sequence_file=sequence_file,
+            primer=primer,
+            record_id="record1",
+            start=3,
+            end=10,
+            strand=1,
+            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
+            label="SharedPrimer",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_delete_primer", args=[sequence_file.id]),
+            data=json.dumps({"feature_id": feature.id, "delete_primer": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(SequenceFeature.objects.filter(id=feature.id).exists())
+        self.assertTrue(Primer.objects.filter(id=primer.id).exists())
 
     @patch("core.views.sequence_files.Primer.create_with_analysis")
     def test_sequencefile_linear_create_primer_rejects_invalid_attachment(self, create_with_analysis):
