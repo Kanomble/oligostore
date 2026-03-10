@@ -12,7 +12,7 @@ from django.contrib import messages
 from Bio.Seq import Seq
 from Bio.Restriction import CommOnly
 
-from ..models import Primer, SequenceFile
+from ..models import Primer, SequenceFeature, SequenceFile
 from ..forms import clean_optional_sequence_value, clean_sequence_value
 from ..services.primer_binding import analyze_primer_binding
 from ..services.sequence_loader import load_sequences
@@ -64,6 +64,26 @@ def _extract_record_features(record):
     return features
 
 
+def _extract_user_features(sequence_file, record_id):
+    features = []
+    for feature in SequenceFeature.objects.filter(
+        sequence_file=sequence_file,
+        record_id=str(record_id),
+    ).select_related("primer"):
+        features.append(
+            {
+                "start": int(feature.start),
+                "end": int(feature.end),
+                "type": str(feature.feature_type),
+                "strand": int(feature.strand),
+                "label": str(feature.label),
+                "source": "user",
+                "primer_id": feature.primer_id,
+            }
+        )
+    return features
+
+
 def _extract_restriction_sites_in_range(window_sequence, range_start, range_end, record_length):
     restriction_sites = []
     try:
@@ -104,13 +124,99 @@ def _serialize_record_summary(record):
     }
 
 
-def _serialize_record_region(record, range_start, range_end):
+def _parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_json_or_form_payload(request):
+    if request.body:
+        try:
+            return json.loads(request.body.decode("utf-8"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise ValueError("Invalid JSON payload.")
+    return request.POST
+
+
+def _normalize_feature_attachment_data(payload):
+    attach_feature = _parse_bool(payload.get("attach_feature", False))
+    save_to_primers = _parse_bool(payload.get("save_to_primers", True))
+    record_id = str(payload.get("record_id", "")).strip()
+    try:
+        feature_start = int(payload.get("feature_start", 0))
+        feature_end = int(payload.get("feature_end", 0))
+    except (TypeError, ValueError):
+        feature_start = 0
+        feature_end = 0
+    try:
+        feature_strand = int(payload.get("feature_strand", 1))
+    except (TypeError, ValueError):
+        feature_strand = 1
+    if feature_strand not in (-1, 1):
+        feature_strand = 1
+    return {
+        "attach_feature": attach_feature,
+        "save_to_primers": save_to_primers,
+        "record_id": record_id,
+        "feature_start": feature_start,
+        "feature_end": feature_end,
+        "feature_strand": feature_strand,
+    }
+
+
+def _validate_feature_attachment(sequence_file, attachment_data):
+    if not attachment_data["attach_feature"]:
+        return None
+
+    record_id = attachment_data["record_id"]
+    feature_start = attachment_data["feature_start"]
+    feature_end = attachment_data["feature_end"]
+    feature_strand = attachment_data["feature_strand"]
+
+    if not record_id:
+        raise ValueError("record_id is required to attach primer as feature.")
+    if feature_start < 1 or feature_end < feature_start:
+        raise ValueError("feature_start/feature_end are invalid.")
+
+    try:
+        records = _get_sequence_records(sequence_file)
+    except Exception:
+        raise ValueError("Could not parse the selected sequence file.")
+
+    target_record = next((r for r in records if str(r.id) == record_id), None)
+    if not target_record:
+        raise ValueError("record_id does not exist in this sequence file.")
+    if feature_end > len(target_record.seq):
+        raise ValueError("Feature coordinates exceed record length.")
+
+    return {
+        "record_id": record_id,
+        "start": feature_start,
+        "end": feature_end,
+        "strand": feature_strand,
+    }
+
+
+def _serialize_record_region(record, range_start, range_end, sequence_file):
     record_length = len(record.seq)
     range_start = max(1, min(range_start, record_length))
     range_end = max(1, min(range_end, record_length))
     if range_end < range_start:
         range_start, range_end = range_end, range_start
     window_sequence = str(record.seq[range_start - 1:range_end]).upper()
+
+    combined_features = _extract_record_features(record) + _extract_user_features(
+        sequence_file=sequence_file,
+        record_id=record.id,
+    )
+    combined_features.sort(
+        key=lambda f: (
+            int(f.get("start", 1)),
+            int(f.get("end", 1)),
+            str(f.get("label", "")),
+        )
+    )
 
     return {
         "id": record.id,
@@ -120,7 +226,7 @@ def _serialize_record_region(record, range_start, range_end):
         "region_start": range_start,
         "region_end": range_end,
         "sequence": window_sequence,
-        "features": _extract_record_features(record),
+        "features": combined_features,
         "restriction_sites": _extract_restriction_sites_in_range(window_sequence, range_start, range_end, record_length),
     }
 
@@ -393,7 +499,7 @@ def sequencefile_linear_record_data(request, sequencefile_id):
         return JsonResponse({"error": "start/end must be integers."}, status=400)
 
     try:
-        payload = _serialize_record_region(record, range_start, range_end)
+        payload = _serialize_record_region(record, range_start, range_end, sequence_file)
     except Exception:
         return JsonResponse({"error": "Could not parse selected sequence record."}, status=400)
 
@@ -405,27 +511,29 @@ def sequencefile_linear_create_primer(request, sequencefile_id):
     if request.method != "POST":
         return JsonResponse({"error": "POST required."}, status=405)
 
-    get_object_or_404(
+    sequence_file = get_object_or_404(
         SequenceFile,
         id=sequencefile_id,
         uploaded_by=request.user,
     )
 
-    payload = {}
-    if request.body:
-        try:
-            payload = json.loads(request.body.decode("utf-8"))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return JsonResponse({"error": "Invalid JSON payload."}, status=400)
-    else:
-        payload = request.POST
+    try:
+        payload = _parse_json_or_form_payload(request)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
 
     primer_name = str(payload.get("primer_name", "")).strip()
     sequence = str(payload.get("sequence", "")).strip()
     overhang_sequence = str(payload.get("overhang_sequence", "")).strip()
+    attachment_data = _normalize_feature_attachment_data(payload)
 
     if not primer_name:
         return JsonResponse({"error": "Primer name is required."}, status=400)
+    if not attachment_data["attach_feature"] and not attachment_data["save_to_primers"]:
+        return JsonResponse(
+            {"error": "Select at least one destination: sequence file or oligostore primers."},
+            status=400,
+        )
 
     try:
         sequence = clean_sequence_value(sequence, allow_n=False, max_length=60)
@@ -437,23 +545,59 @@ def sequencefile_linear_create_primer(request, sequencefile_id):
         message = exc.messages[0] if exc.messages else "Invalid primer input."
         return JsonResponse({"error": message}, status=400)
 
-    primer = Primer.create_with_analysis(
-        primer_name=primer_name,
-        sequence=sequence,
-        overhang_sequence=overhang_sequence,
-        user=request.user,
-    )
+    try:
+        validated_attachment = _validate_feature_attachment(sequence_file, attachment_data)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    primer = None
+    if attachment_data["save_to_primers"]:
+        primer = Primer.create_with_analysis(
+            primer_name=primer_name,
+            sequence=sequence,
+            overhang_sequence=overhang_sequence,
+            user=request.user,
+        )
+
+    attached_feature = None
+    if validated_attachment:
+        attached_feature = SequenceFeature.objects.create(
+            sequence_file=sequence_file,
+            primer=primer,
+            record_id=validated_attachment["record_id"],
+            start=validated_attachment["start"],
+            end=validated_attachment["end"],
+            strand=validated_attachment["strand"],
+            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
+            label=primer.primer_name if primer else primer_name,
+            created_by=request.user,
+        )
 
     return JsonResponse(
         {
             "ok": True,
-            "primer": {
-                "id": primer.id,
-                "name": primer.primer_name,
-                "sequence": primer.sequence,
-                "overhang_sequence": primer.overhang_sequence or "",
-                "length": primer.length,
-            },
+            "primer": (
+                {
+                    "id": primer.id,
+                    "name": primer.primer_name,
+                    "sequence": primer.sequence,
+                    "overhang_sequence": primer.overhang_sequence or "",
+                    "length": primer.length,
+                }
+                if primer
+                else None
+            ),
+            "attached_feature": (
+                {
+                    "id": attached_feature.id,
+                    "record_id": attached_feature.record_id,
+                    "start": attached_feature.start,
+                    "end": attached_feature.end,
+                    "strand": attached_feature.strand,
+                }
+                if attached_feature
+                else None
+            ),
         },
         status=201,
     )

@@ -183,33 +183,68 @@
             </div>
           </div>
           <div id="restrictionSiteSummary" class="text-xs opacity-70 mb-2"></div>
-          <div class="mb-3">
-            <button id="togglePrimerCreatePanelBtn" type="button" class="btn btn-outline btn-sm">Show primer creation</button>
+          <div class="text-xs opacity-70 mb-3">
+            Select bases in the sequence window, then right-click to inspect primer properties and save the selection.
           </div>
-          <div id="primerCreatePanel" class="rounded-lg border border-base-300 p-3 mb-3 hidden">
-            <div class="font-semibold mb-2">Add primer from sequence window</div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <div class="form-control">
-                <label class="label py-1"><span class="label-text text-xs">Primer name</span></label>
-                <input id="primerNameInput" type="text" class="input input-bordered input-sm" placeholder="e.g. GeneX_FWD_1" />
+          <div class="relative">
+            <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-auto whitespace-pre font-mono pr-2 pb-4"></pre>
+            <div id="primerSelectionMenu" class="hidden fixed z-30 w-[26rem] max-w-[calc(100vw-2rem)] rounded-xl border border-base-300 bg-base-100 shadow-2xl p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="font-semibold">Primer from selection</div>
+                  <div id="primerSelectionSummary" class="text-xs opacity-70 mt-1"></div>
+                </div>
+                <button id="closePrimerSelectionMenuBtn" type="button" class="btn btn-ghost btn-xs">Close</button>
               </div>
-              <div class="form-control">
-                <label class="label py-1"><span class="label-text text-xs">5' overhang (optional)</span></label>
-                <input id="primerOverhangInput" type="text" class="input input-bordered input-sm font-mono" placeholder="ACGT..." />
+              <div class="mt-3 rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="text-[11px] uppercase tracking-wide opacity-60">Sequence</div>
+                <div id="primerSelectionSequence" class="mt-1 font-mono text-sm break-all"></div>
+              </div>
+              <div class="grid grid-cols-2 gap-2 mt-3 text-sm">
+                <div class="rounded-lg border border-base-300 p-2">
+                  <div class="text-[11px] uppercase tracking-wide opacity-60">Tm</div>
+                  <div id="primerSelectionTm" class="font-semibold mt-1">-</div>
+                </div>
+                <div class="rounded-lg border border-base-300 p-2">
+                  <div class="text-[11px] uppercase tracking-wide opacity-60">GC</div>
+                  <div id="primerSelectionGc" class="font-semibold mt-1">-</div>
+                </div>
+                <div class="rounded-lg border border-base-300 p-2">
+                  <div class="text-[11px] uppercase tracking-wide opacity-60">Hairpin</div>
+                  <div id="primerSelectionHairpin" class="font-semibold mt-1">-</div>
+                </div>
+                <div class="rounded-lg border border-base-300 p-2">
+                  <div class="text-[11px] uppercase tracking-wide opacity-60">Self dimer</div>
+                  <div id="primerSelectionSelfDimer" class="font-semibold mt-1">-</div>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+                <div class="form-control">
+                  <label class="label py-1"><span class="label-text text-xs">Primer name</span></label>
+                  <input id="primerNameInput" type="text" class="input input-bordered input-sm" placeholder="e.g. GeneX_FWD_1" />
+                </div>
+                <div class="form-control">
+                  <label class="label py-1"><span class="label-text text-xs">5' overhang (optional)</span></label>
+                  <input id="primerOverhangInput" type="text" class="input input-bordered input-sm font-mono" placeholder="ACGT..." />
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-4 mt-3">
+                <label class="label cursor-pointer justify-start gap-2 py-0">
+                  <input id="savePrimerToOligostoreCheckbox" type="checkbox" class="checkbox checkbox-sm checkbox-primary" checked />
+                  <span class="label-text text-xs">Add to oligostore primers</span>
+                </label>
+                <label class="label cursor-pointer justify-start gap-2 py-0">
+                  <input id="attachPrimerAsFeatureCheckbox" type="checkbox" class="checkbox checkbox-sm checkbox-primary" checked />
+                  <span class="label-text text-xs">Add to sequence file</span>
+                </label>
+              </div>
+              <div id="primerCreateStatus" class="text-xs opacity-80 mt-3"></div>
+              <div class="flex justify-end gap-2 mt-3">
+                <button id="reverseComplementPrimerBtn" type="button" class="btn btn-outline btn-sm">Reverse complement</button>
+                <button id="savePrimerFromWindowBtn" type="button" class="btn btn-primary btn-sm">Save selection</button>
               </div>
             </div>
-            <div class="form-control mt-2">
-              <label class="label py-1"><span class="label-text text-xs">Primer sequence (A/C/G/T, max 60)</span></label>
-              <textarea id="primerSequenceInput" class="textarea textarea-bordered textarea-sm font-mono" rows="2" placeholder="Paste or fill from current window"></textarea>
-            </div>
-            <div class="flex flex-wrap gap-2 mt-2">
-              <button id="fillPrimerFromWindowBtn" type="button" class="btn btn-outline btn-sm">Use first 20 bp in window</button>
-              <button id="reverseComplementPrimerBtn" type="button" class="btn btn-outline btn-sm">Reverse complement</button>
-              <button id="savePrimerFromWindowBtn" type="button" class="btn btn-primary btn-sm">Create primer</button>
-            </div>
-            <div id="primerCreateStatus" class="text-xs opacity-80 mt-2"></div>
           </div>
-          <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-auto whitespace-pre font-mono pr-2 pb-4"></pre>
         </div>
       </div>
     </div>
@@ -236,11 +271,23 @@
     color: #92400e;
     font-size: 0.75rem;
   }
+  .restriction-marker-row {
+    color: #92400e;
+    font-size: 0.75rem;
+    line-height: 1.1;
+  }
+  .restriction-cut-marker {
+    color: #7c2d12;
+    font-weight: 700;
+  }
   .bottom-strand-row {
     display: inline;
     background: rgba(15, 23, 42, 0.08);
     border-radius: 0.125rem;
     padding: 0;
+  }
+  .sequence-base {
+    user-select: text;
   }
   .map-track-grid {
     background-image: repeating-linear-gradient(
@@ -267,6 +314,7 @@
     const recordDetails = new Map();
     const recordDataUrl = "{% url 'sequencefile_linear_record_data' sequence_file.id %}";
     const createPrimerUrl = "{% url 'sequencefile_linear_create_primer' sequence_file.id %}";
+    const analyzePrimerUrl = "{% url 'analyze_primer' %}";
 
     const recordSelect = document.getElementById("recordSelect");
     const windowSizeSlider = document.getElementById("windowSizeSlider");
@@ -314,12 +362,18 @@
     const restrictionSelectionCount = document.getElementById("restrictionSelectionCount");
     const restrictionSiteSummary = document.getElementById("restrictionSiteSummary");
     const sequenceWindow = document.getElementById("sequenceWindow");
-    const togglePrimerCreatePanelBtn = document.getElementById("togglePrimerCreatePanelBtn");
-    const primerCreatePanel = document.getElementById("primerCreatePanel");
+    const primerSelectionMenu = document.getElementById("primerSelectionMenu");
+    const closePrimerSelectionMenuBtn = document.getElementById("closePrimerSelectionMenuBtn");
+    const primerSelectionSummary = document.getElementById("primerSelectionSummary");
+    const primerSelectionSequence = document.getElementById("primerSelectionSequence");
+    const primerSelectionTm = document.getElementById("primerSelectionTm");
+    const primerSelectionGc = document.getElementById("primerSelectionGc");
+    const primerSelectionHairpin = document.getElementById("primerSelectionHairpin");
+    const primerSelectionSelfDimer = document.getElementById("primerSelectionSelfDimer");
     const primerNameInput = document.getElementById("primerNameInput");
     const primerOverhangInput = document.getElementById("primerOverhangInput");
-    const primerSequenceInput = document.getElementById("primerSequenceInput");
-    const fillPrimerFromWindowBtn = document.getElementById("fillPrimerFromWindowBtn");
+    const savePrimerToOligostoreCheckbox = document.getElementById("savePrimerToOligostoreCheckbox");
+    const attachPrimerAsFeatureCheckbox = document.getElementById("attachPrimerAsFeatureCheckbox");
     const reverseComplementPrimerBtn = document.getElementById("reverseComplementPrimerBtn");
     const savePrimerFromWindowBtn = document.getElementById("savePrimerFromWindowBtn");
     const primerCreateStatus = document.getElementById("primerCreateStatus");
@@ -347,6 +401,8 @@
       loadingRecord: false,
       loadError: "",
       pendingRegionRequest: null,
+      selectedPrimerCandidate: null,
+      primerAnalysisLoading: false,
     };
 
     const MIN_WINDOW_BP = 1;
@@ -466,14 +522,18 @@
         .join(" | ");
     }
 
-    function baseSpan(base, highlightRestriction = false) {
+    function baseSpan(base, highlightRestriction = false, position = null, strand = "forward") {
       const value = base.toUpperCase();
       const restrictionClass = highlightRestriction ? " restriction-hit" : "";
-      if (value === "A") return `<span class="base-a${restrictionClass}">A</span>`;
-      if (value === "C") return `<span class="base-c${restrictionClass}">C</span>`;
-      if (value === "G") return `<span class="base-g${restrictionClass}">G</span>`;
-      if (value === "T") return `<span class="base-t${restrictionClass}">T</span>`;
-      return `<span class="base-n${restrictionClass}">${value}</span>`;
+      const metadata = Number.isFinite(position)
+        ? ` data-sequence-base="1" data-position="${position}" data-strand="${strand}"`
+        : "";
+      const classPrefix = Number.isFinite(position) ? "sequence-base " : "";
+      if (value === "A") return `<span${metadata} class="${classPrefix}base-a${restrictionClass}">A</span>`;
+      if (value === "C") return `<span${metadata} class="${classPrefix}base-c${restrictionClass}">C</span>`;
+      if (value === "G") return `<span${metadata} class="${classPrefix}base-g${restrictionClass}">G</span>`;
+      if (value === "T") return `<span${metadata} class="${classPrefix}base-t${restrictionClass}">T</span>`;
+      return `<span${metadata} class="${classPrefix}base-n${restrictionClass}">${value}</span>`;
     }
 
     const COMPLEMENT_BY_BASE = {
@@ -844,14 +904,14 @@
       return highlightedPositions;
     }
 
-    function renderStrandChunks(lineSegment, lineStart, highlightedPositions, baseTransform = (base) => base) {
+    function renderStrandChunks(lineSegment, lineStart, highlightedPositions, strand, baseTransform = (base) => base) {
       const chunks = [];
       for (let offset = 0; offset < lineSegment.length; offset += SEQUENCE_WINDOW_CHUNK_SIZE) {
         const chunk = lineSegment.slice(offset, offset + SEQUENCE_WINDOW_CHUNK_SIZE);
         const chunkBaseIndex = lineStart + offset;
         const renderedChunk = chunk.split("").map((base, chunkOffset) => {
           const position = chunkBaseIndex + chunkOffset;
-          return baseSpan(baseTransform(base), highlightedPositions.has(position));
+          return baseSpan(baseTransform(base), highlightedPositions.has(position), position, strand);
         }).join("");
         chunks.push(renderedChunk);
       }
@@ -862,6 +922,60 @@
       return windowRestrictionHits
         .filter((site) => !(site.end < lineStart || site.start > lineEnd))
         .map((site) => `${escapeHtml(site.enzyme)} ${site.start.toLocaleString()}-${site.end.toLocaleString()}`);
+    }
+
+    function sequenceOffsetToDisplayOffset(offset) {
+      return offset + Math.floor(offset / SEQUENCE_WINDOW_CHUNK_SIZE);
+    }
+
+    function sequenceDisplayLength(lineLength) {
+      if (lineLength <= 0) {
+        return 0;
+      }
+      return lineLength + Math.floor((lineLength - 1) / SEQUENCE_WINDOW_CHUNK_SIZE);
+    }
+
+    function buildRestrictionAnnotationRows(windowRestrictionHits, lineStart, lineEnd) {
+      const lineLength = lineEnd - lineStart + 1;
+      const displayLength = sequenceDisplayLength(lineLength);
+      if (displayLength <= 0) {
+        return null;
+      }
+
+      const markerChars = Array(displayLength).fill(" ");
+      const labelChars = Array(displayLength).fill(" ");
+      const lineSites = windowRestrictionHits.filter((site) => !(site.end < lineStart || site.start > lineEnd));
+
+      lineSites.forEach((site) => {
+        const startOffset = Math.max(0, site.start - lineStart);
+        const cutOffset = Number.isFinite(Number(site.cut_offset)) ? Math.trunc(Number(site.cut_offset)) : 0;
+        const cutPosition = site.start + cutOffset;
+        const cutOffsetClamped = Math.max(lineStart, Math.min(lineEnd, cutPosition)) - lineStart;
+        const markerIndex = sequenceOffsetToDisplayOffset(cutOffsetClamped);
+        markerChars[markerIndex] = "|";
+
+        const label = String(site.enzyme || "").trim();
+        if (!label) {
+          return;
+        }
+        const labelStart = sequenceOffsetToDisplayOffset(startOffset);
+        for (let i = 0; i < label.length; i += 1) {
+          const idx = labelStart + i;
+          if (idx >= labelChars.length) {
+            break;
+          }
+          if (labelChars[idx] === " ") {
+            labelChars[idx] = label[i];
+          }
+        }
+      });
+
+      const markerText = markerChars.join("");
+      const labelText = labelChars.join("");
+      if (!markerText.trim() && !labelText.trim()) {
+        return null;
+      }
+      return { markerText, labelText };
     }
 
     function getLineNumberLayout(end) {
@@ -889,23 +1003,146 @@
       primerCreateStatus.className = `text-xs mt-2 ${isError ? "text-error" : "text-success"}`;
     }
 
-    function fillPrimerSequenceFromWindow(record) {
-      if (!record) {
-        return;
+    function getCurrentRecordId() {
+      const summary = getRecordSummary();
+      return summary ? String(summary.id) : "";
+    }
+
+    function closePrimerSelectionMenu() {
+      primerSelectionMenu.classList.add("hidden");
+      state.selectedPrimerCandidate = null;
+      state.primerAnalysisLoading = false;
+      savePrimerFromWindowBtn.disabled = true;
+      setPrimerStatus("");
+    }
+
+    function setPrimerAnalysisPlaceholders(message = "-") {
+      primerSelectionTm.textContent = message;
+      primerSelectionGc.textContent = message;
+      primerSelectionHairpin.textContent = message;
+      primerSelectionSelfDimer.textContent = message;
+    }
+
+    function formatPrimerSelectionName(candidate) {
+      const record = getRecord();
+      const safeRecord = String((record && record.id) || `record_${state.recordIndex + 1}`).replace(/[^A-Za-z0-9_-]/g, "_");
+      const direction = candidate.strand === -1 ? "R" : "F";
+      return `${safeRecord}_${candidate.start}_${candidate.end}_${direction}`;
+    }
+
+    function getSelectedPrimerCandidate() {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return null;
       }
-      const windowEnd = Math.min(record.length, state.start + state.windowSize - 1);
-      const primerEnd = Math.min(windowEnd, state.start + 20 - 1);
-      const sequence = getSequenceSlice(record, state.start, primerEnd);
-      if (!sequence) {
-        setPrimerStatus("Sequence window not loaded yet. Pan/zoom and retry.", true);
-        return;
+      const range = selection.getRangeAt(0);
+      if (!sequenceWindow.contains(range.commonAncestorContainer)) {
+        return null;
       }
-      primerSequenceInput.value = sequence;
-      if (!primerNameInput.value.trim()) {
-        const safeRecord = String(record.id || `record_${state.recordIndex + 1}`).replace(/[^A-Za-z0-9_-]/g, "_");
-        primerNameInput.value = `${safeRecord}_${state.start}_${primerEnd}_F`;
+
+      const selectedBaseSpans = Array.from(
+        sequenceWindow.querySelectorAll('span[data-sequence-base="1"]')
+      ).filter((span) => {
+        try {
+          return range.intersectsNode(span);
+        } catch (error) {
+          return false;
+        }
+      });
+
+      if (!selectedBaseSpans.length) {
+        return null;
       }
-      setPrimerStatus(`Prefilled ${sequence.length.toLocaleString()} bp from ${state.start.toLocaleString()}-${primerEnd.toLocaleString()}.`);
+
+      const strandValues = [...new Set(selectedBaseSpans.map((span) => span.dataset.strand))];
+      if (strandValues.length !== 1) {
+        return { error: "Select bases from only one strand before right-clicking." };
+      }
+
+      const strandName = strandValues[0];
+      const strand = strandName === "reverse" ? -1 : 1;
+      const positions = selectedBaseSpans.map((span) => Number(span.dataset.position));
+      if (positions.some((value) => !Number.isFinite(value))) {
+        return { error: "Could not determine the selected base positions." };
+      }
+
+      const uniquePositions = [...new Set(positions)].sort((a, b) => a - b);
+      if (!uniquePositions.length) {
+        return null;
+      }
+      const expectedLength = uniquePositions[uniquePositions.length - 1] - uniquePositions[0] + 1;
+      if (expectedLength !== uniquePositions.length) {
+        return { error: "Select one continuous primer region." };
+      }
+
+      const displayedSequence = selectedBaseSpans
+        .map((span) => String(span.textContent || "").trim().toUpperCase())
+        .join("");
+      if (!displayedSequence || displayedSequence.length !== uniquePositions.length) {
+        return { error: "Select complete bases inside the sequence window." };
+      }
+
+      return {
+        start: uniquePositions[0],
+        end: uniquePositions[uniquePositions.length - 1],
+        strand,
+        displaySequence: displayedSequence,
+        sequence: strand === -1
+          ? displayedSequence.split("").reverse().join("")
+          : displayedSequence,
+      };
+    }
+
+    async function analyzePrimerCandidate(candidate) {
+      state.primerAnalysisLoading = true;
+      setPrimerAnalysisPlaceholders("Loading...");
+      try {
+        const response = await fetch(analyzePrimerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            "X-CSRFToken": getCsrfToken(),
+          },
+          body: new URLSearchParams({
+            sequence: candidate.sequence,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        primerSelectionTm.textContent = `${payload.tm} deg C`;
+        primerSelectionGc.textContent = `${Math.round(Number(payload.gc_content || 0) * 100)}%`;
+        primerSelectionHairpin.textContent = payload.hairpin
+          ? `Possible (${payload.hairpin_dg} kcal/mol)`
+          : `Not detected (${payload.hairpin_dg} kcal/mol)`;
+        primerSelectionSelfDimer.textContent = payload.self_dimer
+          ? `Possible (${payload.self_dimer_dg} kcal/mol)`
+          : `Not detected (${payload.self_dimer_dg} kcal/mol)`;
+      } catch (error) {
+        setPrimerAnalysisPlaceholders("Unavailable");
+        setPrimerStatus(`Could not analyze selection: ${error.message}`, true);
+      } finally {
+        state.primerAnalysisLoading = false;
+      }
+    }
+
+    function openPrimerSelectionMenu(candidate, x, y) {
+      state.selectedPrimerCandidate = candidate;
+      primerSelectionSummary.textContent = `${candidate.start.toLocaleString()}-${candidate.end.toLocaleString()} | ${candidate.sequence.length.toLocaleString()} bp | ${strandLabel(candidate.strand)}`;
+      primerSelectionSequence.textContent = candidate.sequence;
+      primerNameInput.value = formatPrimerSelectionName(candidate);
+      primerOverhangInput.value = "";
+      savePrimerToOligostoreCheckbox.checked = true;
+      attachPrimerAsFeatureCheckbox.checked = true;
+      setPrimerStatus("");
+      setPrimerAnalysisPlaceholders();
+      savePrimerFromWindowBtn.disabled = false;
+      primerSelectionMenu.style.left = `${Math.max(16, Math.min(window.innerWidth - 432, x))}px`;
+      primerSelectionMenu.style.top = `${Math.max(16, Math.min(window.innerHeight - 420, y))}px`;
+      primerSelectionMenu.style.transform = "none";
+      primerSelectionMenu.classList.remove("hidden");
+      void analyzePrimerCandidate(candidate);
     }
 
     function renderSequenceWindow(record, start, end) {
@@ -930,13 +1167,22 @@
         const lineStart = start + i;
         const lineEnd = Math.min(end, lineStart + SEQUENCE_WINDOW_LINE_SIZE - 1);
         const lineSegment = visible.slice(i, i + SEQUENCE_WINDOW_LINE_SIZE);
-        const forwardLine = renderStrandChunks(lineSegment, lineStart, highlightedPositions);
-        const reverseLine = renderStrandChunks(lineSegment, lineStart, highlightedPositions, complementBase);
+        const forwardLine = renderStrandChunks(lineSegment, lineStart, highlightedPositions, "forward");
+        const reverseLine = renderStrandChunks(lineSegment, lineStart, highlightedPositions, "reverse", complementBase);
         const lineNumber = lineStart.toLocaleString().padStart(lineNumberLayout.width, " ");
 
         lines.push(`${lineNumber}  5' ${forwardLine} 3'`);
         lines.push(`${lineNumberLayout.prefix}<span class="bottom-strand-row">3' ${reverseLine} 5'</span>`);
         if (hasRestrictionSelection) {
+          const annotationRows = buildRestrictionAnnotationRows(windowRestrictionHits, lineStart, lineEnd);
+          if (annotationRows) {
+            lines.push(
+              `${lineNumberLayout.prefix}   <span class="restriction-marker-row"><span class="restriction-cut-marker">${annotationRows.markerText}</span></span>`
+            );
+            lines.push(
+              `${lineNumberLayout.prefix}   <span class="restriction-marker-row">${escapeHtml(annotationRows.labelText)}</span>`
+            );
+          }
           const lineSites = renderLineRestrictionSites(windowRestrictionHits, lineStart, lineEnd);
           if (lineSites.length) {
             lines.push(`${lineNumberLayout.prefix}<span class="restriction-row">RE: ${lineSites.join(" | ")}</span>`);
@@ -1273,9 +1519,11 @@
         featureNextPageBtn.disabled = true;
         restrictionSiteSummary.textContent = state.loadingRecord ? "Loading sequence window..." : (state.loadError || "Sequence data not loaded.");
         sequenceWindow.textContent = state.loadingRecord ? "Loading sequence..." : "No sequence data loaded.";
-        fillPrimerFromWindowBtn.disabled = true;
+        savePrimerToOligostoreCheckbox.disabled = true;
+        attachPrimerAsFeatureCheckbox.disabled = true;
         reverseComplementPrimerBtn.disabled = true;
         savePrimerFromWindowBtn.disabled = true;
+        closePrimerSelectionMenu();
         return;
       }
 
@@ -1292,9 +1540,10 @@
       renderPCRProduct(record);
       renderFeatureViewer(record);
       renderSequenceWindow(record, state.start, end);
-      fillPrimerFromWindowBtn.disabled = false;
+      savePrimerToOligostoreCheckbox.disabled = false;
+      attachPrimerAsFeatureCheckbox.disabled = false;
       reverseComplementPrimerBtn.disabled = false;
-      savePrimerFromWindowBtn.disabled = state.primerSubmitting;
+      savePrimerFromWindowBtn.disabled = state.primerSubmitting || !state.selectedPrimerCandidate;
     }
 
     recordSummaries.forEach((record, index) => {
@@ -1322,55 +1571,64 @@
       state.loadError = "";
       state.loadingRecord = false;
       restrictionEnzymeSearchInput.value = state.restrictionEnzymeQuery;
-      setPrimerStatus("");
+      closePrimerSelectionMenu();
       render();
       const needed = getActiveRegionBounds();
       void ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
     });
 
     windowSizeSlider.addEventListener("input", () => {
+      closePrimerSelectionMenu();
       state.windowSize = Number(windowSizeSlider.value);
       render();
     });
 
     startSlider.addEventListener("input", () => {
+      closePrimerSelectionMenu();
       state.start = Number(startSlider.value);
       render();
     });
 
     zoomInBtn.addEventListener("click", () => {
+      closePrimerSelectionMenu();
       state.windowSize = Math.max(MIN_WINDOW_BP, Math.floor(state.windowSize / 2));
       render();
     });
 
     zoomOutBtn.addEventListener("click", () => {
+      closePrimerSelectionMenu();
       const maxWindow = Math.min(5000, getCurrentRecordLength());
       state.windowSize = Math.min(maxWindow, state.windowSize * 2);
       render();
     });
 
     resetBtn.addEventListener("click", () => {
+      closePrimerSelectionMenu();
       state.windowSize = Math.min(200, getCurrentRecordLength());
       state.start = 1;
       render();
     });
 
     mapStartSlider.addEventListener("input", () => {
+      closePrimerSelectionMenu();
       state.mapStart = Number(mapStartSlider.value);
       render();
     });
 
     mapZoomInBtn.addEventListener("click", () => {
+      closePrimerSelectionMenu();
       state.mapWindowSize = Math.max(50, Math.floor(state.mapWindowSize / 2));
       render();
     });
 
     mapZoomOutBtn.addEventListener("click", () => {
+      closePrimerSelectionMenu();
       state.mapWindowSize = Math.min(getCurrentRecordLength(), state.mapWindowSize * 2);
       render();
     });
 
     mapZoomResetBtn.addEventListener("click", () => {
+      closePrimerSelectionMenu();
       state.mapWindowSize = defaultMapWindowSize(getCurrentRecordLength());
       state.mapStart = 1;
       render();
@@ -1452,49 +1710,102 @@
       render();
     });
 
-    togglePrimerCreatePanelBtn.addEventListener("click", () => {
-      const isHidden = primerCreatePanel.classList.contains("hidden");
-      primerCreatePanel.classList.toggle("hidden", !isHidden);
-      togglePrimerCreatePanelBtn.textContent = isHidden
-        ? "Hide primer creation"
-        : "Show primer creation";
+    closePrimerSelectionMenuBtn.addEventListener("click", () => {
+      closePrimerSelectionMenu();
     });
 
-    fillPrimerFromWindowBtn.addEventListener("click", () => {
-      const record = getRecord();
-      fillPrimerSequenceFromWindow(record);
+    document.addEventListener("click", (event) => {
+      if (primerSelectionMenu.classList.contains("hidden")) {
+        return;
+      }
+      if (primerSelectionMenu.contains(event.target) || sequenceWindow.contains(event.target)) {
+        return;
+      }
+      closePrimerSelectionMenu();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !primerSelectionMenu.classList.contains("hidden")) {
+        closePrimerSelectionMenu();
+      }
+    });
+
+    sequenceWindow.addEventListener("contextmenu", (event) => {
+      const candidate = getSelectedPrimerCandidate();
+      if (!candidate) {
+        return;
+      }
+      event.preventDefault();
+      if (candidate.error) {
+        closePrimerSelectionMenu();
+        window.alert(candidate.error);
+        return;
+      }
+      openPrimerSelectionMenu(candidate, event.clientX, event.clientY);
+    });
+
+    sequenceWindow.addEventListener("mousedown", () => {
+      if (!primerSelectionMenu.classList.contains("hidden")) {
+        closePrimerSelectionMenu();
+      }
     });
 
     reverseComplementPrimerBtn.addEventListener("click", () => {
-      const current = primerSequenceInput.value;
-      if (!current.trim()) {
-        setPrimerStatus("Enter or prefill a sequence first.", true);
+      const candidate = state.selectedPrimerCandidate;
+      if (!candidate) {
+        setPrimerStatus("Select a primer region first.", true);
         return;
       }
-      primerSequenceInput.value = reverseComplementSequence(current);
-      setPrimerStatus("Sequence reverse-complemented.");
+      const nextSequence = reverseComplementSequence(candidate.sequence);
+      state.selectedPrimerCandidate = {
+        ...candidate,
+        sequence: nextSequence,
+        strand: candidate.strand === -1 ? 1 : -1,
+      };
+      primerSelectionSummary.textContent = `${candidate.start.toLocaleString()}-${candidate.end.toLocaleString()} | ${nextSequence.length.toLocaleString()} bp | ${strandLabel(state.selectedPrimerCandidate.strand)}`;
+      primerSelectionSequence.textContent = nextSequence;
+      if (primerNameInput.value.trim() === formatPrimerSelectionName(candidate)) {
+        primerNameInput.value = formatPrimerSelectionName(state.selectedPrimerCandidate);
+      }
+      void analyzePrimerCandidate(state.selectedPrimerCandidate);
+      setPrimerStatus("Selection reverse-complemented.");
     });
 
     savePrimerFromWindowBtn.addEventListener("click", async () => {
-      if (state.primerSubmitting) {
+      if (state.primerSubmitting || !state.selectedPrimerCandidate) {
         return;
       }
+      const candidate = state.selectedPrimerCandidate;
       const primerName = primerNameInput.value.trim();
-      const sequence = primerSequenceInput.value.trim();
       const overhangSequence = primerOverhangInput.value.trim();
+      const saveToPrimers = savePrimerToOligostoreCheckbox.checked;
+      const attachFeature = attachPrimerAsFeatureCheckbox.checked;
+      const recordId = getCurrentRecordId();
 
       if (!primerName) {
         setPrimerStatus("Primer name is required.", true);
         return;
       }
-      if (!sequence) {
+      if (!candidate.sequence) {
         setPrimerStatus("Primer sequence is required.", true);
+        return;
+      }
+      if (candidate.sequence.length > 60) {
+        setPrimerStatus("Selected primer is longer than 60 bp and cannot be saved.", true);
+        return;
+      }
+      if (!saveToPrimers && !attachFeature) {
+        setPrimerStatus("Select at least one destination.", true);
+        return;
+      }
+      if (attachFeature && !recordId) {
+        setPrimerStatus("Could not determine current record for feature attachment.", true);
         return;
       }
 
       state.primerSubmitting = true;
       render();
-      setPrimerStatus("Creating primer...");
+      setPrimerStatus("Saving selection...");
 
       try {
         const response = await fetch(createPrimerUrl, {
@@ -1505,17 +1816,35 @@
           },
           body: JSON.stringify({
             primer_name: primerName,
-            sequence,
+            sequence: candidate.sequence,
             overhang_sequence: overhangSequence,
+            save_to_primers: saveToPrimers,
+            attach_feature: attachFeature,
+            record_id: recordId,
+            feature_start: candidate.start,
+            feature_end: candidate.end,
+            feature_strand: candidate.strand,
           }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(payload.error || `HTTP ${response.status}`);
         }
-        setPrimerStatus(`Primer created: ${payload.primer.name} (${payload.primer.length} bp).`);
+        if (payload.attached_feature) {
+          recordDetails.delete(state.recordIndex);
+          const needed = getActiveRegionBounds();
+          void ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
+        }
+        const destinations = [];
+        if (payload.primer) {
+          destinations.push(`oligostore primers as ${payload.primer.name}`);
+        }
+        if (payload.attached_feature) {
+          destinations.push(`sequence file at ${payload.attached_feature.start}-${payload.attached_feature.end}`);
+        }
+        setPrimerStatus(`Saved to ${destinations.join(" and ")}.`);
       } catch (error) {
-        setPrimerStatus(`Could not create primer: ${error.message}`, true);
+        setPrimerStatus(`Could not save selection: ${error.message}`, true);
       } finally {
         state.primerSubmitting = false;
         render();

@@ -4,11 +4,13 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from types import SimpleNamespace
 from unittest.mock import patch
+import json
 from core.models import (
     Primer,
     PrimerBindingResult,
     PrimerPair,
     Project,
+    SequenceFeature,
     SequenceFile,
 )
 
@@ -136,6 +138,186 @@ class SequenceFileViewTests(TestCase):
             reverse("sequencefile_linear_view", args=[sequence_file.id])
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_sequencefile_linear_record_data_includes_user_features(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Feature Merge",
+            file=SimpleUploadedFile("feature_merge.fasta", b">record1\nATCGATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        primer = Primer.objects.create(
+            primer_name="MergedPrimer",
+            sequence="ATCGATCG",
+            length=8,
+            creator=self.user,
+        )
+        primer.users.add(self.user)
+        SequenceFeature.objects.create(
+            sequence_file=sequence_file,
+            primer=primer,
+            record_id="record1",
+            start=2,
+            end=9,
+            strand=1,
+            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
+            label="MergedPrimer",
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            reverse("sequencefile_linear_record_data", args=[sequence_file.id]),
+            {"record_index": 0, "start": 1, "end": 12},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("features", payload)
+        self.assertTrue(any(f.get("label") == "MergedPrimer" for f in payload["features"]))
+        merged = next(f for f in payload["features"] if f.get("label") == "MergedPrimer")
+        self.assertEqual(merged["source"], "user")
+        self.assertEqual(merged["primer_id"], primer.id)
+
+    @patch("core.views.sequence_files.Primer.create_with_analysis")
+    def test_sequencefile_linear_create_primer_with_feature_attach(self, create_with_analysis):
+        sequence_file = SequenceFile.objects.create(
+            name="Attach Seq",
+            file=SimpleUploadedFile("attach.fasta", b">record1\nATCGATCGATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        def _create_primer(**kwargs):
+            primer = Primer.objects.create(
+                primer_name=kwargs["primer_name"],
+                sequence=kwargs["sequence"],
+                overhang_sequence=kwargs.get("overhang_sequence", ""),
+                length=len(kwargs["sequence"]),
+                gc_content=50.0,
+                tm=60.0,
+                hairpin_dg=-1.0,
+                self_dimer_dg=-2.0,
+                creator=kwargs["user"],
+            )
+            primer.users.add(kwargs["user"])
+            return primer
+
+        create_with_analysis.side_effect = _create_primer
+        response = self.client.post(
+            reverse("sequencefile_linear_create_primer", args=[sequence_file.id]),
+            data=json.dumps(
+                {
+                    "primer_name": "AttachPrimer",
+                    "sequence": "ATCGATCG",
+                    "attach_feature": True,
+                    "record_id": "record1",
+                    "feature_start": 3,
+                    "feature_end": 10,
+                    "feature_strand": 1,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertIsNotNone(payload["attached_feature"])
+        feature = SequenceFeature.objects.get(id=payload["attached_feature"]["id"])
+        self.assertEqual(feature.record_id, "record1")
+        self.assertEqual(feature.start, 3)
+        self.assertEqual(feature.end, 10)
+
+    @patch("core.views.sequence_files.Primer.create_with_analysis")
+    def test_sequencefile_linear_create_primer_can_attach_feature_without_saving_primer(self, create_with_analysis):
+        sequence_file = SequenceFile.objects.create(
+            name="Attach Only",
+            file=SimpleUploadedFile("attach_only.fasta", b">record1\nATCGATCGATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_create_primer", args=[sequence_file.id]),
+            data=json.dumps(
+                {
+                    "primer_name": "AttachOnlyPrimer",
+                    "sequence": "ATCGATCG",
+                    "save_to_primers": False,
+                    "attach_feature": True,
+                    "record_id": "record1",
+                    "feature_start": 2,
+                    "feature_end": 9,
+                    "feature_strand": -1,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertIsNone(payload["primer"])
+        feature = SequenceFeature.objects.get(id=payload["attached_feature"]["id"])
+        self.assertIsNone(feature.primer)
+        self.assertEqual(feature.label, "AttachOnlyPrimer")
+        self.assertEqual(feature.strand, -1)
+        create_with_analysis.assert_not_called()
+
+    @patch("core.views.sequence_files.Primer.create_with_analysis")
+    def test_sequencefile_linear_create_primer_requires_destination(self, create_with_analysis):
+        sequence_file = SequenceFile.objects.create(
+            name="No Destination",
+            file=SimpleUploadedFile("no_destination.fasta", b">record1\nATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_create_primer", args=[sequence_file.id]),
+            data=json.dumps(
+                {
+                    "primer_name": "NowherePrimer",
+                    "sequence": "ATCGATCG",
+                    "save_to_primers": False,
+                    "attach_feature": False,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Select at least one destination", response.json()["error"])
+        create_with_analysis.assert_not_called()
+
+    @patch("core.views.sequence_files.Primer.create_with_analysis")
+    def test_sequencefile_linear_create_primer_rejects_invalid_attachment(self, create_with_analysis):
+        sequence_file = SequenceFile.objects.create(
+            name="Attach Invalid",
+            file=SimpleUploadedFile("attach_invalid.fasta", b">record1\nATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_create_primer", args=[sequence_file.id]),
+            data=json.dumps(
+                {
+                    "primer_name": "AttachPrimer",
+                    "sequence": "ATCGATCG",
+                    "attach_feature": True,
+                    "record_id": "record1",
+                    "feature_start": 1,
+                    "feature_end": 9999,
+                    "feature_strand": 1,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Feature coordinates exceed record length", response.json()["error"])
+        create_with_analysis.assert_not_called()
 
 
 class PrimerBindingViewTests(TestCase):

@@ -7,6 +7,7 @@ from core.models import (
     PrimerBindingResult,
     PrimerPair,
     Project,
+    SequenceFeature,
     SequenceFile,
 )
 
@@ -64,6 +65,33 @@ class SequenceFileModelTests(TestCase):
         ordered = list(SequenceFile.objects.all())
         self.assertEqual(ordered[0], second)
         self.assertEqual(ordered[1], first)
+
+    def test_sequence_feature_str_and_defaults(self):
+        sequence = SequenceFile.objects.create(
+            name="Feature Seq",
+            file=SimpleUploadedFile("feature.fasta", b">r1\nATCGATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        primer = Primer.objects.create(
+            primer_name="FeaturePrimer",
+            sequence="ATCGATCG",
+            length=8,
+            creator=self.user,
+        )
+        feature = SequenceFeature.objects.create(
+            sequence_file=sequence,
+            primer=primer,
+            record_id="r1",
+            start=2,
+            end=9,
+            strand=SequenceFeature.STRAND_FORWARD,
+            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
+            label="FeaturePrimer",
+            created_by=self.user,
+        )
+        self.assertEqual(str(feature), f"{sequence.id}:r1:FeaturePrimer")
+        self.assertEqual(feature.feature_type, SequenceFeature.TYPE_PRIMER_BIND)
 
 
 class PrimerAndProjectModelTests(TestCase):

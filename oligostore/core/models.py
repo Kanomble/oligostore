@@ -88,6 +88,59 @@ class SequenceFile(models.Model):
     def __str__(self):
         return self.name
 
+
+class SequenceFeature(models.Model):
+    TYPE_PRIMER_BIND = "primer_bind"
+    TYPE_CUSTOM = "custom"
+
+    TYPE_CHOICES = [
+        (TYPE_PRIMER_BIND, "Primer binding site"),
+        (TYPE_CUSTOM, "Custom"),
+    ]
+
+    STRAND_FORWARD = 1
+    STRAND_REVERSE = -1
+    STRAND_CHOICES = [
+        (STRAND_FORWARD, "Forward (+)"),
+        (STRAND_REVERSE, "Reverse (-)"),
+    ]
+
+    sequence_file = models.ForeignKey(
+        SequenceFile,
+        on_delete=models.CASCADE,
+        related_name="user_features",
+    )
+    primer = models.ForeignKey(
+        "Primer",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sequence_features",
+    )
+    record_id = models.CharField(max_length=255)
+    start = models.IntegerField()
+    end = models.IntegerField()
+    strand = models.IntegerField(choices=STRAND_CHOICES, default=STRAND_FORWARD)
+    feature_type = models.CharField(
+        max_length=50,
+        choices=TYPE_CHOICES,
+        default=TYPE_PRIMER_BIND,
+    )
+    label = models.CharField(max_length=255)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="created_sequence_features",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["record_id", "start", "end", "label"]
+
+    def __str__(self):
+        return f"{self.sequence_file_id}:{self.record_id}:{self.label}"
+
+
 class PrimerBindingResult(models.Model):
     primer = models.ForeignKey("Primer", on_delete=models.CASCADE)
     sequence_file = models.ForeignKey(SequenceFile, on_delete=models.CASCADE)
