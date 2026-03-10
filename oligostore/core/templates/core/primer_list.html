@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load static %}
 {% block title %}Primer List{% endblock %}
 
 {% block content %}
@@ -95,7 +96,7 @@
                 <tr>
                     <th>
                         <label class="flex items-center gap-2">
-                            <input id="select-all-primers" type="checkbox" class="checkbox checkbox-sm">
+                            <input id="select-all-primers" type="checkbox" class="checkbox checkbox-sm" data-select-all-target=".primer-select">
                             <span class="text-xs">All</span>
                         </label>
                     </th>
@@ -160,20 +161,11 @@
         </table>
     </div>
 </form>
-<script>
-    const selectAllPrimers = document.getElementById("select-all-primers");
-    const primerCheckboxes = document.querySelectorAll(".primer-select");
-
-    if (selectAllPrimers) {
-        selectAllPrimers.addEventListener("change", () => {
-            primerCheckboxes.forEach((checkbox) => {
-                checkbox.checked = selectAllPrimers.checked;
-            });
-        });
-    }
-</script>
 {% include "core/pagination.html" %}
 {% else %}
 <p class="text-center opacity-60 mt-10">No primers yet.</p>
 {% endif %}
+{% endblock %}
+{% block extra_scripts %}
+<script src="{% static 'js/select_all_checkboxes.js' %}"></script>
 {% endblock %}

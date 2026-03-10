@@ -7,9 +7,6 @@
     Analyze your sequence for potential primer binding sites
 </h1>
 
-<!-- Alpine.js (lightweight, no config needed) -->
-<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-
 <div class="card bg-base-100 shadow-xl p-8 max-w-5xl mx-auto" x-data="{ active: 'none' }">
     <form method="POST" class="space-y-10">
         {% csrf_token %}
@@ -231,4 +228,7 @@
     </form>
 </div>
 
+{% endblock %}
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 {% endblock %}

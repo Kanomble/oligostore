@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load static %}
 {% block title %}Primer Results{% endblock %}
 
 {% block content %}
@@ -81,7 +82,7 @@
                     <div class="mt-4 flex gap-3">
                         <button type="button"
                                 class="btn btn-outline btn-secondary"
-                                onclick="copyToClipboard('product-seq-{{ forloop.counter }}')">
+                                data-copy-target="product-seq-{{ forloop.counter }}">
                             Copy to Clipboard
                         </button>
 
@@ -207,17 +208,7 @@
         Back to Analyzer
     </a>
 </div>
-<script>
-    function copyToClipboard(elementId) {
-        const text = document.getElementById(elementId).innerText;
-
-        navigator.clipboard.writeText(text).then(() => {
-            console.log("Sequence copied to clipboard");
-        }).catch(err => {
-            console.error("Clipboard copy failed:", err);
-            alert("Failed to copy sequence to clipboard.");
-        });
-    }
-</script>
-
+{% endblock %}
+{% block extra_scripts %}
+<script src="{% static 'js/analyze_sequence_results.js' %}"></script>
 {% endblock %}

@@ -1,9 +1,8 @@
 {% extends "core/base.html" %}
+{% load static %}
 {% block title %}Project Dashboard{% endblock %}
 
 {% block content %}
-
-<!-- Header -->
 <div class="mb-10">
     <div class="card bg-base-100 shadow-xl p-6 border border-base-300">
         <h1 class="text-4xl font-bold mb-2">{{ project.name }}</h1>
@@ -13,7 +12,6 @@
             <div class="badge badge-outline">Created: {{ project.created_at|date:"Y-m-d" }}</div>
             <div class="badge badge-primary">Project Owner: {{ project.creator.username }}</div>
         </div>
-
 
         <div class="mt-6 flex flex-wrap gap-2">
             <a href="{% url 'project_primer_list' project.id %}" class="btn btn-outline">
@@ -25,14 +23,10 @@
             </a>
             {% endif %}
         </div>
-
     </div>
 </div>
 
-<!-- Grid layout -->
 <div class="grid lg:grid-cols-2 gap-10">
-
-    <!-- LEFT SIDE: Existing PrimerPairs -->
     <div>
         <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
             <h2 class="text-2xl font-bold">Primer Pairs in this Project</h2>
@@ -71,8 +65,6 @@
         {% endif %}
     </div>
 
-
-    <!-- RIGHT SIDE: Add PrimerPairs -->
     <div id="add-primerpairs" class="hidden">
         <div class="flex items-center justify-between gap-3 mb-3">
             <h2 class="text-2xl font-bold">Add Primer Pairs</h2>
@@ -80,7 +72,6 @@
         </div>
 
         {% if all_pairs %}
-
             <div class="overflow-x-auto border border-base-300 rounded-lg bg-base-100 shadow-md">
                 <table class="table">
                     <thead>
@@ -110,16 +101,13 @@
             {% if all_pairs|length == project.primerpairs.all|length %}
                 <p class="mt-3 text-sm opacity-70">All available primer pairs are already attached.</p>
             {% endif %}
-
         {% else %}
             <p class="opacity-70">No primer pairs available.</p>
         {% endif %}
     </div>
-
 </div>
-<div class="mt-12 grid lg:grid-cols-2 gap-10">
 
-    <!-- LEFT SIDE: Existing Sequence Files -->
+<div class="mt-12 grid lg:grid-cols-2 gap-10">
     <div>
         <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
             <h2 class="text-2xl font-bold">Sequence Files in this Project</h2>
@@ -152,13 +140,11 @@
                             <td class="font-semibold">{{ sequence_file.name }}</td>
                             <td>{{ sequence_file.get_file_type_display }}</td>
                             <td>
-
                                 {% if sequence_file.description %}
                                     {{ sequence_file.description }}
                                 {% else %}
                                     <span class="opacity-60">No description</span>
                                 {% endif %}
-                            </p>
                             </td>
                             <td class="text-right">
                                 <span class="badge badge-error badge-outline">Remove</span>
@@ -173,13 +159,11 @@
         {% endif %}
     </div>
 
-    <!-- RIGHT SIDE: Add Sequence Files -->
     <div id="add-sequencefiles" class="hidden">
         <div class="flex items-center justify-between gap-3 mb-3">
             <h2 class="text-2xl font-bold">Add Sequence Files</h2>
             <span class="text-sm opacity-70">Click a row to add.</span>
         </div>
-
 
         {% if all_sequence_files %}
             <div class="overflow-x-auto border border-base-300 rounded-lg bg-base-100 shadow-md">
@@ -199,13 +183,11 @@
                             <td class="font-semibold">{{ sequence_file.name }}</td>
                             <td>{{ sequence_file.get_file_type_display }}</td>
                             <td>
-
                                 {% if sequence_file.description %}
                                     {{ sequence_file.description }}
                                 {% else %}
                                     <span class="opacity-60">No description</span>
                                 {% endif %}
-
                             </td>
                             <td class="text-right">
                                 <span class="badge badge-primary badge-outline">Add</span>
@@ -224,36 +206,7 @@
         {% endif %}
     </div>
 </div>
-
-<script>
-    document.querySelectorAll("[data-toggle-target]").forEach((button) => {
-        button.addEventListener("click", () => {
-            const target = document.getElementById(button.dataset.toggleTarget);
-            if (!target) {
-                return;
-            }
-            target.classList.toggle("hidden");
-            const expanded = !target.classList.contains("hidden");
-            button.setAttribute("aria-expanded", expanded);
-        });
-    });
-
-    document.querySelectorAll("[data-row-link]").forEach((row) => {
-        row.addEventListener("click", (event) => {
-            if (event.target.closest("a, button")) {
-                return;
-            }
-            const href = row.dataset.rowLink;
-            if (!href) {
-                return;
-            }
-            const confirmMessage = row.dataset.confirm;
-            if (confirmMessage && !confirm(confirmMessage)) {
-                return;
-            }
-            window.location.href = href;
-        });
-    });
-</script>
-
+{% endblock %}
+{% block extra_scripts %}
+<script src="{% static 'js/project_dashboard.js' %}"></script>
 {% endblock %}
