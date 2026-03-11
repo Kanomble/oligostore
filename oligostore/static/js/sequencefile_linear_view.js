@@ -79,6 +79,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const reverseComplementPrimerBtn = document.getElementById("reverseComplementPrimerBtn");
     const savePrimerFromWindowBtn = document.getElementById("savePrimerFromWindowBtn");
     const primerCreateStatus = document.getElementById("primerCreateStatus");
+    const toggleWindowFeatureOverlayBtn = document.getElementById("toggleWindowFeatureOverlayBtn");
+    const windowFeatureOverlaySection = document.getElementById("windowFeatureOverlaySection");
+    const windowFeatureOverlay = document.getElementById("windowFeatureOverlay");
+    const windowFeatureOverlayCount = document.getElementById("windowFeatureOverlayCount");
+    const windowFeatureHoverDescription = document.getElementById("windowFeatureHoverDescription");
 
     const state = {
       recordIndex: 0,
@@ -106,6 +111,7 @@ document.addEventListener("DOMContentLoaded", () => {
       selectedPrimerCandidate: null,
       primerAnalysisLoading: false,
       primerDeleteSubmitting: false,
+      showWindowFeatureOverlay: true,
     };
 
     const MIN_WINDOW_BP = 1;
@@ -466,6 +472,13 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     }
 
+    function featureDescription(feature) {
+      const description = String(
+        feature.description || feature.note || feature.product || feature.label || feature.type || ""
+      ).trim();
+      return description || "No description available.";
+    }
+
     function isPrimerBindingFeature(feature) {
       const typeValue = normalize(feature.type);
       const labelValue = normalize(feature.label);
@@ -519,6 +532,46 @@ document.addEventListener("DOMContentLoaded", () => {
       const centeredMapStart = mapMidpoint - Math.floor(state.mapWindowSize / 2);
       const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
       state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
+    }
+
+    function applyFeatureSelection(record, index, feature, isShift) {
+      state.selectedFeatureIndex = index;
+      if (isShift) {
+        state.mapSelectedFeatureIndexes.add(index);
+      } else {
+        state.mapSelectedFeatureIndexes = new Set([index]);
+      }
+      state.showMapSelectedOnly = true;
+      state.pendingFocusFeatureIndex = index;
+      if (isShift && isPrimerBindingFeature(feature)) {
+        if (state.selectedForwardPrimerIndex !== null && state.selectedReversePrimerIndex !== null) {
+          state.selectedForwardPrimerIndex = null;
+          state.selectedReversePrimerIndex = null;
+          state.mapSelectedFeatureIndexes = new Set([index]);
+        }
+        const strand = normalizedStrandValue(feature.strand);
+        if (strand === -1) {
+          state.selectedReversePrimerIndex = index;
+        } else {
+          state.selectedForwardPrimerIndex = index;
+        }
+      }
+      state.tablePage = 1;
+      const didFocusPCRProduct = isShift && isPrimerBindingFeature(feature) && focusWindowOnPCRProduct(record);
+      if (!didFocusPCRProduct) {
+        jumpToFeature(record, feature);
+      }
+      render();
+    }
+
+    function setWindowFeatureHoverText(feature) {
+      if (!feature) {
+        windowFeatureHoverDescription.textContent = "Hover a feature line to inspect its description.";
+        return;
+      }
+      windowFeatureHoverDescription.textContent =
+        `${feature.label} (${feature.type}) ${feature.start.toLocaleString()}-${feature.end.toLocaleString()} | ` +
+        `${featureLength(feature).toLocaleString()} bp | ${strandLabel(feature.strand)} | ${featureDescription(feature)}`;
     }
 
     function computePCRProduct(record) {
@@ -1006,34 +1059,7 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
         event.preventDefault();
-        const isShift = event.shiftKey;
-        state.selectedFeatureIndex = index;
-        if (isShift) {
-          state.mapSelectedFeatureIndexes.add(index);
-        } else {
-          state.mapSelectedFeatureIndexes = new Set([index]);
-        }
-        state.showMapSelectedOnly = true;
-        state.pendingFocusFeatureIndex = index;
-        if (isShift && isPrimerBindingFeature(feature)) {
-          if (state.selectedForwardPrimerIndex !== null && state.selectedReversePrimerIndex !== null) {
-            state.selectedForwardPrimerIndex = null;
-            state.selectedReversePrimerIndex = null;
-            state.mapSelectedFeatureIndexes = new Set([index]);
-          }
-          const strand = normalizedStrandValue(feature.strand);
-          if (strand === -1) {
-            state.selectedReversePrimerIndex = index;
-          } else {
-            state.selectedForwardPrimerIndex = index;
-          }
-        }
-        state.tablePage = 1;
-        const didFocusPCRProduct = isShift && isPrimerBindingFeature(feature) && focusWindowOnPCRProduct(record);
-        if (!didFocusPCRProduct) {
-          jumpToFeature(record, feature);
-        }
-        render();
+        applyFeatureSelection(record, index, feature, event.shiftKey);
       }
 
       const visibleFeatures = record.features
@@ -1106,6 +1132,119 @@ document.addEventListener("DOMContentLoaded", () => {
       const containerHeight = Math.max(44, laneCount * laneHeight + 6);
       featureTrackContainer.style.height = `${containerHeight}px`;
       primerCountSummary.textContent = `Primers in map range: forward ${forwardPrimerCount.toLocaleString()} | reverse ${reversePrimerCount.toLocaleString()}`;
+    }
+
+    function renderWindowFeatureOverlay(record, start, end) {
+      windowFeatureOverlay.innerHTML = "";
+      windowFeatureOverlay.classList.add("window-feature-overlay-grid");
+
+      if (!state.showWindowFeatureOverlay) {
+        windowFeatureOverlaySection.classList.add("hidden");
+        toggleWindowFeatureOverlayBtn.textContent = "Show feature lines";
+        setWindowFeatureHoverText(null);
+        return;
+      }
+
+      windowFeatureOverlaySection.classList.remove("hidden");
+      toggleWindowFeatureOverlayBtn.textContent = "Hide feature lines";
+
+      const windowLength = Math.max(1, end - start + 1);
+      const visibleFeatureIndexes = new Set(getFilteredFeatureIndexes(record));
+      const overlappingFeatures = record.features
+        .map((feature, index) => ({ feature, index }))
+        .filter(({ feature }) => {
+          const bounds = featureBounds(feature);
+          return !(bounds.end < start || bounds.start > end);
+        })
+        .sort((a, b) => {
+          const aBounds = featureBounds(a.feature);
+          const bBounds = featureBounds(b.feature);
+          const startDelta = aBounds.start - bBounds.start;
+          if (startDelta !== 0) {
+            return startDelta;
+          }
+          return (aBounds.end - aBounds.start) - (bBounds.end - bBounds.start);
+        });
+
+      windowFeatureOverlayCount.textContent = `${overlappingFeatures.length.toLocaleString()} in view`;
+      if (!overlappingFeatures.length) {
+        windowFeatureOverlay.style.height = "2rem";
+        const emptyState = document.createElement("div");
+        emptyState.className = "absolute inset-0 flex items-center justify-center text-[11px] opacity-60";
+        emptyState.textContent = "No annotated features overlap the current sequence window.";
+        windowFeatureOverlay.appendChild(emptyState);
+        setWindowFeatureHoverText(null);
+        return;
+      }
+
+      const lanes = [];
+      const laneHeight = 10;
+      const lineTopOffset = 8;
+
+      overlappingFeatures.forEach(({ feature, index }) => {
+        const bounds = featureBounds(feature);
+        const visibleStart = Math.max(bounds.start, start);
+        const visibleEnd = Math.min(bounds.end, end);
+        let lane = 0;
+        while (lane < lanes.length && visibleStart <= lanes[lane]) {
+          lane += 1;
+        }
+        lanes[lane] = visibleEnd;
+
+        const left = ((visibleStart - start) / windowLength) * 100;
+        const width = ((visibleEnd - visibleStart + 1) / windowLength) * 100;
+        const selected = state.selectedFeatureIndex === index;
+        const visibleInFilter = visibleFeatureIndexes.has(index);
+        const color = isPrimerBindingFeature(feature)
+          ? (normalizedStrandValue(feature.strand) === -1 ? "rgba(220, 38, 38, 0.95)" : "rgba(37, 99, 235, 0.95)")
+          : "rgba(15, 118, 110, 0.92)";
+
+        const marker = document.createElement("button");
+        marker.type = "button";
+        marker.className = "absolute rounded-full";
+        marker.style.left = `${left}%`;
+        marker.style.width = `${Math.max(0.6, Math.min(width, 100 - left))}%`;
+        marker.style.minWidth = "6px";
+        marker.style.top = `${lane * laneHeight + lineTopOffset}px`;
+        marker.style.height = "4px";
+        marker.style.backgroundColor = color;
+        marker.style.border = "none";
+        marker.style.padding = "0";
+        marker.style.opacity = visibleInFilter ? "1" : "0.35";
+        marker.style.boxShadow = selected
+          ? "0 0 0 2px rgba(99, 102, 241, 0.35)"
+          : "0 0 0 1px rgba(15, 23, 42, 0.18)";
+        marker.style.cursor = "pointer";
+        marker.title = `${feature.label} | ${featureDescription(feature)}`;
+        marker.addEventListener("mouseenter", () => {
+          setWindowFeatureHoverText(feature);
+        });
+        marker.addEventListener("focus", () => {
+          setWindowFeatureHoverText(feature);
+        });
+        marker.addEventListener("mouseleave", () => {
+          const selectedFeature = state.selectedFeatureIndex !== null
+            ? record.features[state.selectedFeatureIndex]
+            : null;
+          setWindowFeatureHoverText(selectedFeature || null);
+        });
+        marker.addEventListener("blur", () => {
+          const selectedFeature = state.selectedFeatureIndex !== null
+            ? record.features[state.selectedFeatureIndex]
+            : null;
+          setWindowFeatureHoverText(selectedFeature || null);
+        });
+        marker.addEventListener("click", (event) => {
+          applyFeatureSelection(record, index, feature, event.shiftKey);
+        });
+        windowFeatureOverlay.appendChild(marker);
+      });
+
+      windowFeatureOverlay.style.height = `${Math.max(32, lanes.length * laneHeight + 16)}px`;
+      const selectedFeature = state.selectedFeatureIndex !== null
+        ? record.features[state.selectedFeatureIndex]
+        : null;
+      setWindowFeatureHoverText(selectedFeature || null);
     }
 
     function renderMapAxis(record) {
@@ -1286,6 +1425,9 @@ document.addEventListener("DOMContentLoaded", () => {
         featureNextPageBtn.disabled = true;
         restrictionSiteSummary.textContent = state.loadingRecord ? "Loading sequence window..." : (state.loadError || "Sequence data not loaded.");
         sequenceWindow.textContent = state.loadingRecord ? "Loading sequence..." : "No sequence data loaded.";
+        windowFeatureOverlay.innerHTML = "";
+        windowFeatureOverlayCount.textContent = "";
+        setWindowFeatureHoverText(null);
         savePrimerToOligostoreCheckbox.disabled = true;
         attachPrimerAsFeatureCheckbox.disabled = true;
         reverseComplementPrimerBtn.disabled = true;
@@ -1306,6 +1448,7 @@ document.addEventListener("DOMContentLoaded", () => {
       renderMapSelectionSummary(record);
       renderPCRProduct(record);
       renderFeatureViewer(record);
+      renderWindowFeatureOverlay(record, state.start, end);
       renderSequenceWindow(record, state.start, end);
       savePrimerToOligostoreCheckbox.disabled = false;
       attachPrimerAsFeatureCheckbox.disabled = false;
@@ -1442,6 +1585,11 @@ document.addEventListener("DOMContentLoaded", () => {
       state.selectedForwardPrimerIndex = null;
       state.selectedReversePrimerIndex = null;
       state.tablePage = 1;
+      render();
+    });
+
+    toggleWindowFeatureOverlayBtn.addEventListener("click", () => {
+      state.showWindowFeatureOverlay = !state.showWindowFeatureOverlay;
       render();
     });
 

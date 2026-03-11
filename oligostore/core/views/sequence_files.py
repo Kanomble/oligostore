@@ -51,6 +51,14 @@ def _extract_record_features(record):
             or (qualifiers.get("product") or [None])[0]
             or feature.type
         )
+        description = (
+            (qualifiers.get("note") or [None])[0]
+            or (qualifiers.get("function") or [None])[0]
+            or (qualifiers.get("product") or [None])[0]
+            or (qualifiers.get("gene") or [None])[0]
+            or (qualifiers.get("label") or [None])[0]
+            or feature.type
+        )
 
         features.append(
             {
@@ -59,6 +67,8 @@ def _extract_record_features(record):
                 "type": feature.type,
                 "strand": getattr(feature.location, "strand", None),
                 "label": str(label),
+                "description": str(description),
+                "note": str(description),
             }
         )
     return features
@@ -77,6 +87,8 @@ def _extract_user_features(sequence_file, record_id):
                 "type": str(feature.feature_type),
                 "strand": int(feature.strand),
                 "label": str(feature.label),
+                "description": str(feature.get_feature_type_display()),
+                "note": str(feature.get_feature_type_display()),
                 "source": "user",
                 "feature_id": feature.id,
                 "primer_id": feature.primer_id,

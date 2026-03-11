@@ -161,7 +161,10 @@
         </div>
 
         <div class="rounded-xl border border-base-300 p-4 bg-base-100">
-          <div class="font-semibold mb-2">Sequence window</div>
+          <div class="flex items-center justify-between gap-3 mb-2">
+            <div class="font-semibold">Sequence window</div>
+            <button id="toggleWindowFeatureOverlayBtn" type="button" class="btn btn-ghost btn-xs">Hide feature lines</button>
+          </div>
           <div class="rounded-lg border border-base-300 p-3 mb-3">
             <div class="flex flex-wrap items-end gap-2 mb-2">
               <div class="form-control w-full sm:max-w-xs">
@@ -198,6 +201,16 @@
           <div id="restrictionSiteSummary" class="text-xs opacity-70 mb-2"></div>
           <div class="text-xs opacity-70 mb-3">
             Select bases in the sequence window, then right-click to inspect primer properties and save the selection.
+          </div>
+          <div id="windowFeatureOverlaySection" class="mb-3 rounded-lg border border-base-300 bg-base-200/60 p-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-xs font-semibold uppercase tracking-wide opacity-70">Window features</div>
+              <div id="windowFeatureOverlayCount" class="text-[11px] opacity-70"></div>
+            </div>
+            <div id="windowFeatureOverlay" class="relative mt-2 rounded-md border border-base-300 bg-base-100 min-h-8"></div>
+            <div id="windowFeatureHoverDescription" class="mt-2 text-xs opacity-80">
+              Hover a feature line to inspect its description.
+            </div>
           </div>
           <div class="relative">
             <pre id="sequenceWindow" class="text-xs md:text-sm leading-6 overflow-auto whitespace-pre font-mono pr-2 pb-4"></pre>
@@ -307,6 +320,15 @@
       to right,
       rgba(100, 116, 139, 0.16) 0,
       rgba(100, 116, 139, 0.16) 1px,
+      transparent 1px,
+      transparent 10%
+    );
+  }
+  .window-feature-overlay-grid {
+    background-image: repeating-linear-gradient(
+      to right,
+      rgba(100, 116, 139, 0.12) 0,
+      rgba(100, 116, 139, 0.12) 1px,
       transparent 1px,
       transparent 10%
     );
