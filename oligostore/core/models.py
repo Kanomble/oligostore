@@ -245,3 +245,59 @@ class PrimerPair(AccessControllModel):
 
     def __str__(self):
         return self.name
+
+
+class PCRProduct(AccessControllModel):
+    name = models.CharField(max_length=255)
+    sequence_file = models.ForeignKey(
+        SequenceFile,
+        on_delete=models.CASCADE,
+        related_name="pcr_products",
+    )
+    record_id = models.CharField(max_length=255)
+    forward_primer = models.ForeignKey(
+        Primer,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pcr_products_as_forward",
+    )
+    reverse_primer = models.ForeignKey(
+        Primer,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pcr_products_as_reverse",
+    )
+    forward_feature = models.ForeignKey(
+        SequenceFeature,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pcr_products_as_forward_feature",
+    )
+    reverse_feature = models.ForeignKey(
+        SequenceFeature,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pcr_products_as_reverse_feature",
+    )
+    forward_primer_label = models.CharField(max_length=255, blank=True, default="")
+    reverse_primer_label = models.CharField(max_length=255, blank=True, default="")
+    start = models.IntegerField()
+    end = models.IntegerField()
+    sequence = models.TextField()
+    length = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "name"]
+
+    def save(self, *args, **kwargs):
+        self.sequence = (self.sequence or "").strip().upper()
+        self.length = len(self.sequence)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name

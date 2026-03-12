@@ -8,6 +8,7 @@ __pycache__/
 
 # Django Migrations
 oligostore/core/migrations/*
+!oligostore/core/migrations/0003_pcrproduct.py
 media/
 
 # Node

@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const recordDataUrl = config.dataset.recordDataUrl;
     const createPrimerUrl = config.dataset.createPrimerUrl;
     const deletePrimerUrl = config.dataset.deletePrimerUrl;
+    const savePcrProductUrl = config.dataset.savePcrProductUrl;
     const analyzePrimerUrl = config.dataset.analyzePrimerUrl;
 
     const recordSelect = document.getElementById("recordSelect");
@@ -39,6 +40,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const deletePrimerEverywhereBtn = document.getElementById("deletePrimerEverywhereBtn");
     const pcrProductSummary = document.getElementById("pcrProductSummary");
     const pcrProductSequence = document.getElementById("pcrProductSequence");
+    const pcrProductNameInput = document.getElementById("pcrProductNameInput");
+    const savePcrProductBtn = document.getElementById("savePcrProductBtn");
+    const pcrProductSaveStatus = document.getElementById("pcrProductSaveStatus");
     const windowLabel = document.getElementById("windowLabel");
     const windowSizeHint = document.getElementById("windowSizeHint");
     const viewportBox = document.getElementById("viewportBox");
@@ -115,6 +119,8 @@ document.addEventListener("DOMContentLoaded", () => {
       primerAnalysisLoading: false,
       primerDeleteSubmitting: false,
       showWindowFeatureOverlay: true,
+      pcrProductSubmitting: false,
+      lastPCRProductAutoName: "",
     };
 
     const MIN_WINDOW_BP = 1;
@@ -649,12 +655,17 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       return {
         valid: true,
+        recordId: getCurrentRecordId(),
         start: productStart,
         end: productEnd,
         length: sequence.length,
         sequence,
         forwardLabel: forwardPrimer.label,
         reverseLabel: reversePrimer.label,
+        forwardPrimerId: Number.isFinite(Number(forwardPrimer.primer_id)) ? Number(forwardPrimer.primer_id) : null,
+        reversePrimerId: Number.isFinite(Number(reversePrimer.primer_id)) ? Number(reversePrimer.primer_id) : null,
+        forwardFeatureId: Number.isFinite(Number(forwardPrimer.feature_id)) ? Number(forwardPrimer.feature_id) : null,
+        reverseFeatureId: Number.isFinite(Number(reversePrimer.feature_id)) ? Number(reversePrimer.feature_id) : null,
       };
     }
 
@@ -663,15 +674,25 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!product) {
         pcrProductSummary.textContent = "PCR product: shift-click one forward and one reverse primer to generate a candidate amplicon.";
         pcrProductSequence.textContent = "";
+        savePcrProductBtn.disabled = true;
+        state.lastPCRProductAutoName = "";
         return;
       }
       if (!product.valid) {
         pcrProductSummary.textContent = `PCR product unavailable: ${product.reason}`;
         pcrProductSequence.textContent = "";
+        savePcrProductBtn.disabled = true;
+        state.lastPCRProductAutoName = "";
         return;
       }
+      const autoName = getPCRProductAutoName(product);
+      if (!pcrProductNameInput.value || pcrProductNameInput.value === state.lastPCRProductAutoName) {
+        pcrProductNameInput.value = autoName;
+      }
+      state.lastPCRProductAutoName = autoName;
       pcrProductSummary.textContent = `PCR product: ${product.start.toLocaleString()}-${product.end.toLocaleString()} (${product.length.toLocaleString()} bp) | Fwd: ${product.forwardLabel} | Rev: ${product.reverseLabel}`;
       pcrProductSequence.textContent = product.sequence;
+      savePcrProductBtn.disabled = state.pcrProductSubmitting;
     }
 
     function focusWindowOnPCRProduct(record) {
@@ -806,9 +827,20 @@ document.addEventListener("DOMContentLoaded", () => {
       primerCreateStatus.className = `text-xs mt-2 ${isError ? "text-error" : "text-success"}`;
     }
 
+    function setPCRProductStatus(message, isError = false) {
+      pcrProductSaveStatus.textContent = message;
+      pcrProductSaveStatus.className = `mt-2 text-xs ${isError ? "text-error" : "text-success"}`;
+    }
+
     function getCurrentRecordId() {
       const summary = getRecordSummary();
       return summary ? String(summary.id) : "";
+    }
+
+    function getPCRProductAutoName(product) {
+      const forward = String(product.forwardLabel || "FWD").replace(/\s+/g, "_");
+      const reverse = String(product.reverseLabel || "REV").replace(/\s+/g, "_");
+      return `${forward}_${reverse}_${product.start}-${product.end}`;
     }
 
     function closePrimerSelectionMenu() {
@@ -1468,6 +1500,7 @@ document.addEventListener("DOMContentLoaded", () => {
         primerCountSummary.textContent = "";
         pcrProductSummary.textContent = "";
         pcrProductSequence.textContent = "";
+        savePcrProductBtn.disabled = true;
         featureCount.textContent = "";
         featureTableBody.innerHTML = `<tr><td colspan="6" class="text-center opacity-70 py-3">${state.loadingRecord ? "Loading..." : "No feature data loaded."}</td></tr>`;
         featurePageInfo.textContent = "Page 0 of 0";
@@ -1530,6 +1563,9 @@ document.addEventListener("DOMContentLoaded", () => {
       state.selectedRestrictionEnzymes = new Set();
       state.loadError = "";
       state.loadingRecord = false;
+      state.lastPCRProductAutoName = "";
+      setPCRProductStatus("");
+      pcrProductNameInput.value = "";
       restrictionEnzymeSearchInput.value = state.restrictionEnzymeQuery;
       closePrimerSelectionMenu();
       render();
@@ -1650,6 +1686,9 @@ document.addEventListener("DOMContentLoaded", () => {
       state.showMapSelectedOnly = false;
       state.selectedForwardPrimerIndex = null;
       state.selectedReversePrimerIndex = null;
+      state.lastPCRProductAutoName = "";
+      setPCRProductStatus("");
+      pcrProductNameInput.value = "";
       state.tablePage = 1;
       render();
     });
@@ -1715,6 +1754,60 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       await deleteSelectedPrimerFeature(true);
+    });
+
+    pcrProductNameInput.addEventListener("input", () => {
+      setPCRProductStatus("");
+    });
+
+    savePcrProductBtn.addEventListener("click", async () => {
+      const record = getRecord();
+      const product = record ? computePCRProduct(record) : null;
+      if (!product || !product.valid) {
+        setPCRProductStatus("Generate a valid PCR product first.", true);
+        return;
+      }
+
+      state.pcrProductSubmitting = true;
+      render();
+      setPCRProductStatus("Saving PCR product...");
+
+      try {
+        const response = await fetch(savePcrProductUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCsrfToken(),
+          },
+          body: JSON.stringify({
+            name: pcrProductNameInput.value.trim(),
+            record_id: product.recordId,
+            start: product.start,
+            end: product.end,
+            sequence: product.sequence,
+            forward_primer_label: product.forwardLabel,
+            reverse_primer_label: product.reverseLabel,
+            forward_primer_id: product.forwardPrimerId,
+            reverse_primer_id: product.reversePrimerId,
+            forward_feature_id: product.forwardFeatureId,
+            reverse_feature_id: product.reverseFeatureId,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        if (payload.pcr_product && payload.pcr_product.name) {
+          pcrProductNameInput.value = payload.pcr_product.name;
+          state.lastPCRProductAutoName = payload.pcr_product.name;
+        }
+        setPCRProductStatus(`Saved as ${payload.pcr_product.name}.`);
+      } catch (error) {
+        setPCRProductStatus(`Could not save PCR product: ${error.message}`, true);
+      } finally {
+        state.pcrProductSubmitting = false;
+        render();
+      }
     });
 
     document.addEventListener("click", (event) => {

@@ -11,7 +11,10 @@
         {{ sequence_file.name }} ({{ sequence_file.get_file_type_display }}) - zoom and pan along the sequence.
       </p>
     </div>
-    <a class="btn btn-outline" href="{% url 'sequencefile_list' %}">Back to sequence files</a>
+    <div class="flex gap-2">
+      <a class="btn btn-outline" href="{% url 'pcrproduct_list' %}">Saved PCR products</a>
+      <a class="btn btn-outline" href="{% url 'sequencefile_list' %}">Back to sequence files</a>
+    </div>
   </div>
 
   {% if records_payload %}
@@ -21,6 +24,7 @@
       data-record-data-url="{% url 'sequencefile_linear_record_data' sequence_file.id %}"
       data-create-primer-url="{% url 'sequencefile_linear_create_primer' sequence_file.id %}"
       data-delete-primer-url="{% url 'sequencefile_linear_delete_primer' sequence_file.id %}"
+      data-save-pcr-product-url="{% url 'sequencefile_linear_save_pcr_product' sequence_file.id %}"
       data-analyze-primer-url="{% url 'analyze_primer' %}"
       class="hidden"
     ></div>
@@ -118,6 +122,16 @@
           </div>
           <div id="pcrProductSummary" class="mt-2 text-xs opacity-70"></div>
           <pre id="pcrProductSequence" class="mt-2 text-[11px] leading-5 overflow-x-auto whitespace-pre-wrap break-all font-mono"></pre>
+          <div class="mt-3 rounded-lg border border-base-300 bg-base-100 p-3">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label class="form-control flex-1">
+                <span class="label py-1"><span class="label-text text-xs">PCR product name</span></span>
+                <input id="pcrProductNameInput" type="text" class="input input-bordered input-sm" placeholder="Saved PCR product name" />
+              </label>
+              <button id="savePcrProductBtn" type="button" class="btn btn-primary btn-sm">Save PCR product</button>
+            </div>
+            <div id="pcrProductSaveStatus" class="mt-2 text-xs opacity-70"></div>
+          </div>
           <div id="featureLegend" class="mt-3 text-xs opacity-80"></div>
         </div>
 

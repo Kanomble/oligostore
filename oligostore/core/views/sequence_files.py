@@ -12,7 +12,7 @@ from django.contrib import messages
 from Bio.Seq import Seq
 from Bio.Restriction import CommOnly
 
-from ..models import Primer, SequenceFeature, SequenceFile
+from ..models import PCRProduct, Primer, SequenceFeature, SequenceFile
 from ..forms import clean_optional_sequence_value, clean_sequence_value
 from ..services.primer_binding import analyze_primer_binding
 from ..services.sequence_loader import load_sequences
@@ -141,6 +141,13 @@ def _parse_bool(value):
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_optional_int(value, default=None):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _parse_json_or_form_payload(request):
@@ -363,6 +370,55 @@ def sequencefile_list(request):
         "core/sequencefile_list.html",
         {
             "sequence_files": page_obj,
+            "page_obj": page_obj,
+            "query_string": query_string,
+        },
+    )
+
+
+@login_required
+def pcrproduct_list(request):
+    qs = (
+        PCRProduct.objects.filter(Q(creator=request.user) | Q(users=request.user))
+        .distinct()
+        .select_related(
+            "sequence_file",
+            "forward_primer",
+            "reverse_primer",
+            "forward_feature",
+            "reverse_feature",
+        )
+    )
+
+    q = request.GET.get("q")
+    if q:
+        qs = qs.filter(
+            Q(name__icontains=q)
+            | Q(record_id__icontains=q)
+            | Q(sequence_file__name__icontains=q)
+            | Q(forward_primer_label__icontains=q)
+            | Q(reverse_primer_label__icontains=q)
+            | Q(forward_primer__primer_name__icontains=q)
+            | Q(reverse_primer__primer_name__icontains=q)
+        )
+
+    order = request.GET.get("order", "created_desc")
+    allowed_orders = {
+        "created_desc": "-created_at",
+        "created": "created_at",
+        "name": "name",
+        "name_desc": "-name",
+        "length_desc": "-length",
+        "length": "length",
+    }
+    qs = qs.order_by(allowed_orders.get(order, "-created_at"))
+
+    page_obj, query_string = paginate_queryset(request, qs)
+    return render(
+        request,
+        "core/pcrproduct_list.html",
+        {
+            "pcr_products": page_obj,
             "page_obj": page_obj,
             "query_string": query_string,
         },
@@ -611,6 +667,108 @@ def sequencefile_linear_create_primer(request, sequencefile_id):
                 if attached_feature
                 else None
             ),
+        },
+        status=201,
+    )
+
+
+@login_required
+def sequencefile_linear_save_pcr_product(request, sequencefile_id):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required."}, status=405)
+
+    sequence_file = get_object_or_404(
+        SequenceFile,
+        id=sequencefile_id,
+        uploaded_by=request.user,
+    )
+
+    try:
+        payload = _parse_json_or_form_payload(request)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    name = str(payload.get("name", "")).strip()
+    record_id = str(payload.get("record_id", "")).strip()
+    start = _parse_optional_int(payload.get("start"), 0)
+    end = _parse_optional_int(payload.get("end"), 0)
+    sequence = str(payload.get("sequence", "")).strip().upper()
+    forward_primer_label = str(payload.get("forward_primer_label", "")).strip()
+    reverse_primer_label = str(payload.get("reverse_primer_label", "")).strip()
+    forward_primer_id = _parse_optional_int(payload.get("forward_primer_id"))
+    reverse_primer_id = _parse_optional_int(payload.get("reverse_primer_id"))
+    forward_feature_id = _parse_optional_int(payload.get("forward_feature_id"))
+    reverse_feature_id = _parse_optional_int(payload.get("reverse_feature_id"))
+
+    if not record_id:
+        return JsonResponse({"error": "record_id is required."}, status=400)
+    if start < 1 or end < start:
+        return JsonResponse({"error": "start/end are invalid."}, status=400)
+
+    try:
+        sequence = clean_sequence_value(sequence, allow_n=True)
+    except ValidationError as exc:
+        message = exc.messages[0] if exc.messages else "Invalid PCR product sequence."
+        return JsonResponse({"error": message}, status=400)
+
+    try:
+        records = _get_sequence_records(sequence_file)
+    except Exception:
+        return JsonResponse({"error": "Could not parse the selected sequence file."}, status=400)
+
+    target_record = next((r for r in records if str(r.id) == record_id), None)
+    if not target_record:
+        return JsonResponse({"error": "record_id does not exist in this sequence file."}, status=400)
+    if end > len(target_record.seq):
+        return JsonResponse({"error": "PCR product coordinates exceed record length."}, status=400)
+
+    expected_sequence = str(target_record.seq[start - 1:end]).upper()
+    if expected_sequence != sequence:
+        return JsonResponse({"error": "PCR product sequence does not match the selected sequence record."}, status=400)
+
+    if not name:
+        name = f"{sequence_file.name}:{record_id}:{start}-{end}"
+
+    primer_queryset = Primer.objects.filter(users=request.user)
+    forward_primer = primer_queryset.filter(id=forward_primer_id).first() if forward_primer_id else None
+    reverse_primer = primer_queryset.filter(id=reverse_primer_id).first() if reverse_primer_id else None
+    forward_feature = (
+        SequenceFeature.objects.filter(id=forward_feature_id, sequence_file=sequence_file).first()
+        if forward_feature_id else None
+    )
+    reverse_feature = (
+        SequenceFeature.objects.filter(id=reverse_feature_id, sequence_file=sequence_file).first()
+        if reverse_feature_id else None
+    )
+
+    product = PCRProduct.objects.create(
+        name=name,
+        sequence_file=sequence_file,
+        record_id=record_id,
+        forward_primer=forward_primer,
+        reverse_primer=reverse_primer,
+        forward_feature=forward_feature,
+        reverse_feature=reverse_feature,
+        forward_primer_label=forward_primer_label or getattr(forward_primer, "primer_name", ""),
+        reverse_primer_label=reverse_primer_label or getattr(reverse_primer, "primer_name", ""),
+        start=start,
+        end=end,
+        sequence=sequence,
+        creator=request.user,
+    )
+    product.users.add(request.user)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "pcr_product": {
+                "id": product.id,
+                "name": product.name,
+                "record_id": product.record_id,
+                "start": product.start,
+                "end": product.end,
+                "length": product.length,
+            },
         },
         status=201,
     )

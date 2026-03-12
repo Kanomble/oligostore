@@ -3,6 +3,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
 from core.models import (
+    PCRProduct,
     Primer,
     PrimerBindingResult,
     PrimerPair,
@@ -173,6 +174,32 @@ class PrimerAndProjectModelTests(TestCase):
         self.assertEqual(str(project), "Project Alpha")
         self.assertIn(self.collaborator, project.users.all())
         self.assertIn(self.primer_pair, project.primerpairs.all())
+
+    def test_pcr_product_save_normalizes_sequence_and_length(self):
+        sequence_file = SequenceFile.objects.create(
+            name="PCR Source",
+            file=SimpleUploadedFile("pcr_source.fasta", b">r1\nATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.creator,
+        )
+        product = PCRProduct.objects.create(
+            name="Amplicon 1",
+            sequence_file=sequence_file,
+            record_id="r1",
+            forward_primer=self.forward_primer,
+            reverse_primer=self.reverse_primer,
+            forward_primer_label="Forward",
+            reverse_primer_label="Reverse",
+            start=1,
+            end=4,
+            sequence=" atcg ",
+            creator=self.creator,
+        )
+        product.users.add(self.creator)
+
+        self.assertEqual(str(product), "Amplicon 1")
+        self.assertEqual(product.sequence, "ATCG")
+        self.assertEqual(product.length, 4)
 
 
 class PrimerBindingResultModelTests(TestCase):

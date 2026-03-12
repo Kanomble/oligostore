@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import json
 from core.models import (
+    PCRProduct,
     Primer,
     PrimerBindingResult,
     PrimerPair,
@@ -432,6 +433,151 @@ class SequenceFileViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Feature coordinates exceed record length", response.json()["error"])
         create_with_analysis.assert_not_called()
+
+    def test_sequencefile_linear_save_pcr_product(self):
+        sequence_file = SequenceFile.objects.create(
+            name="PCR Save",
+            file=SimpleUploadedFile("pcr_save.fasta", b">record1\nATCGATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        forward = Primer.objects.create(
+            primer_name="Forward Save",
+            sequence="ATCG",
+            length=4,
+            creator=self.user,
+        )
+        reverse = Primer.objects.create(
+            primer_name="Reverse Save",
+            sequence="GATC",
+            length=4,
+            creator=self.user,
+        )
+        forward.users.add(self.user)
+        reverse.users.add(self.user)
+        forward_feature = SequenceFeature.objects.create(
+            sequence_file=sequence_file,
+            primer=forward,
+            record_id="record1",
+            start=1,
+            end=4,
+            strand=1,
+            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
+            label="Forward Save",
+            created_by=self.user,
+        )
+        reverse_feature = SequenceFeature.objects.create(
+            sequence_file=sequence_file,
+            primer=reverse,
+            record_id="record1",
+            start=9,
+            end=12,
+            strand=-1,
+            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
+            label="Reverse Save",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_save_pcr_product", args=[sequence_file.id]),
+            data=json.dumps(
+                {
+                    "name": "Saved Amplicon",
+                    "record_id": "record1",
+                    "start": 1,
+                    "end": 12,
+                    "sequence": "ATCGATCGATCG",
+                    "forward_primer_label": "Forward Save",
+                    "reverse_primer_label": "Reverse Save",
+                    "forward_primer_id": forward.id,
+                    "reverse_primer_id": reverse.id,
+                    "forward_feature_id": forward_feature.id,
+                    "reverse_feature_id": reverse_feature.id,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        product = PCRProduct.objects.get(id=payload["pcr_product"]["id"])
+        self.assertEqual(product.name, "Saved Amplicon")
+        self.assertEqual(product.sequence_file, sequence_file)
+        self.assertEqual(product.forward_primer, forward)
+        self.assertEqual(product.reverse_primer, reverse)
+        self.assertEqual(product.forward_feature, forward_feature)
+        self.assertEqual(product.reverse_feature, reverse_feature)
+        self.assertEqual(product.length, 12)
+
+    def test_sequencefile_linear_save_pcr_product_rejects_mismatched_sequence(self):
+        sequence_file = SequenceFile.objects.create(
+            name="PCR Save Invalid",
+            file=SimpleUploadedFile("pcr_save_invalid.fasta", b">record1\nATCGATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_save_pcr_product", args=[sequence_file.id]),
+            data=json.dumps(
+                {
+                    "record_id": "record1",
+                    "start": 1,
+                    "end": 4,
+                    "sequence": "TTTT",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("does not match", response.json()["error"])
+
+    def test_pcrproduct_list_shows_only_current_user_products(self):
+        own_sequence_file = SequenceFile.objects.create(
+            name="Own PCR File",
+            file=SimpleUploadedFile("own_pcr.fasta", b">record1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        other_user = User.objects.create_user(
+            username="pcr_products_other",
+            email="pcr_products_other@example.com",
+            password="testpass123",
+        )
+        other_sequence_file = SequenceFile.objects.create(
+            name="Other PCR File",
+            file=SimpleUploadedFile("other_pcr.fasta", b">record1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=other_user,
+        )
+        own_product = PCRProduct.objects.create(
+            name="Own Product",
+            sequence_file=own_sequence_file,
+            record_id="record1",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=self.user,
+        )
+        own_product.users.add(self.user)
+        other_product = PCRProduct.objects.create(
+            name="Other Product",
+            sequence_file=other_sequence_file,
+            record_id="record1",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=other_user,
+        )
+        other_product.users.add(other_user)
+
+        response = self.client.get(reverse("pcrproduct_list"))
+
+        self.assertEqual(response.status_code, 200)
+        listed = list(response.context["pcr_products"])
+        self.assertEqual([item.name for item in listed], ["Own Product"])
 
 
 class PrimerBindingViewTests(TestCase):

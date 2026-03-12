@@ -11,6 +11,7 @@ from .views import primer_list, primer_create,\
     sequencefile_list, sequencefile_upload, \
     sequencefile_linear_view, sequencefile_linear_record_data, \
     sequencefile_linear_create_primer, sequencefile_linear_delete_primer, \
+    sequencefile_linear_save_pcr_product, pcrproduct_list, \
     project_primer_list, project_download_sequence_files, \
     primer_binding_analysis_async, primer_binding_status, \
     project_add_sequencefile, project_remove_sequencefile, \
@@ -95,6 +96,11 @@ urlpatterns = [
         name="sequencefile_upload",
     ),
     path(
+        "pcr-products/",
+        pcrproduct_list,
+        name="pcrproduct_list",
+    ),
+    path(
         "sequence-files/<int:sequencefile_id>/linear-view/",
         sequencefile_linear_view,
         name="sequencefile_linear_view",
@@ -108,6 +114,11 @@ urlpatterns = [
         "sequence-files/<int:sequencefile_id>/linear-view/create-primer/",
         sequencefile_linear_create_primer,
         name="sequencefile_linear_create_primer",
+    ),
+    path(
+        "sequence-files/<int:sequencefile_id>/linear-view/save-pcr-product/",
+        sequencefile_linear_save_pcr_product,
+        name="sequencefile_linear_save_pcr_product",
     ),
     path(
         "sequence-files/<int:sequencefile_id>/linear-view/delete-primer/",
