@@ -13,6 +13,8 @@ from .primerpairs import (
     primerpair_create,
     primerpair_delete,
     primerpair_list,
+    primerpair_products,
+    primerpair_products_async,
 )
 from .primers import (
     download_selected_primers,
@@ -65,6 +67,8 @@ __all__ = [
     "primerpair_create",
     "primerpair_delete",
     "primerpair_list",
+    "primerpair_products",
+    "primerpair_products_async",
     "project_add_primerpair",
     "project_add_sequencefile",
     "project_create",

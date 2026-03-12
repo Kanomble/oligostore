@@ -228,6 +228,27 @@ class PrimerBindingTests(SimpleTestCase):
         self.assertEqual(results[0].start, 0)
         self.assertEqual(results[0].end, 3)
 
+    def test_analyze_primerpair_products(self):
+        record = SeqRecord(Seq("AAATTT"), id="seq1", description="")
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".fasta") as handle:
+            SeqIO.write(record, handle, "fasta")
+            handle.flush()
+            sequence_file = SimpleNamespace(
+                file=SimpleNamespace(path=handle.name),
+                file_type="fasta",
+            )
+            results = primer_binding.analyze_primerpair_products(
+                forward_primer_sequence="AAA",
+                reverse_primer_sequence="AAA",
+                sequence_file=sequence_file,
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].record_id, "seq1")
+        self.assertEqual(results[0].forward_start, 1)
+        self.assertEqual(results[0].reverse_end, 6)
+        self.assertEqual(results[0].product_sequence, "AAATTT")
+
 
 class SequenceLoaderTests(SimpleTestCase):
     def test_load_sequences_fasta_and_genbank(self):

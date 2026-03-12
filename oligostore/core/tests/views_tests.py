@@ -862,6 +862,86 @@ class PrimerPairViewTests(TestCase):
         self.assertFalse(PrimerPair.objects.filter(id=pair.id).exists())
 
 
+class PCRProductDiscoveryViewTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._temp_media_root = tempfile.mkdtemp(prefix="oligostore-tests-")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls._temp_media_root)
+        super().tearDownClass()
+
+    def setUp(self):
+        super().setUp()
+        self._media_override = override_settings(MEDIA_ROOT=self._temp_media_root)
+        self._media_override.enable()
+        self.user = User.objects.create_user(
+            username="pcr_products_user",
+            email="pcr_products@example.com",
+            password="testpass123",
+        )
+        self.client.force_login(self.user)
+        self.forward = Primer.objects.create(
+            primer_name="Forward PCR",
+            sequence="AAA",
+            length=3,
+            creator=self.user,
+        )
+        self.reverse = Primer.objects.create(
+            primer_name="Reverse PCR",
+            sequence="AAA",
+            length=3,
+            creator=self.user,
+        )
+        self.forward.users.add(self.user)
+        self.reverse.users.add(self.user)
+        self.pair = PrimerPair.objects.create(
+            name="PCR Pair",
+            forward_primer=self.forward,
+            reverse_primer=self.reverse,
+            creator=self.user,
+        )
+        self.pair.users.add(self.user)
+        self.sequence_file = SequenceFile.objects.create(
+            name="PCR Sequence",
+            file=SimpleUploadedFile("pcr.fasta", b">seq1\nAAATTT"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+    def tearDown(self):
+        self._media_override.disable()
+        super().tearDown()
+
+    def test_pcr_product_discovery_get(self):
+        response = self.client.get(reverse("primerpair_products"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("form", response.context)
+
+    @patch("core.views.primerpairs.analyze_primerpair_products_task.delay")
+    def test_pcr_product_discovery_async_post_starts_task(self, delay_mock):
+        delay_mock.return_value = SimpleNamespace(id="task-123")
+        response = self.client.post(
+            reverse("primerpair_products_async"),
+            {
+                "primer_pair": self.pair.id,
+                "sequence_file": self.sequence_file.id,
+                "max_mismatches": 0,
+                "block_3prime_mismatch": "on",
+            },
+        )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["task_id"], "task-123")
+        delay_mock.assert_called_once_with(
+            primer_pair_id=self.pair.id,
+            sequence_file_id=self.sequence_file.id,
+            max_mismatches=0,
+            block_3prime_mismatch=True,
+        )
+
+
 class MiscViewTests(TestCase):
     def setUp(self):
         super().setUp()

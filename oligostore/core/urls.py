@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import primer_list, primer_create,\
     primer_delete, home, register, primerpair_list, \
-    primerpair_create, project_list,\
+    primerpair_create, primerpair_products, primerpair_products_async, project_list,\
     primerpair_combined_create, primerpair_delete, \
     project_create, project_dashboard,\
     project_add_primerpair, project_remove_primerpair,\
@@ -53,6 +53,8 @@ urlpatterns = [
     path("primerpairs/create/combined/", primerpair_combined_create, name="primerpair_combined_create"),
     path("primerpair_create/", primerpair_create, name="primerpair_create"),
     path("primerpair_list",primerpair_list,name="primerpair_list"),
+    path("primerpair_products/", primerpair_products, name="primerpair_products"),
+    path("primerpair_products/async/", primerpair_products_async, name="primerpair_products_async"),
     path("project_list",project_list,name="project_list"),
     path("primer_list", primer_list, name="primer_list"),
     path("primer_list/import/", primer_import_excel, name="primer_import_excel"),

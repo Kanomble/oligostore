@@ -69,6 +69,7 @@
                     <th>Reverse Sequence</th>
                     <th>Reverse TM</th>
                     <th>Analysis</th>
+                    <th>PCR Products</th>
                     <th>Delete Primer Pair</th>
                 </tr>
             </thead>
@@ -99,6 +100,14 @@
                             Analyze
                         </button>
                     </td>
+                    <td>
+                        <a
+                            href="{% url 'primerpair_products' %}?primer_pair={{ pair.id }}"
+                            class="btn btn-outline btn-sm"
+                        >
+                            Find products
+                        </a>
+                    </td>
                     <td><a href="{% url 'primerpair_delete' pair.id %}"
                        class="btn btn-error btn-sm"
                        onclick="return confirm('Delete this primer pair?');">
@@ -106,7 +115,7 @@
                     </a></td>
                 </tr>
                 <tr id="analysis-{{ pair.id }}" class="hidden">
-                    <td colspan="8">
+                    <td colspan="9">
                         <div class="analysis-content"></div>
                     </td>
                 </tr>

@@ -3,7 +3,7 @@ from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.db import OperationalError, ProgrammingError
 from django.contrib.auth.models import User
 from django import forms
-from .models import Primer, PrimerPair, Project
+from .models import Primer, PrimerPair, Project, SequenceFile
 import re
 
 def apply_tailwind_classes(fields):
@@ -157,6 +157,21 @@ class PrimerPairCreateCombinedForm(forms.Form):
             self.cleaned_data.get("reverse_overhang", ""),
             allow_n=False,
         )
+
+
+class PCRProductDiscoveryForm(forms.Form):
+    primer_pair = forms.ModelChoiceField(queryset=PrimerPair.objects.none())
+    sequence_file = forms.ModelChoiceField(queryset=SequenceFile.objects.none())
+    max_mismatches = forms.IntegerField(min_value=0, max_value=5, initial=0)
+    block_3prime_mismatch = forms.BooleanField(required=False, initial=True)
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        super().__init__(*args, **kwargs)
+        if user is not None:
+            self.fields["primer_pair"].queryset = PrimerPair.objects.filter(users=user).order_by("name")
+            self.fields["sequence_file"].queryset = SequenceFile.objects.filter(uploaded_by=user).order_by("name")
+        apply_tailwind_classes(self.fields)
 
 class CustomUserCreationForm(UserCreationForm):
     class Meta:

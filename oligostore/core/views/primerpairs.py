@@ -4,14 +4,19 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import Workbook
 
-from ..forms import PrimerPairForm, PrimerPairCreateCombinedForm
+from ..forms import (
+    PCRProductDiscoveryForm,
+    PrimerPairForm,
+    PrimerPairCreateCombinedForm,
+)
 from ..models import Primer, PrimerPair
 from ..services.user_assignment import assign_creator
 from ..services.export_helpers import build_primerpair_worksheet
+from ..tasks import analyze_primerpair_products_task
 from .utils import paginate_queryset
 
 
@@ -54,6 +59,48 @@ def primerpair_list(request):
             "query_string": query_string,
         },
     )
+
+
+@login_required(login_url="login")
+def primerpair_products(request):
+    initial = {}
+    preselected_pair = request.GET.get("primer_pair")
+    if preselected_pair:
+        initial["primer_pair"] = (
+            PrimerPair.objects.filter(users=request.user, id=preselected_pair)
+            .values_list("id", flat=True)
+            .first()
+        )
+
+    form = PCRProductDiscoveryForm(user=request.user, initial=initial)
+
+    return render(
+        request,
+        "core/primerpair_products.html",
+        {
+            "form": form,
+        },
+    )
+
+
+@login_required(login_url="login")
+def primerpair_products_async(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required."}, status=405)
+
+    form = PCRProductDiscoveryForm(request.POST, user=request.user)
+    if not form.is_valid():
+        return JsonResponse({"error": "Invalid PCR product request."}, status=400)
+
+    primer_pair = form.cleaned_data["primer_pair"]
+    sequence_file = form.cleaned_data["sequence_file"]
+    task = analyze_primerpair_products_task.delay(
+        primer_pair_id=primer_pair.id,
+        sequence_file_id=sequence_file.id,
+        max_mismatches=form.cleaned_data["max_mismatches"],
+        block_3prime_mismatch=form.cleaned_data["block_3prime_mismatch"],
+    )
+    return JsonResponse({"task_id": task.id}, status=202)
 
 
 @login_required(login_url="login")
