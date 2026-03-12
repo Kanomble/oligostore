@@ -12,6 +12,11 @@ from django.contrib import messages
 from Bio.Seq import Seq
 from Bio.Restriction import CommOnly
 
+from ..access import (
+    accessible_pcr_products,
+    accessible_primers,
+    accessible_sequence_files,
+)
 from ..models import PCRProduct, Primer, SequenceFeature, SequenceFile
 from ..forms import clean_optional_sequence_value, clean_sequence_value
 from ..services.primer_binding import analyze_primer_binding
@@ -296,17 +301,9 @@ def primer_binding_analysis_async(request):
     primer_id = request.POST.get("primer_id")
     sequence_file_id = request.POST.get("sequence_file_id")
 
-    primer = get_object_or_404(
-        Primer,
-        id=primer_id,
-        users=request.user,
-    )
+    primer = get_object_or_404(accessible_primers(request.user), id=primer_id)
 
-    sequence_file = get_object_or_404(
-        SequenceFile,
-        id=sequence_file_id,
-        uploaded_by=request.user,
-    )
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequence_file_id)
 
     task = analyze_primer_binding_task.delay(
         primer_id=primer.id,
@@ -342,7 +339,7 @@ def sequencefile_list(request):
     Supports optional filtering by search term and file type.
     """
 
-    qs = SequenceFile.objects.filter(uploaded_by=request.user)
+    qs = accessible_sequence_files(request.user)
 
     q = request.GET.get("q")
     if q:
@@ -379,7 +376,7 @@ def sequencefile_list(request):
 @login_required
 def pcrproduct_list(request):
     qs = (
-        PCRProduct.objects.filter(Q(creator=request.user) | Q(users=request.user))
+        accessible_pcr_products(request.user)
         .distinct()
         .select_related(
             "sequence_file",
@@ -427,8 +424,8 @@ def pcrproduct_list(request):
 
 @login_required
 def primer_binding_analysis(request):
-    primers = Primer.objects.filter(users=request.user)
-    sequence_files = SequenceFile.objects.filter(uploaded_by=request.user)
+    primers = accessible_primers(request.user)
+    sequence_files = accessible_sequence_files(request.user)
 
     preselected_primer = request.GET.get("primer")
     preselected_sequence_file = request.GET.get("sequence_file")
@@ -463,17 +460,9 @@ def primer_binding_analysis(request):
         primer_id = request.POST.get("primer_id")
         sequence_file_id = request.POST.get("sequence_file_id")
 
-        primer = get_object_or_404(
-            Primer,
-            id=primer_id,
-            users=request.user,
-        )
+        primer = get_object_or_404(accessible_primers(request.user), id=primer_id)
 
-        sequence_file = get_object_or_404(
-            SequenceFile,
-            id=sequence_file_id,
-            uploaded_by=request.user,
-        )
+        sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequence_file_id)
 
         hits = analyze_primer_binding(
             primer_sequence=primer.sequence,
@@ -505,11 +494,7 @@ def primer_binding_analysis(request):
 
 @login_required
 def sequencefile_linear_view(request, sequencefile_id):
-    sequence_file = get_object_or_404(
-        SequenceFile,
-        id=sequencefile_id,
-        uploaded_by=request.user,
-    )
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     records_payload = []
     try:
@@ -537,11 +522,7 @@ def sequencefile_linear_view(request, sequencefile_id):
 
 @login_required
 def sequencefile_linear_record_data(request, sequencefile_id):
-    sequence_file = get_object_or_404(
-        SequenceFile,
-        id=sequencefile_id,
-        uploaded_by=request.user,
-    )
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     try:
         records = _get_sequence_records(sequence_file)
@@ -580,11 +561,7 @@ def sequencefile_linear_create_primer(request, sequencefile_id):
     if request.method != "POST":
         return JsonResponse({"error": "POST required."}, status=405)
 
-    sequence_file = get_object_or_404(
-        SequenceFile,
-        id=sequencefile_id,
-        uploaded_by=request.user,
-    )
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     try:
         payload = _parse_json_or_form_payload(request)
@@ -677,11 +654,7 @@ def sequencefile_linear_save_pcr_product(request, sequencefile_id):
     if request.method != "POST":
         return JsonResponse({"error": "POST required."}, status=405)
 
-    sequence_file = get_object_or_404(
-        SequenceFile,
-        id=sequencefile_id,
-        uploaded_by=request.user,
-    )
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     try:
         payload = _parse_json_or_form_payload(request)
@@ -729,7 +702,7 @@ def sequencefile_linear_save_pcr_product(request, sequencefile_id):
     if not name:
         name = f"{sequence_file.name}:{record_id}:{start}-{end}"
 
-    primer_queryset = Primer.objects.filter(users=request.user)
+    primer_queryset = accessible_primers(request.user)
     forward_primer = primer_queryset.filter(id=forward_primer_id).first() if forward_primer_id else None
     reverse_primer = primer_queryset.filter(id=reverse_primer_id).first() if reverse_primer_id else None
     forward_feature = (
@@ -779,11 +752,7 @@ def sequencefile_linear_delete_primer(request, sequencefile_id):
     if request.method != "POST":
         return JsonResponse({"error": "POST required."}, status=405)
 
-    sequence_file = get_object_or_404(
-        SequenceFile,
-        id=sequencefile_id,
-        uploaded_by=request.user,
-    )
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     try:
         payload = _parse_json_or_form_payload(request)

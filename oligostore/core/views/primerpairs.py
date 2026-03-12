@@ -8,6 +8,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import Workbook
 
+from ..access import accessible_primer_pairs, accessible_primers, editable_primer_pairs
 from ..forms import (
     PCRProductDiscoveryForm,
     PrimerPairForm,
@@ -22,7 +23,7 @@ from .utils import paginate_queryset
 
 @login_required(login_url="login")
 def primerpair_list(request):
-    primer_pairs = PrimerPair.objects.filter(users=request.user)
+    primer_pairs = accessible_primer_pairs(request.user)
 
     q = request.GET.get("q")
     if q:
@@ -67,7 +68,8 @@ def primerpair_products(request):
     preselected_pair = request.GET.get("primer_pair")
     if preselected_pair:
         initial["primer_pair"] = (
-            PrimerPair.objects.filter(users=request.user, id=preselected_pair)
+            accessible_primer_pairs(request.user)
+            .filter(id=preselected_pair)
             .values_list("id", flat=True)
             .first()
         )
@@ -106,7 +108,7 @@ def primerpair_products_async(request):
 @login_required(login_url="login")
 def primerpair_create(request):
 
-    all_primers = Primer.objects.filter(users=request.user)
+    all_primers = accessible_primers(request.user)
     primers = all_primers
 
     q = request.GET.get("q")
@@ -212,7 +214,7 @@ def primerpair_combined_create(request):
 
 @login_required
 def primerpair_delete(request, primerpair_id):
-    pair = get_object_or_404(PrimerPair, id=primerpair_id)
+    pair = get_object_or_404(editable_primer_pairs(request.user), id=primerpair_id)
     if pair.creator != request.user:
         raise PermissionDenied("You are not the creator of this primer.")
     pair.delete()
@@ -230,7 +232,7 @@ def download_selected_primerpairs(request):
         return redirect("primerpair_list")
 
     primer_pairs = (
-        PrimerPair.objects.filter(users=request.user, id__in=primerpair_ids)
+        accessible_primer_pairs(request.user).filter(id__in=primerpair_ids)
         .select_related("forward_primer", "reverse_primer")
         .order_by("name")
     )

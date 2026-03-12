@@ -3,6 +3,7 @@ from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.db import OperationalError, ProgrammingError
 from django.contrib.auth.models import User
 from django import forms
+from .access import accessible_primer_pairs, accessible_primers, accessible_sequence_files
 from .models import Primer, PrimerPair, Project, SequenceFile
 import re
 
@@ -100,8 +101,8 @@ class PrimerPairForm(forms.ModelForm ):
     def __init__(self, *args, **kwargs):
         user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
-        self.fields["forward_primer"].queryset = Primer.objects.filter(users=user)
-        self.fields["reverse_primer"].queryset = Primer.objects.filter(users=user)
+        self.fields["forward_primer"].queryset = accessible_primers(user)
+        self.fields["reverse_primer"].queryset = accessible_primers(user)
         apply_tailwind_classes(self.fields)
 
     def clean(self):
@@ -169,8 +170,8 @@ class PCRProductDiscoveryForm(forms.Form):
         user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
         if user is not None:
-            self.fields["primer_pair"].queryset = PrimerPair.objects.filter(users=user).order_by("name")
-            self.fields["sequence_file"].queryset = SequenceFile.objects.filter(uploaded_by=user).order_by("name")
+            self.fields["primer_pair"].queryset = accessible_primer_pairs(user).order_by("name")
+            self.fields["sequence_file"].queryset = accessible_sequence_files(user).order_by("name")
         apply_tailwind_classes(self.fields)
 
 class CustomUserCreationForm(UserCreationForm):

@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import Workbook
+from ..access import accessible_primers, editable_primers
 from ..services.export_helpers import build_primer_worksheet
 from ..forms import (
     PrimerExcelColumnMapForm,
@@ -22,7 +23,7 @@ import json
 
 @login_required(login_url="login")
 def primer_list(request):
-    primers = Primer.objects.filter(users=request.user)
+    primers = accessible_primers(request.user)
 
     q = request.GET.get("q")
     if q:
@@ -68,7 +69,7 @@ def delete_selected_primers(request):
         messages.error(request, "Select at least one primer to delete.")
         return redirect("primer_list")
 
-    primers = Primer.objects.filter(id__in=primer_ids, creator=request.user)
+    primers = editable_primers(request.user).filter(id__in=primer_ids)
     deletable_count = primers.count()
     if deletable_count == 0:
         messages.error(
@@ -103,7 +104,7 @@ def primer_create(request):
 
 @login_required(login_url="login")
 def primer_delete(request, primer_id):
-    primer = get_object_or_404(Primer, id=primer_id)
+    primer = get_object_or_404(editable_primers(request.user), id=primer_id)
     if primer.creator != request.user:
         raise PermissionDenied("You are not the creator of this primer.")
 
@@ -122,7 +123,7 @@ def download_selected_primers(request):
         return redirect("primer_list")
 
     primers = (
-        Primer.objects.filter(users=request.user, id__in=primer_ids)
+        accessible_primers(request.user).filter(id__in=primer_ids)
         .order_by("primer_name")
     )
     if not primers.exists():

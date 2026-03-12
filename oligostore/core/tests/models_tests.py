@@ -2,6 +2,7 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
+from core.access import accessible_pcr_products, accessible_sequence_files
 from core.models import (
     PCRProduct,
     Primer,
@@ -259,3 +260,82 @@ class PrimerBindingResultModelTests(TestCase):
         self.assertEqual(result.end, 20)
         self.assertEqual(result.strand, "+")
         self.assertEqual(result.mismatches, 1)
+
+
+class AccessHelperTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._temp_media_root = tempfile.mkdtemp(prefix="oligostore-tests-")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls._temp_media_root)
+        super().tearDownClass()
+
+    def setUp(self):
+        super().setUp()
+        self._media_override = override_settings(MEDIA_ROOT=self._temp_media_root)
+        self._media_override.enable()
+        self.user = User.objects.create_user(
+            username="access_user",
+            email="access@example.com",
+            password="testpass123",
+        )
+        self.other_user = User.objects.create_user(
+            username="access_other",
+            email="access_other@example.com",
+            password="testpass123",
+        )
+
+    def tearDown(self):
+        self._media_override.disable()
+        super().tearDown()
+
+    def test_accessible_sequence_files_limits_to_owner(self):
+        owned = SequenceFile.objects.create(
+            name="Owned File",
+            file=SimpleUploadedFile("owned.fasta", b">r1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        SequenceFile.objects.create(
+            name="Other File",
+            file=SimpleUploadedFile("other.fasta", b">r1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.other_user,
+        )
+
+        self.assertEqual(list(accessible_sequence_files(self.user)), [owned])
+
+    def test_accessible_pcr_products_includes_shared_records(self):
+        sequence_file = SequenceFile.objects.create(
+            name="PCR Access File",
+            file=SimpleUploadedFile("pcr_access.fasta", b">r1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        owned = PCRProduct.objects.create(
+            name="Owned Product",
+            sequence_file=sequence_file,
+            record_id="r1",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=self.user,
+        )
+        shared = PCRProduct.objects.create(
+            name="Shared Product",
+            sequence_file=sequence_file,
+            record_id="r1",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=self.other_user,
+        )
+        shared.users.add(self.user)
+
+        self.assertEqual(
+            {product.name for product in accessible_pcr_products(self.user)},
+            {owned.name, shared.name},
+        )

@@ -9,6 +9,12 @@ from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils.text import slugify
 
+from ..access import (
+    accessible_primer_pairs,
+    accessible_primers,
+    accessible_projects,
+    accessible_sequence_files,
+)
 from ..forms import ProjectForm
 from ..models import Primer, PrimerPair, Project, SequenceFile
 from ..services.user_assignment import assign_creator
@@ -17,8 +23,8 @@ from .utils import paginate_queryset
 
 @login_required
 def project_add_primerpair(request, project_id, pair_id):
-    project = get_object_or_404(Project, id=project_id, users=request.user)
-    pair = get_object_or_404(PrimerPair, id=pair_id, users=request.user)
+    project = get_object_or_404(accessible_projects(request.user), id=project_id)
+    pair = get_object_or_404(accessible_primer_pairs(request.user), id=pair_id)
 
     if request.user not in project.users.all():
         return HttpResponseForbidden("You are not allowed to add these primer to your project.")
@@ -29,8 +35,8 @@ def project_add_primerpair(request, project_id, pair_id):
 
 @login_required
 def project_remove_primerpair(request, project_id, pair_id):
-    project = get_object_or_404(Project, id=project_id, users=request.user)
-    pair = get_object_or_404(PrimerPair, id=pair_id, users=request.user)
+    project = get_object_or_404(accessible_projects(request.user), id=project_id)
+    pair = get_object_or_404(accessible_primer_pairs(request.user), id=pair_id)
 
     if request.user not in project.users.all():
         return HttpResponseForbidden("You are not allowed to remove these primer pairs from your project.")
@@ -41,12 +47,8 @@ def project_remove_primerpair(request, project_id, pair_id):
 
 @login_required
 def project_add_sequencefile(request, project_id, sequencefile_id):
-    project = get_object_or_404(Project, id=project_id, users=request.user)
-    sequence_file = get_object_or_404(
-        SequenceFile,
-        id=sequencefile_id,
-        uploaded_by=request.user,
-    )
+    project = get_object_or_404(accessible_projects(request.user), id=project_id)
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     if request.user not in project.users.all():
         return HttpResponseForbidden("You are not allowed to add sequence files to this project.")
@@ -57,12 +59,8 @@ def project_add_sequencefile(request, project_id, sequencefile_id):
 
 @login_required
 def project_remove_sequencefile(request, project_id, sequencefile_id):
-    project = get_object_or_404(Project, id=project_id, users=request.user)
-    sequence_file = get_object_or_404(
-        SequenceFile,
-        id=sequencefile_id,
-        uploaded_by=request.user,
-    )
+    project = get_object_or_404(accessible_projects(request.user), id=project_id)
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     if request.user not in project.users.all():
         return HttpResponseForbidden("You are not allowed to remove sequence files from this project.")
@@ -73,14 +71,14 @@ def project_remove_sequencefile(request, project_id, sequencefile_id):
 
 @login_required
 def project_dashboard(request, project_id):
-    project = get_object_or_404(Project, id=project_id)
+    project = get_object_or_404(accessible_projects(request.user), id=project_id)
 
     if request.user not in project.users.all():
         return HttpResponseForbidden("You do not have access to this project.")
 
-    all_primers = Primer.objects.filter(users=request.user)
-    all_pairs = PrimerPair.objects.filter(users=request.user)
-    all_sequence_files = SequenceFile.objects.filter(uploaded_by=request.user)
+    all_primers = accessible_primers(request.user)
+    all_pairs = accessible_primer_pairs(request.user)
+    all_sequence_files = accessible_sequence_files(request.user)
 
     return render(
         request,
@@ -96,12 +94,12 @@ def project_dashboard(request, project_id):
 
 @login_required
 def project_primer_list(request, project_id):
-    project = get_object_or_404(Project, id=project_id)
+    project = get_object_or_404(accessible_projects(request.user), id=project_id)
 
     if request.user not in project.users.all():
         return HttpResponseForbidden("You do not have access to this project.")
 
-    primers = Primer.objects.filter(users=request.user).filter(
+    primers = accessible_primers(request.user).filter(
         Q(as_forward_primer__projects=project)
         | Q(as_reverse_primer__projects=project)
     ).distinct()
@@ -143,7 +141,7 @@ def project_primer_list(request, project_id):
 
 @login_required
 def project_download_sequence_files(request, project_id):
-    project = get_object_or_404(Project, id=project_id)
+    project = get_object_or_404(accessible_projects(request.user), id=project_id)
 
     if request.user not in project.users.all():
         return HttpResponseForbidden("You do not have access to this project.")
@@ -187,7 +185,7 @@ def project_create(request):
 
 @login_required(login_url="login")
 def project_list(request):
-    projects = request.user.project_access.all()
+    projects = accessible_projects(request.user)
 
     q = request.GET.get("q")
     if q:
