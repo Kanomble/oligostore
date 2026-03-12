@@ -1,212 +1,304 @@
 {% extends "core/base.html" %}
 {% load static %}
-{% block title %}Project Dashboard{% endblock %}
+{% block title %}Project Details{% endblock %}
 
 {% block content %}
-<div class="mb-10">
-    <div class="card bg-base-100 shadow-xl p-6 border border-base-300">
-        <h1 class="text-4xl font-bold mb-2">{{ project.name }}</h1>
-        <p class="opacity-70">{{ project.description|default:"No description provided." }}</p>
-
-        <div class="mt-4 flex gap-3">
-            <div class="badge badge-outline">Created: {{ project.created_at|date:"Y-m-d" }}</div>
-            <div class="badge badge-primary">Project Owner: {{ project.creator.username }}</div>
-        </div>
-
-        <div class="mt-6 flex flex-wrap gap-2">
-            <a href="{% url 'project_primer_list' project.id %}" class="btn btn-outline">
-                View project primers
-            </a>
-            {% if project.sequence_files.all %}
-            <a href="{% url 'project_download_sequence_files' project.id %}" class="btn btn-primary">
-                Download project files
-            </a>
-            {% endif %}
-        </div>
-    </div>
-</div>
-
-<div class="grid lg:grid-cols-2 gap-10">
-    <div>
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <h2 class="text-2xl font-bold">Primer Pairs in this Project</h2>
-            <button class="btn btn-primary btn-sm" type="button" data-toggle-target="add-primerpairs">
-                Add primer pairs
-            </button>
-        </div>
-
-        {% if project.primerpairs.all %}
-            <div class="overflow-x-auto border border-base-300 rounded-lg bg-base-100 shadow-md">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Forward Primer</th>
-                            <th>Reverse Primer</th>
-                            <th class="text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for pair in project.primerpairs.all %}
-                        <tr class="hover cursor-pointer" data-row-link="{% url 'project_remove_primerpair' project.id pair.id %}" data-confirm="Remove this primer pair from the project?">
-                            <td class="font-semibold">{{ pair.name }}</td>
-                            <td>{{ pair.forward_primer.primer_name }}</td>
-                            <td>{{ pair.reverse_primer.primer_name }}</td>
-                            <td class="text-right">
-                                <span class="badge badge-error badge-outline">Remove</span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+<div class="max-w-7xl mx-auto space-y-8">
+    <section class="card bg-base-100 shadow-xl border border-base-300">
+        <div class="card-body gap-6">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div class="space-y-3">
+                    <div class="badge badge-outline">Project Details</div>
+                    <h1 class="text-4xl font-bold">{{ project.name }}</h1>
+                    <p class="max-w-3xl opacity-70">{{ project.description|default:"No description provided." }}</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <a href="{% url 'project_primer_list' project.id %}" class="btn btn-outline">View project primers</a>
+                    <a href="{% url 'sequencefile_list' %}" class="btn btn-outline">Browse sequence files</a>
+                    <a href="{% url 'pcrproduct_list' %}" class="btn btn-outline">Browse PCR products</a>
+                    {% if attached_sequence_files %}
+                        <a href="{% url 'project_download_sequence_files' project.id %}" class="btn btn-primary">Download project files</a>
+                    {% endif %}
+                </div>
             </div>
-        {% else %}
-            <p class="opacity-70">No primer pairs are part of this project yet.</p>
-        {% endif %}
-    </div>
 
-    <div id="add-primerpairs" class="hidden">
-        <div class="flex items-center justify-between gap-3 mb-3">
-            <h2 class="text-2xl font-bold">Add Primer Pairs</h2>
-            <span class="text-sm opacity-70">Click a row to add.</span>
+            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded-2xl border border-base-300 bg-base-200/40 p-4">
+                    <div class="text-sm opacity-70">Owner</div>
+                    <div class="mt-1 text-lg font-semibold">{{ project.creator.username }}</div>
+                </div>
+                <div class="rounded-2xl border border-base-300 bg-base-200/40 p-4">
+                    <div class="text-sm opacity-70">Created</div>
+                    <div class="mt-1 text-lg font-semibold">{{ project.created_at|date:"Y-m-d" }}</div>
+                </div>
+                <div class="rounded-2xl border border-base-300 bg-base-200/40 p-4">
+                    <div class="text-sm opacity-70">Primer pairs</div>
+                    <div class="mt-1 text-lg font-semibold">{{ attached_pairs|length }}</div>
+                </div>
+                <div class="rounded-2xl border border-base-300 bg-base-200/40 p-4">
+                    <div class="text-sm opacity-70">Sequence files / PCR products</div>
+                    <div class="mt-1 text-lg font-semibold">{{ attached_sequence_files|length }} / {{ attached_pcr_products|length }}</div>
+                </div>
+            </div>
         </div>
+    </section>
 
-        {% if all_pairs %}
-            <div class="overflow-x-auto border border-base-300 rounded-lg bg-base-100 shadow-md">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Forward Primer</th>
-                            <th>Reverse Primer</th>
-                            <th class="text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for pair in all_pairs %}
-                        {% if pair not in project.primerpairs.all %}
-                        <tr class="hover cursor-pointer" data-row-link="{% url 'project_add_primerpair' project.id pair.id %}">
-                            <td class="font-semibold">{{ pair.name }}</td>
-                            <td>{{ pair.forward_primer.primer_name }}</td>
-                            <td>{{ pair.reverse_primer.primer_name }}</td>
-                            <td class="text-right">
-                                <span class="badge badge-primary badge-outline">Add</span>
-                            </td>
-                        </tr>
+    <section class="grid gap-8 xl:grid-cols-2">
+        <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h2 class="text-2xl font-bold">Primer Pairs</h2>
+                <button class="btn btn-primary btn-sm" type="button" data-toggle-target="add-primerpairs">Add primer pairs</button>
+            </div>
+
+            <div class="card bg-base-100 shadow-md border border-base-300">
+                <div class="card-body p-0">
+                    {% if attached_pairs %}
+                        <div class="overflow-x-auto">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Forward</th>
+                                        <th>Reverse</th>
+                                        <th class="text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for pair in attached_pairs %}
+                                        <tr class="hover cursor-pointer" data-row-link="{% url 'project_remove_primerpair' project.id pair.id %}" data-confirm="Remove this primer pair from the project?">
+                                            <td class="font-semibold">{{ pair.name }}</td>
+                                            <td>{{ pair.forward_primer.primer_name }}</td>
+                                            <td>{{ pair.reverse_primer.primer_name }}</td>
+                                            <td class="text-right"><span class="badge badge-error badge-outline">Remove</span></td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="p-6 opacity-70">No primer pairs are part of this project yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div id="add-primerpairs" class="hidden">
+                <div class="card bg-base-100 shadow-md border border-base-300">
+                    <div class="card-body">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-xl font-semibold">Available Primer Pairs</h3>
+                            <span class="text-sm opacity-70">Click a row to add.</span>
+                        </div>
+                        {% if available_pairs %}
+                            <div class="overflow-x-auto">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Forward</th>
+                                            <th>Reverse</th>
+                                            <th class="text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for pair in available_pairs %}
+                                            <tr class="hover cursor-pointer" data-row-link="{% url 'project_add_primerpair' project.id pair.id %}">
+                                                <td class="font-semibold">{{ pair.name }}</td>
+                                                <td>{{ pair.forward_primer.primer_name }}</td>
+                                                <td>{{ pair.reverse_primer.primer_name }}</td>
+                                                <td class="text-right"><span class="badge badge-primary badge-outline">Add</span></td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <p class="opacity-70">All accessible primer pairs are already attached.</p>
                         {% endif %}
-                        {% endfor %}
-                    </tbody>
-                </table>
+                    </div>
+                </div>
             </div>
-            {% if all_pairs|length == project.primerpairs.all|length %}
-                <p class="mt-3 text-sm opacity-70">All available primer pairs are already attached.</p>
-            {% endif %}
-        {% else %}
-            <p class="opacity-70">No primer pairs available.</p>
-        {% endif %}
-    </div>
-</div>
+        </div>
 
-<div class="mt-12 grid lg:grid-cols-2 gap-10">
-    <div>
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <h2 class="text-2xl font-bold">Sequence Files in this Project</h2>
-            <div class="flex flex-wrap gap-2">
-                {% if project.sequence_files.all %}
-                <a href="{% url 'project_download_sequence_files' project.id %}" class="btn btn-outline btn-sm">
-                    Download all
-                </a>
+        <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h2 class="text-2xl font-bold">Sequence Files</h2>
+                <button class="btn btn-primary btn-sm" type="button" data-toggle-target="add-sequencefiles">Add sequence files</button>
+            </div>
+
+            <div class="card bg-base-100 shadow-md border border-base-300">
+                <div class="card-body p-0">
+                    {% if attached_sequence_files %}
+                        <div class="overflow-x-auto">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Type</th>
+                                        <th>Viewer</th>
+                                        <th class="text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for sequence_file in attached_sequence_files %}
+                                        <tr>
+                                            <td class="font-semibold">{{ sequence_file.name }}</td>
+                                            <td>{{ sequence_file.get_file_type_display }}</td>
+                                            <td>
+                                                <a href="{% url 'sequencefile_linear_view' sequence_file.id %}" class="btn btn-ghost btn-xs">Open linear viewer</a>
+                                            </td>
+                                            <td class="text-right">
+                                                <a href="{% url 'project_remove_sequencefile' project.id sequence_file.id %}" class="btn btn-error btn-outline btn-xs">Remove</a>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td colspan="4" class="bg-base-200/40 text-sm">
+                                                {% if sequence_file.description %}
+                                                    {{ sequence_file.description }}
+                                                {% else %}
+                                                    <span class="opacity-60">No description</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="p-6 opacity-70">No sequence files are part of this project yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div id="add-sequencefiles" class="hidden">
+                <div class="card bg-base-100 shadow-md border border-base-300">
+                    <div class="card-body">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-xl font-semibold">Available Sequence Files</h3>
+                            <span class="text-sm opacity-70">Click a row to add.</span>
+                        </div>
+                        {% if available_sequence_files %}
+                            <div class="overflow-x-auto">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Type</th>
+                                            <th>Description</th>
+                                            <th class="text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for sequence_file in available_sequence_files %}
+                                            <tr class="hover cursor-pointer" data-row-link="{% url 'project_add_sequencefile' project.id sequence_file.id %}">
+                                                <td class="font-semibold">{{ sequence_file.name }}</td>
+                                                <td>{{ sequence_file.get_file_type_display }}</td>
+                                                <td>{{ sequence_file.description|default:"No description" }}</td>
+                                                <td class="text-right"><span class="badge badge-primary badge-outline">Add</span></td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <p class="opacity-70">All accessible sequence files are already attached.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-2xl font-bold">PCR Products</h2>
+            <button class="btn btn-primary btn-sm" type="button" data-toggle-target="add-pcrproducts">Add PCR products</button>
+        </div>
+
+        <div class="card bg-base-100 shadow-md border border-base-300">
+            <div class="card-body p-0">
+                {% if attached_pcr_products %}
+                    <div class="overflow-x-auto">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Sequence File</th>
+                                    <th>Amplicon</th>
+                                    <th>Viewer</th>
+                                    <th class="text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for product in attached_pcr_products %}
+                                    <tr>
+                                        <td>
+                                            <div class="font-semibold">{{ product.name }}</div>
+                                            <div class="text-xs opacity-70">{{ product.length }} bp</div>
+                                        </td>
+                                        <td>{{ product.sequence_file.name }}</td>
+                                        <td class="font-mono">{{ product.record_id }}:{{ product.start }}-{{ product.end }}</td>
+                                        <td>
+                                            <a href="{% url 'sequencefile_linear_view' product.sequence_file_id %}?pcr_product={{ product.id }}" class="btn btn-ghost btn-xs">Open product</a>
+                                        </td>
+                                        <td class="text-right">
+                                            <a href="{% url 'project_remove_pcr_product' project.id product.id %}" class="btn btn-error btn-outline btn-xs">Remove</a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="p-6 opacity-70">No PCR products are part of this project yet.</div>
                 {% endif %}
-                <button class="btn btn-primary btn-sm" type="button" data-toggle-target="add-sequencefiles">
-                    Add sequence files
-                </button>
             </div>
         </div>
 
-        {% if project.sequence_files.all %}
-            <div class="overflow-x-auto border border-base-300 rounded-lg bg-base-100 shadow-md">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Description</th>
-                            <th class="text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for sequence_file in project.sequence_files.all %}
-                        <tr class="hover cursor-pointer" data-row-link="{% url 'project_remove_sequencefile' project.id sequence_file.id %}" data-confirm="Remove this sequence file from the project?">
-                            <td class="font-semibold">{{ sequence_file.name }}</td>
-                            <td>{{ sequence_file.get_file_type_display }}</td>
-                            <td>
-                                {% if sequence_file.description %}
-                                    {{ sequence_file.description }}
-                                {% else %}
-                                    <span class="opacity-60">No description</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-right">
-                                <span class="badge badge-error badge-outline">Remove</span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        <div id="add-pcrproducts" class="hidden">
+            <div class="card bg-base-100 shadow-md border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between gap-3">
+                        <h3 class="text-xl font-semibold">Available PCR Products</h3>
+                        <span class="text-sm opacity-70">Click a row to add.</span>
+                    </div>
+                    {% if available_pcr_products %}
+                        <div class="overflow-x-auto">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Sequence File</th>
+                                        <th>Amplicon</th>
+                                        <th>Primers</th>
+                                        <th class="text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for product in available_pcr_products %}
+                                        <tr class="hover cursor-pointer" data-row-link="{% url 'project_add_pcr_product' project.id product.id %}">
+                                            <td>
+                                                <div class="font-semibold">{{ product.name }}</div>
+                                                <div class="text-xs opacity-70">{{ product.length }} bp</div>
+                                            </td>
+                                            <td>{{ product.sequence_file.name }}</td>
+                                            <td class="font-mono">{{ product.record_id }}:{{ product.start }}-{{ product.end }}</td>
+                                            <td>{{ product.forward_primer_label|default:"-" }} / {{ product.reverse_primer_label|default:"-" }}</td>
+                                            <td class="text-right"><span class="badge badge-primary badge-outline">Add</span></td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="opacity-70">All accessible PCR products are already attached.</p>
+                    {% endif %}
+                </div>
             </div>
-        {% else %}
-            <p class="opacity-70">No sequence files are part of this project yet.</p>
-        {% endif %}
-    </div>
-
-    <div id="add-sequencefiles" class="hidden">
-        <div class="flex items-center justify-between gap-3 mb-3">
-            <h2 class="text-2xl font-bold">Add Sequence Files</h2>
-            <span class="text-sm opacity-70">Click a row to add.</span>
         </div>
-
-        {% if all_sequence_files %}
-            <div class="overflow-x-auto border border-base-300 rounded-lg bg-base-100 shadow-md">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Description</th>
-                            <th class="text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for sequence_file in all_sequence_files %}
-                        {% if sequence_file not in project.sequence_files.all %}
-                        <tr class="hover cursor-pointer" data-row-link="{% url 'project_add_sequencefile' project.id sequence_file.id %}">
-                            <td class="font-semibold">{{ sequence_file.name }}</td>
-                            <td>{{ sequence_file.get_file_type_display }}</td>
-                            <td>
-                                {% if sequence_file.description %}
-                                    {{ sequence_file.description }}
-                                {% else %}
-                                    <span class="opacity-60">No description</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-right">
-                                <span class="badge badge-primary badge-outline">Add</span>
-                            </td>
-                        </tr>
-                        {% endif %}
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% if all_sequence_files|length == project.sequence_files.all|length %}
-                <p class="mt-3 text-sm opacity-70">All available sequence files are already attached.</p>
-            {% endif %}
-        {% else %}
-            <p class="opacity-70">No sequence files available.</p>
-        {% endif %}
-    </div>
+    </section>
 </div>
 {% endblock %}
+
 {% block extra_scripts %}
 <script src="{% static 'js/project_dashboard.js' %}"></script>
 {% endblock %}

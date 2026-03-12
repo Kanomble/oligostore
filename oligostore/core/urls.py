@@ -15,6 +15,7 @@ from .views import primer_list, primer_create,\
     project_primer_list, project_download_sequence_files, \
     primer_binding_analysis_async, primer_binding_status, \
     project_add_sequencefile, project_remove_sequencefile, \
+    project_add_pcr_product, project_remove_pcr_product, \
     download_selected_primers, download_selected_primerpairs, \
     primer_import_excel, delete_selected_primers
 
@@ -37,16 +38,26 @@ urlpatterns = [
     # Connecting primerpairs
     path("projects/<int:project_id>/add-pair/<int:pair_id>/", project_add_primerpair, name="project_add_primerpair"),
     path("projects/<int:project_id>/remove-pair/<int:pair_id>/", project_remove_primerpair, name="project_remove_primerpair"),
-        path(
-            "projects/<int:project_id>/add-sequence-file/<int:sequencefile_id>/",
-            project_add_sequencefile,
-            name="project_add_sequencefile",
-        ),
-        path(
-            "projects/<int:project_id>/remove-sequence-file/<int:sequencefile_id>/",
-            project_remove_sequencefile,
-            name="project_remove_sequencefile",
-        ),
+    path(
+        "projects/<int:project_id>/add-sequence-file/<int:sequencefile_id>/",
+        project_add_sequencefile,
+        name="project_add_sequencefile",
+    ),
+    path(
+        "projects/<int:project_id>/remove-sequence-file/<int:sequencefile_id>/",
+        project_remove_sequencefile,
+        name="project_remove_sequencefile",
+    ),
+    path(
+        "projects/<int:project_id>/add-pcr-product/<int:pcr_product_id>/",
+        project_add_pcr_product,
+        name="project_add_pcr_product",
+    ),
+    path(
+        "projects/<int:project_id>/remove-pcr-product/<int:pcr_product_id>/",
+        project_remove_pcr_product,
+        name="project_remove_pcr_product",
+    ),
     # Basic project paths
     path("", home, name="home"),
     path("register/", register, name="register"),

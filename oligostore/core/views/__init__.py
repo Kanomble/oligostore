@@ -25,6 +25,7 @@ from .primers import (
     primer_list,
 )
 from .projects import (
+    project_add_pcr_product,
     project_add_primerpair,
     project_add_sequencefile,
     project_create,
@@ -32,6 +33,7 @@ from .projects import (
     project_download_sequence_files,
     project_list,
     project_primer_list,
+    project_remove_pcr_product,
     project_remove_primerpair,
     project_remove_sequencefile,
 )
@@ -72,6 +74,7 @@ __all__ = [
     "primerpair_list",
     "primerpair_products",
     "primerpair_products_async",
+    "project_add_pcr_product",
     "project_add_primerpair",
     "project_add_sequencefile",
     "project_create",
@@ -79,6 +82,7 @@ __all__ = [
     "project_download_sequence_files",
     "project_list",
     "project_primer_list",
+    "project_remove_pcr_product",
     "project_remove_primerpair",
     "project_remove_sequencefile",
     "register",

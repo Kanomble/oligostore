@@ -167,6 +167,11 @@ class Project(AccessControllModel):
         related_name="projects",
         blank=True,
     )
+    pcr_products = models.ManyToManyField(
+        "PCRProduct",
+        related_name="projects",
+        blank=True,
+    )
 
     def __str__(self):
         return self.name

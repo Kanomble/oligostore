@@ -891,6 +891,16 @@ class ProjectViewTests(TestCase):
             uploaded_by=self.user,
             description="Project file description",
         )
+        self.pcr_product = PCRProduct.objects.create(
+            name="Project Product",
+            sequence_file=self.sequence_file,
+            record_id="seq",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=self.user,
+        )
+        self.pcr_product.users.add(self.user)
 
     def tearDown(self):
         self._media_override.disable()
@@ -944,6 +954,46 @@ class ProjectViewTests(TestCase):
             reverse("project_dashboard", args=[self.project.id]),
         )
         self.assertNotIn(self.sequence_file, self.project.sequence_files.all())
+
+    def test_project_add_and_remove_pcr_product(self):
+        response = self.client.get(
+            reverse(
+                "project_add_pcr_product",
+                args=[self.project.id, self.pcr_product.id],
+            )
+        )
+        self.assertRedirects(
+            response,
+            reverse("project_dashboard", args=[self.project.id]),
+        )
+        self.assertIn(self.pcr_product, self.project.pcr_products.all())
+
+        response = self.client.get(
+            reverse(
+                "project_remove_pcr_product",
+                args=[self.project.id, self.pcr_product.id],
+            )
+        )
+        self.assertRedirects(
+            response,
+            reverse("project_dashboard", args=[self.project.id]),
+        )
+        self.assertNotIn(self.pcr_product, self.project.pcr_products.all())
+
+    def test_project_dashboard_contains_linear_view_links(self):
+        self.project.sequence_files.add(self.sequence_file)
+        self.project.pcr_products.add(self.pcr_product)
+
+        response = self.client.get(reverse("project_dashboard", args=[self.project.id]))
+
+        self.assertContains(
+            response,
+            reverse("sequencefile_linear_view", args=[self.sequence_file.id]),
+        )
+        self.assertContains(
+            response,
+            f'{reverse("sequencefile_linear_view", args=[self.sequence_file.id])}?pcr_product={self.pcr_product.id}',
+        )
 
 class PrimerViewTests(TestCase):
     def setUp(self):
