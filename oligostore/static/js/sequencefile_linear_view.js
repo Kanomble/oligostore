@@ -18,6 +18,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const recordSelect = document.getElementById("recordSelect");
     const windowSizeSlider = document.getElementById("windowSizeSlider");
     const startSlider = document.getElementById("startSlider");
+    const startInput = document.getElementById("startInput");
+    const startHint = document.getElementById("startHint");
     const zoomInBtn = document.getElementById("zoomInBtn");
     const zoomOutBtn = document.getElementById("zoomOutBtn");
     const resetBtn = document.getElementById("resetBtn");
@@ -25,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const mapZoomOutBtn = document.getElementById("mapZoomOutBtn");
     const mapZoomResetBtn = document.getElementById("mapZoomResetBtn");
     const mapStartSlider = document.getElementById("mapStartSlider");
+    const mapStartInput = document.getElementById("mapStartInput");
     const mapRangeLabel = document.getElementById("mapRangeLabel");
     const mapTickTrack = document.getElementById("mapTickTrack");
     const mapLeftLabel = document.getElementById("mapLeftLabel");
@@ -115,6 +118,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const MIN_WINDOW_BP = 1;
+    const PAN_SLIDER_STEPS = 1000;
 
     function getRecord(index = state.recordIndex) {
       return recordDetails.get(index) || null;
@@ -199,6 +203,49 @@ document.addEventListener("DOMContentLoaded", () => {
       const maxStart = Math.max(1, recordLength - state.windowSize + 1);
       state.start = Math.min(state.start, maxStart);
       state.start = Math.max(1, state.start);
+    }
+
+    function clampPosition(value, maxStart) {
+      return Math.max(1, Math.min(Math.round(Number(value) || 1), maxStart));
+    }
+
+    function getPanSliderValue(position, maxStart) {
+      if (maxStart <= 1) {
+        return 1;
+      }
+      if (maxStart <= PAN_SLIDER_STEPS) {
+        return clampPosition(position, maxStart);
+      }
+      return Math.round(((clampPosition(position, maxStart) - 1) / (maxStart - 1)) * PAN_SLIDER_STEPS);
+    }
+
+    function getPositionFromPanSlider(rawValue, maxStart) {
+      if (maxStart <= 1) {
+        return 1;
+      }
+      if (maxStart <= PAN_SLIDER_STEPS) {
+        return clampPosition(rawValue, maxStart);
+      }
+      const sliderValue = Math.max(0, Math.min(PAN_SLIDER_STEPS, Number(rawValue) || 0));
+      return 1 + Math.round((sliderValue / PAN_SLIDER_STEPS) * (maxStart - 1));
+    }
+
+    function configurePanControl(slider, input, position, maxStart) {
+      const usesScaledSlider = maxStart > PAN_SLIDER_STEPS;
+      slider.min = usesScaledSlider ? "0" : "1";
+      slider.max = usesScaledSlider ? String(PAN_SLIDER_STEPS) : String(maxStart);
+      slider.step = "1";
+      slider.value = String(getPanSliderValue(position, maxStart));
+      slider.disabled = maxStart <= 1;
+      slider.title = usesScaledSlider
+        ? "Scaled slider for long sequences. Use the Start field for exact base-pair jumps."
+        : "Exact base-pair slider.";
+
+      input.min = "1";
+      input.max = String(maxStart);
+      input.step = "1";
+      input.value = String(clampPosition(position, maxStart));
+      input.disabled = maxStart <= 1;
     }
 
     function defaultMapWindowSize(recordLength) {
@@ -1373,15 +1420,15 @@ document.addEventListener("DOMContentLoaded", () => {
       windowSizeSlider.max = String(Math.min(5000, Math.max(MIN_WINDOW_BP, recordLength)));
       windowSizeSlider.value = String(state.windowSize);
 
-      startSlider.max = String(Math.max(1, recordLength - state.windowSize + 1));
-      startSlider.value = String(state.start);
+      const maxStart = Math.max(1, recordLength - state.windowSize + 1);
+      configurePanControl(startSlider, startInput, state.start, maxStart);
 
       const end = Math.min(recordLength, state.start + state.windowSize - 1);
       const mapEnd = Math.min(recordLength, state.mapStart + state.mapWindowSize - 1);
       const mapLength = mapEnd - state.mapStart + 1;
 
-      mapStartSlider.max = String(Math.max(1, recordLength - state.mapWindowSize + 1));
-      mapStartSlider.value = String(state.mapStart);
+      const maxMapStart = Math.max(1, recordLength - state.mapWindowSize + 1);
+      configurePanControl(mapStartSlider, mapStartInput, state.mapStart, maxMapStart);
       mapRangeLabel.textContent = `Map range: ${state.mapStart.toLocaleString()}-${mapEnd.toLocaleString()} (${mapLength.toLocaleString()} bp)`;
 
       if (end < state.mapStart || state.start > mapEnd) {
@@ -1399,6 +1446,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const recordLabel = summary ? summary.id : `Record ${state.recordIndex + 1}`;
       windowLabel.textContent = `${recordLabel} | ${state.start.toLocaleString()}-${end.toLocaleString()} / ${recordLength.toLocaleString()} bp`;
       windowSizeHint.textContent = `${state.windowSize.toLocaleString()} bp visible`;
+      startHint.textContent = maxStart > PAN_SLIDER_STEPS
+        ? `Start ${state.start.toLocaleString()} of ${maxStart.toLocaleString()} possible positions | slider is scaled for long sequences`
+        : `Start ${state.start.toLocaleString()} of ${maxStart.toLocaleString()} possible positions`;
 
       if (!record) {
         featureLegend.textContent = state.loadingRecord
@@ -1495,7 +1545,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     startSlider.addEventListener("input", () => {
       closePrimerSelectionMenu();
-      state.start = Number(startSlider.value);
+      const maxStart = Math.max(1, getCurrentRecordLength() - state.windowSize + 1);
+      state.start = getPositionFromPanSlider(startSlider.value, maxStart);
+      render();
+    });
+
+    startInput.addEventListener("change", () => {
+      closePrimerSelectionMenu();
+      const maxStart = Math.max(1, getCurrentRecordLength() - state.windowSize + 1);
+      state.start = clampPosition(startInput.value, maxStart);
       render();
     });
 
@@ -1521,7 +1579,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     mapStartSlider.addEventListener("input", () => {
       closePrimerSelectionMenu();
-      state.mapStart = Number(mapStartSlider.value);
+      const maxMapStart = Math.max(1, getCurrentRecordLength() - state.mapWindowSize + 1);
+      state.mapStart = getPositionFromPanSlider(mapStartSlider.value, maxMapStart);
+      render();
+    });
+
+    mapStartInput.addEventListener("change", () => {
+      closePrimerSelectionMenu();
+      const maxMapStart = Math.max(1, getCurrentRecordLength() - state.mapWindowSize + 1);
+      state.mapStart = clampPosition(mapStartInput.value, maxMapStart);
       render();
     });
 

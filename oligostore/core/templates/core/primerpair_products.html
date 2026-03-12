@@ -1,0 +1,74 @@
+{% extends "core/base.html" %}
+{% load static %}
+{% block title %}PCR Products{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-8">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <h1 class="text-3xl font-bold">PCR Product Finder</h1>
+            <p class="opacity-70 mt-2">
+                Compute candidate amplicons for one primer pair against one sequence file.
+            </p>
+        </div>
+        <a class="btn btn-outline" href="{% url 'primerpair_list' %}">Back to primer pairs</a>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl border border-base-300">
+        <div class="card-body">
+            <form id="primerpair-products-form" method="POST" class="grid grid-cols-1 lg:grid-cols-4 gap-4 items-end">
+                {% csrf_token %}
+                <div class="form-control">
+                    <label class="label"><span class="label-text font-semibold">Primer pair</span></label>
+                    {{ form.primer_pair }}
+                </div>
+                <div class="form-control">
+                    <label class="label"><span class="label-text font-semibold">Sequence file</span></label>
+                    {{ form.sequence_file }}
+                </div>
+                <div class="form-control">
+                    <label class="label"><span class="label-text font-semibold">Max mismatches</span></label>
+                    {{ form.max_mismatches }}
+                </div>
+                <div class="form-control">
+                    <label class="label cursor-pointer justify-start gap-3">
+                        {{ form.block_3prime_mismatch }}
+                        <span class="label-text">Require perfect 3' base</span>
+                    </label>
+                    <button type="submit" class="btn btn-primary mt-2">Find products</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="primerpair-products-status" class="hidden">
+        <div class="alert alert-info">
+            <span class="loading loading-spinner loading-md mr-2"></span>
+            Finding PCR products. This may take a while for large sequence files.
+        </div>
+    </div>
+
+    <div id="primerpair-products-error" class="hidden">
+        <div class="alert alert-error"></div>
+    </div>
+
+    <div id="primerpair-products-results" class="hidden space-y-6">
+        <div id="primerpair-products-summary" class="text-sm opacity-75"></div>
+        <div id="primerpair-products-empty" class="alert alert-warning hidden">
+            <span>No PCR product candidates were found for this primer pair and sequence file with the current settings.</span>
+        </div>
+        <div id="primerpair-products-list" class="space-y-6"></div>
+    </div>
+</div>
+<div
+    id="primerpair-products-config"
+    data-async-url="{% url 'primerpair_products_async' %}"
+    data-status-url-template="{% url 'primer_binding_status' 'TASK_ID' %}"
+    data-download-url="{% url 'download_product_sequence' %}"
+    class="hidden"
+></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static 'js/primerpair_products.js' %}"></script>
+{% endblock %}
