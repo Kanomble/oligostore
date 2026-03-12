@@ -251,7 +251,20 @@
 
     app.renderPCRProduct = function renderPCRProduct(record) {
       const product = app.computePCRProduct(record);
+      const initialProduct = app.initialPcrProduct && String(app.getCurrentRecordId()) === String(app.initialPcrProduct.record_id)
+        ? app.initialPcrProduct
+        : null;
       if (!product) {
+        if (initialProduct) {
+          els.pcrProductSummary.textContent = `Saved PCR product: ${Number(initialProduct.start).toLocaleString()}-${Number(initialProduct.end).toLocaleString()} (${Number(initialProduct.length).toLocaleString()} bp)`;
+          els.pcrProductSequence.textContent = initialProduct.sequence || "";
+          els.savePcrProductBtn.disabled = true;
+          if (initialProduct.name && (!els.pcrProductNameInput.value || els.pcrProductNameInput.value === state.lastPCRProductAutoName)) {
+            els.pcrProductNameInput.value = initialProduct.name;
+          }
+          state.lastPCRProductAutoName = initialProduct.name || "";
+          return;
+        }
         els.pcrProductSummary.textContent = "PCR product: shift-click one forward and one reverse primer to generate a candidate amplicon.";
         els.pcrProductSequence.textContent = "";
         els.savePcrProductBtn.disabled = true;
@@ -288,6 +301,94 @@
       const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
       state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
       return true;
+    };
+
+    app.focusWindowOnSavedPCRProduct = function focusWindowOnSavedPCRProduct(savedProduct, record) {
+      if (!savedProduct || !record) {
+        return false;
+      }
+      const productStart = Math.max(1, Math.min(Number(savedProduct.start) || 1, record.length));
+      const productEnd = Math.max(productStart, Math.min(Number(savedProduct.end) || productStart, record.length));
+      const productLength = Math.max(1, productEnd - productStart + 1);
+      const maxWindow = Math.min(5000, record.length);
+      state.windowSize = Math.max(app.constants.MIN_WINDOW_BP, Math.min(maxWindow, productLength));
+      state.start = Math.max(1, Math.min(productStart, record.length - state.windowSize + 1));
+      const midpoint = Math.floor((productStart + productEnd) / 2);
+      const centeredMapStart = midpoint - Math.floor(state.mapWindowSize / 2);
+      const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
+      state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
+      return true;
+    };
+
+    app.applyInitialPCRProductSelection = function applyInitialPCRProductSelection(record) {
+      const initialProduct = app.initialPcrProduct;
+      if (!initialProduct || app.initialPcrProductApplied) {
+        return false;
+      }
+      if (String(app.getCurrentRecordId()) !== String(initialProduct.record_id)) {
+        return false;
+      }
+
+      const findFeatureIndex = function findFeatureIndex(featureId, primerId, primerLabel) {
+        if (!Array.isArray(record.features)) {
+          return null;
+        }
+        for (let index = 0; index < record.features.length; index += 1) {
+          const feature = record.features[index];
+          if (!app.isPrimerBindingFeature(feature)) {
+            continue;
+          }
+          if (featureId !== null && featureId !== undefined && Number(feature.feature_id) === Number(featureId)) {
+            return index;
+          }
+          if (primerId !== null && primerId !== undefined && Number(feature.primer_id) === Number(primerId)) {
+            return index;
+          }
+          if (primerLabel && String(feature.label) === String(primerLabel)) {
+            const bounds = app.featureBounds(feature);
+            if (bounds.start >= Number(initialProduct.start) && bounds.end <= Number(initialProduct.end)) {
+              return index;
+            }
+          }
+        }
+        return null;
+      };
+
+      const forwardIndex = findFeatureIndex(
+        initialProduct.forward_feature_id,
+        initialProduct.forward_primer_id,
+        initialProduct.forward_primer_label
+      );
+      const reverseIndex = findFeatureIndex(
+        initialProduct.reverse_feature_id,
+        initialProduct.reverse_primer_id,
+        initialProduct.reverse_primer_label
+      );
+
+      if (initialProduct.name) {
+        els.pcrProductNameInput.value = initialProduct.name;
+        state.lastPCRProductAutoName = initialProduct.name;
+      }
+
+      state.pendingFocusFeatureIndex = null;
+      state.showMapSelectedOnly = false;
+      state.tablePage = 1;
+
+      if (forwardIndex !== null && reverseIndex !== null) {
+        state.selectedForwardPrimerIndex = forwardIndex;
+        state.selectedReversePrimerIndex = reverseIndex;
+        state.mapSelectedFeatureIndexes = new Set([forwardIndex, reverseIndex]);
+        state.selectedFeatureIndex = reverseIndex;
+        app.initialPcrProductApplied = app.focusWindowOnPCRProduct(record);
+        return app.initialPcrProductApplied;
+      }
+
+      state.selectedForwardPrimerIndex = null;
+      state.selectedReversePrimerIndex = null;
+      state.mapSelectedFeatureIndexes = new Set();
+      state.selectedFeatureIndex = null;
+      app.initialPcrProductApplied = app.focusWindowOnSavedPCRProduct(initialProduct, record);
+      return app.initialPcrProductApplied;
     };
 
     app.bindPrimerEvents = function bindPrimerEvents() {

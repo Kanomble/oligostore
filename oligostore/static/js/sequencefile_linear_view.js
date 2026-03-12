@@ -7,13 +7,25 @@
 
   function createApp(raw, config) {
     const recordSummaries = JSON.parse(raw.textContent);
+    const initialPcrProductRaw = getElement("initial-pcr-product-data");
+    const initialPcrProduct = initialPcrProductRaw ? JSON.parse(initialPcrProductRaw.textContent) : null;
     if (!recordSummaries.length) {
       return null;
+    }
+
+    let initialRecordIndex = 0;
+    if (initialPcrProduct && initialPcrProduct.record_id) {
+      const matchedIndex = recordSummaries.findIndex((record) => String(record.id) === String(initialPcrProduct.record_id));
+      if (matchedIndex >= 0) {
+        initialRecordIndex = matchedIndex;
+      }
     }
 
     const app = {
       recordSummaries,
       recordDetails: new Map(),
+      initialPcrProduct,
+      initialPcrProductApplied: false,
       urls: {
         recordDataUrl: config.dataset.recordDataUrl,
         createPrimerUrl: config.dataset.createPrimerUrl,
@@ -106,7 +118,7 @@
         COMPLEMENT_BY_BASE: { A: "T", T: "A", C: "G", G: "C" },
       },
       state: {
-        recordIndex: 0,
+        recordIndex: initialRecordIndex,
         windowSize: 200,
         start: 1,
         mapWindowSize: 1000,
@@ -423,6 +435,10 @@
       void app.ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
     }
 
+    if (app.applyInitialPCRProductSelection && !app.initialPcrProductApplied) {
+      app.applyInitialPCRProductSelection(record);
+    }
+
     els.featureLegend.textContent = app.formatFeatures(record.features);
     app.renderRestrictionEnzymeTable(record);
     app.renderFeatureTrack(record);
@@ -463,6 +479,7 @@
       app.els.recordSelect.appendChild(option);
     });
 
+    app.els.recordSelect.value = String(app.state.recordIndex);
     app.state.mapWindowSize = app.defaultMapWindowSize(app.getCurrentRecordLength());
     app.els.restrictionEnzymeSearchInput.value = app.state.restrictionEnzymeQuery;
     app.render();

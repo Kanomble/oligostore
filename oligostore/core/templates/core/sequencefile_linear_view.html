@@ -19,6 +19,9 @@
 
   {% if records_payload %}
     {{ records_payload|json_script:"sequence-records-data" }}
+    {% if initial_pcr_product %}
+      {{ initial_pcr_product|json_script:"initial-pcr-product-data" }}
+    {% endif %}
     <div
       id="sequence-linear-config"
       data-record-data-url="{% url 'sequencefile_linear_record_data' sequence_file.id %}"

@@ -510,12 +510,39 @@ def sequencefile_linear_view(request, sequencefile_id):
         messages.error(request, "Could not parse the selected sequence file.")
         return redirect("sequencefile_list")
 
+    initial_pcr_product = None
+    requested_pcr_product_id = _parse_optional_int(request.GET.get("pcr_product"))
+    if requested_pcr_product_id:
+        pcr_product = (
+            accessible_pcr_products(request.user)
+            .select_related("forward_feature", "reverse_feature", "forward_primer", "reverse_primer")
+            .filter(id=requested_pcr_product_id, sequence_file=sequence_file)
+            .first()
+        )
+        if pcr_product:
+            initial_pcr_product = {
+                "id": pcr_product.id,
+                "name": pcr_product.name,
+                "record_id": pcr_product.record_id,
+                "start": pcr_product.start,
+                "end": pcr_product.end,
+                "length": pcr_product.length,
+                "sequence": pcr_product.sequence,
+                "forward_feature_id": pcr_product.forward_feature_id,
+                "reverse_feature_id": pcr_product.reverse_feature_id,
+                "forward_primer_id": pcr_product.forward_primer_id,
+                "reverse_primer_id": pcr_product.reverse_primer_id,
+                "forward_primer_label": pcr_product.forward_primer_label,
+                "reverse_primer_label": pcr_product.reverse_primer_label,
+            }
+
     return render(
         request,
         "core/sequencefile_linear_view.html",
         {
             "sequence_file": sequence_file,
             "records_payload": records_payload,
+            "initial_pcr_product": initial_pcr_product,
         },
     )
 

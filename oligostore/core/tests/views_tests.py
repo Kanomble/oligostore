@@ -122,6 +122,72 @@ class SequenceFileViewTests(TestCase):
         self.assertEqual(response.context["records_payload"][0]["id"], "record1")
         self.assertEqual(response.context["records_payload"][0]["length"], 10)
 
+    def test_sequencefile_linear_view_includes_requested_pcr_product(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Linear With PCR",
+            file=SimpleUploadedFile("linear_with_pcr.fasta", b">record1\nATCGATCGAA"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        product = PCRProduct.objects.create(
+            name="record1_1_8",
+            sequence_file=sequence_file,
+            record_id="record1",
+            start=1,
+            end=8,
+            sequence="ATCGATCG",
+            creator=self.user,
+        )
+        product.users.add(self.user)
+
+        response = self.client.get(
+            reverse("sequencefile_linear_view", args=[sequence_file.id]),
+            {"pcr_product": product.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["initial_pcr_product"]["id"], product.id)
+        self.assertEqual(response.context["initial_pcr_product"]["record_id"], "record1")
+        self.assertEqual(response.context["initial_pcr_product"]["start"], 1)
+        self.assertEqual(response.context["initial_pcr_product"]["end"], 8)
+
+    def test_sequencefile_linear_view_ignores_inaccessible_pcr_product(self):
+        own_sequence_file = SequenceFile.objects.create(
+            name="Own Viewer File",
+            file=SimpleUploadedFile("own_viewer.fasta", b">record1\nATCGATCGAA"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        other_user = User.objects.create_user(
+            username="pcr_other",
+            email="pcr_other@example.com",
+            password="testpass123",
+        )
+        other_sequence_file = SequenceFile.objects.create(
+            name="Other Viewer File",
+            file=SimpleUploadedFile("other_viewer.fasta", b">record1\nATCGATCGAA"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=other_user,
+        )
+        hidden_product = PCRProduct.objects.create(
+            name="Hidden Product",
+            sequence_file=other_sequence_file,
+            record_id="record1",
+            start=1,
+            end=8,
+            sequence="ATCGATCG",
+            creator=other_user,
+        )
+        hidden_product.users.add(other_user)
+
+        response = self.client.get(
+            reverse("sequencefile_linear_view", args=[own_sequence_file.id]),
+            {"pcr_product": hidden_product.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["initial_pcr_product"])
+
     def test_sequencefile_linear_view_forbidden_for_non_owner(self):
         other_user = User.objects.create_user(
             username="viewer_other",
@@ -578,6 +644,31 @@ class SequenceFileViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         listed = list(response.context["pcr_products"])
         self.assertEqual([item.name for item in listed], ["Own Product"])
+
+    def test_pcrproduct_list_open_viewer_link_targets_saved_product(self):
+        sequence_file = SequenceFile.objects.create(
+            name="PCR Link File",
+            file=SimpleUploadedFile("pcr_link.fasta", b">record1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        product = PCRProduct.objects.create(
+            name="Linked Product",
+            sequence_file=sequence_file,
+            record_id="record1",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=self.user,
+        )
+        product.users.add(self.user)
+
+        response = self.client.get(reverse("pcrproduct_list"))
+
+        self.assertContains(
+            response,
+            f'{reverse("sequencefile_linear_view", args=[sequence_file.id])}?pcr_product={product.id}',
+        )
 
 
 class PrimerBindingViewTests(TestCase):
@@ -1101,6 +1192,7 @@ class MiscViewTests(TestCase):
     def test_home_view(self):
         response = self.client.get(reverse("home"))
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("pcrproduct_list"))
 
     def test_register_view_get(self):
         response = self.client.get(reverse("register"))
