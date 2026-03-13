@@ -7,6 +7,7 @@ from unittest.mock import patch
 import json
 from core.models import (
     AnalysisJob,
+    CloningConstruct,
     PCRProduct,
     Primer,
     PrimerBindingResult,
@@ -1262,3 +1263,104 @@ class MiscViewTests(TestCase):
     def test_analyze_sequence_get(self):
         response = self.client.get(reverse("analyze_sequence"))
         self.assertEqual(response.status_code, 200)
+
+
+class CloningViewTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._temp_media_root = tempfile.mkdtemp(prefix="oligostore-tests-")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls._temp_media_root)
+        super().tearDownClass()
+
+    def setUp(self):
+        super().setUp()
+        self._media_override = override_settings(MEDIA_ROOT=self._temp_media_root)
+        self._media_override.enable()
+        self.user = User.objects.create_user(
+            username="cloning_user",
+            email="cloning@example.com",
+            password="testpass123",
+        )
+        self.client.force_login(self.user)
+
+    def tearDown(self):
+        self._media_override.disable()
+        super().tearDown()
+
+    def test_cloning_asset_list_shows_sequence_files_and_pcr_products(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Vector Source",
+            file=SimpleUploadedFile("vector.fasta", b">vec1\nGAATTCACCCCGGATCC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        sequence_file.users.add(self.user)
+        pcr_product = PCRProduct.objects.create(
+            name="Insert Product",
+            sequence_file=sequence_file,
+            record_id="vec1",
+            start=1,
+            end=8,
+            sequence="ATGCATGC",
+            creator=self.user,
+        )
+        pcr_product.users.add(self.user)
+
+        response = self.client.get(reverse("cloning_asset_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Vector Source")
+        self.assertContains(response, "Insert Product")
+
+    def test_cloning_construct_create_and_detail(self):
+        vector = SequenceFile.objects.create(
+            name="Vector Backbone",
+            file=SimpleUploadedFile("vector_backbone.fasta", b">vec1\nGAATTCACCCCGGATCC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="Insert Fragment",
+            file=SimpleUploadedFile("insert_fragment.fasta", b">ins1\nATGCATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+        insert = PCRProduct.objects.create(
+            name="Insert Product",
+            sequence_file=insert_source,
+            record_id="ins1",
+            start=1,
+            end=8,
+            sequence="ATGCATGC",
+            creator=self.user,
+        )
+        insert.users.add(self.user)
+
+        response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "name": "Construct One",
+                "description": "Restriction ligation construct",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}",
+                "insert_asset": f"{CloningConstruct.SOURCE_PCR_PRODUCT}:{insert.id}",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "BamHI",
+            },
+        )
+
+        construct = CloningConstruct.objects.get(name="Construct One")
+        self.assertRedirects(
+            response,
+            reverse("cloning_construct_detail", args=[construct.id]),
+        )
+        self.assertTrue(construct.is_valid)
+        self.assertIn("ATGCATGC", construct.assembled_sequence)
+        self.assertEqual(construct.vector_sequence_file, vector)
+        self.assertEqual(construct.insert_pcr_product, insert)

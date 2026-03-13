@@ -376,3 +376,90 @@ class AnalysisJob(models.Model):
 
     def __str__(self):
         return f"{self.job_type}:{self.owner_id}:{self.status}"
+
+
+class CloningConstruct(AccessControllModel):
+    STRATEGY_RESTRICTION_LIGATION = "restriction_ligation"
+    STRATEGY_CHOICES = [
+        (STRATEGY_RESTRICTION_LIGATION, "Restriction ligation"),
+    ]
+    SOURCE_SEQUENCE_FILE = "sequence_file"
+    SOURCE_PCR_PRODUCT = "pcr_product"
+    SOURCE_CHOICES = [
+        (SOURCE_SEQUENCE_FILE, "Sequence file"),
+        (SOURCE_PCR_PRODUCT, "PCR product"),
+    ]
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    vector_source_type = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+    vector_sequence_file = models.ForeignKey(
+        SequenceFile,
+        on_delete=models.CASCADE,
+        related_name="cloning_constructs_as_vector",
+        null=True,
+        blank=True,
+    )
+    vector_pcr_product = models.ForeignKey(
+        "PCRProduct",
+        on_delete=models.CASCADE,
+        related_name="cloning_constructs_as_vector",
+        null=True,
+        blank=True,
+    )
+    vector_record_id = models.CharField(max_length=255, blank=True, default="")
+    insert_source_type = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+    insert_sequence_file = models.ForeignKey(
+        SequenceFile,
+        on_delete=models.CASCADE,
+        related_name="cloning_constructs_as_insert",
+        null=True,
+        blank=True,
+    )
+    insert_pcr_product = models.ForeignKey(
+        "PCRProduct",
+        on_delete=models.CASCADE,
+        related_name="cloning_constructs_as_insert",
+        null=True,
+        blank=True,
+    )
+    insert_record_id = models.CharField(max_length=255, blank=True, default="")
+    assembly_strategy = models.CharField(
+        max_length=50,
+        choices=STRATEGY_CHOICES,
+        default=STRATEGY_RESTRICTION_LIGATION,
+    )
+    left_enzyme = models.CharField(max_length=100)
+    right_enzyme = models.CharField(max_length=100)
+    assembled_sequence = models.TextField(blank=True, default="")
+    assembled_length = models.IntegerField(default=0)
+    is_valid = models.BooleanField(default=False)
+    validation_messages = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "name"]
+
+    def save(self, *args, **kwargs):
+        self.assembled_sequence = (self.assembled_sequence or "").strip().upper()
+        self.assembled_length = len(self.assembled_sequence)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def vector_name(self):
+        if self.vector_sequence_file_id:
+            return self.vector_sequence_file.name
+        if self.vector_pcr_product_id:
+            return self.vector_pcr_product.name
+        return "Unknown vector"
+
+    @property
+    def insert_name(self):
+        if self.insert_sequence_file_id:
+            return self.insert_sequence_file.name
+        if self.insert_pcr_product_id:
+            return self.insert_pcr_product.name
+        return "Unknown insert"

@@ -3,9 +3,15 @@ from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.db import OperationalError, ProgrammingError
 from django.contrib.auth.models import User
 from django import forms
-from .access import accessible_primer_pairs, accessible_primers, accessible_sequence_files
-from .models import Primer, PrimerPair, Project, SequenceFile
+from .access import (
+    accessible_pcr_products,
+    accessible_primer_pairs,
+    accessible_primers,
+    accessible_sequence_files,
+)
+from .models import CloningConstruct, Primer, PrimerPair, Project, SequenceFile
 import re
+from .services.cloning import get_common_enzyme_choices
 
 def apply_tailwind_classes(fields):
     for field in fields.values():
@@ -45,6 +51,59 @@ class ProjectForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         apply_tailwind_classes(self.fields)
+
+
+class CloningConstructForm(forms.ModelForm):
+    vector_asset = forms.ChoiceField(choices=())
+    insert_asset = forms.ChoiceField(choices=())
+    left_enzyme = forms.ChoiceField(choices=())
+    right_enzyme = forms.ChoiceField(choices=())
+
+    class Meta:
+        model = CloningConstruct
+        fields = [
+            "name",
+            "description",
+            "assembly_strategy",
+            "vector_asset",
+            "insert_asset",
+            "left_enzyme",
+            "right_enzyme",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        super().__init__(*args, **kwargs)
+        if user is not None:
+            vector_choices = []
+            for sequence_file in accessible_sequence_files(user).order_by("name"):
+                vector_choices.append(
+                    (
+                        f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{sequence_file.id}",
+                        f"Sequence file: {sequence_file.name}",
+                    )
+                )
+            for pcr_product in accessible_pcr_products(user).order_by("name"):
+                vector_choices.append(
+                    (
+                        f"{CloningConstruct.SOURCE_PCR_PRODUCT}:{pcr_product.id}",
+                        f"PCR product: {pcr_product.name}",
+                    )
+                )
+            self.fields["vector_asset"].choices = vector_choices
+            self.fields["insert_asset"].choices = list(vector_choices)
+        enzyme_choices = get_common_enzyme_choices()
+        self.fields["left_enzyme"].choices = enzyme_choices
+        self.fields["right_enzyme"].choices = enzyme_choices
+        apply_tailwind_classes(self.fields)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        left_enzyme = cleaned_data.get("left_enzyme")
+        right_enzyme = cleaned_data.get("right_enzyme")
+        if left_enzyme and right_enzyme and left_enzyme == right_enzyme:
+            raise forms.ValidationError("Choose two different restriction enzymes.")
+        return cleaned_data
 
 class PrimerForm(forms.ModelForm):
     class Meta:

@@ -1,0 +1,31 @@
+{% extends "core/base.html" %}
+{% block title %}Create Cloning Construct{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold">Create Cloning Construct</h1>
+        <a href="{% url 'cloning_construct_list' %}" class="btn btn-ghost">Back</a>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <div class="alert alert-info text-sm mb-4">
+                This MVP currently supports restriction-ligation with two unique vector cut sites.
+            </div>
+            <form method="POST" class="space-y-6">
+                {% csrf_token %}
+                {% for field in form %}
+                <div class="form-control">
+                    <label class="label"><span class="label-text font-semibold">{{ field.label }}</span></label>
+                    {{ field }}
+                    {% if field.help_text %}<div class="text-xs opacity-70 mt-2">{{ field.help_text }}</div>{% endif %}
+                    {% if field.errors %}<div class="text-error text-sm mt-2">{{ field.errors|join:", " }}</div>{% endif %}
+                </div>
+                {% endfor %}
+                <button type="submit" class="btn btn-primary">Assemble Construct</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

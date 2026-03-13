@@ -5,6 +5,7 @@ from django.test import TestCase, override_settings
 from core.access import accessible_pcr_products, accessible_sequence_files
 from core.models import (
     AnalysisJob,
+    CloningConstruct,
     PCRProduct,
     Primer,
     PrimerBindingResult,
@@ -202,6 +203,43 @@ class PrimerAndProjectModelTests(TestCase):
         self.assertEqual(str(product), "Amplicon 1")
         self.assertEqual(product.sequence, "ATCG")
         self.assertEqual(product.length, 4)
+
+    def test_cloning_construct_normalizes_assembled_sequence_and_asset_names(self):
+        vector = SequenceFile.objects.create(
+            name="Vector A",
+            description="Backbone",
+            file=SimpleUploadedFile("vector_a.fasta", b">vecA\nGAATTCAAAAGGATCC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.creator,
+        )
+        vector.users.add(self.creator)
+        insert_source = SequenceFile.objects.create(
+            name="Insert Source",
+            description="Insert",
+            file=SimpleUploadedFile("insert_a.fasta", b">insA\nATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.creator,
+        )
+        insert_source.users.add(self.creator)
+        construct = CloningConstruct.objects.create(
+            name="Construct A",
+            vector_source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
+            vector_sequence_file=vector,
+            vector_record_id="vecA",
+            insert_source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
+            insert_sequence_file=insert_source,
+            insert_record_id="insA",
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence=" gaattcatgcggatcc ",
+            creator=self.creator,
+        )
+        construct.users.add(self.creator)
+
+        self.assertEqual(construct.assembled_sequence, "GAATTCATGCGGATCC")
+        self.assertEqual(construct.assembled_length, 16)
+        self.assertEqual(construct.vector_name, "Vector A")
+        self.assertEqual(construct.insert_name, "Insert Source")
 
 
 class PrimerBindingResultModelTests(TestCase):

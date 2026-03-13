@@ -8,6 +8,12 @@ from .views.analysis import (
     save_generated_primerpair,
 )
 from .views.auth import register
+from .views.cloning import (
+    cloning_asset_list,
+    cloning_construct_create,
+    cloning_construct_detail,
+    cloning_construct_list,
+)
 from .views.home import home
 from .views.primerpairs import (
     download_selected_primerpairs,
@@ -87,6 +93,10 @@ urlpatterns = [
         project_remove_pcr_product,
         name="project_remove_pcr_product",
     ),
+    path("cloning/assets/", cloning_asset_list, name="cloning_asset_list"),
+    path("cloning/constructs/", cloning_construct_list, name="cloning_construct_list"),
+    path("cloning/constructs/create/", cloning_construct_create, name="cloning_construct_create"),
+    path("cloning/constructs/<int:construct_id>/", cloning_construct_detail, name="cloning_construct_detail"),
     path("primers/", primer_list, name="primer_list"),
     path("primers/create/", primer_create, name="primer_create"),
     path("primers/import/", primer_import_excel, name="primer_import_excel"),

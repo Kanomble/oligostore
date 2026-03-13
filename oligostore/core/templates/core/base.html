@@ -20,6 +20,10 @@
         </div>
         <div class="flex-none">
             {% if request.user.is_authenticated %}
+                <div class="hidden lg:flex items-center gap-2 mr-4">
+                    <a class="btn btn-ghost btn-sm" href="{% url 'cloning_asset_list' %}">Assets</a>
+                    <a class="btn btn-ghost btn-sm" href="{% url 'cloning_construct_list' %}">Constructs</a>
+                </div>
                 <form method="POST" action="{% url "logout" %}">
                     {% csrf_token %}
                     <button class="btn btn-ghost btn-sm">Logout {{ request.user }}</button>

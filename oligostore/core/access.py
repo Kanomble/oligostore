@@ -1,7 +1,14 @@
 from django.contrib.auth.models import User
 from django.db.models import Q, QuerySet
 
-from .models import PCRProduct, Primer, PrimerPair, Project, SequenceFile
+from .models import (
+    CloningConstruct,
+    PCRProduct,
+    Primer,
+    PrimerPair,
+    Project,
+    SequenceFile,
+)
 
 
 def accessible_primers(user: User) -> QuerySet[Primer]:
@@ -60,3 +67,15 @@ def editable_pcr_products(user: User) -> QuerySet[PCRProduct]:
     if user is None:
         return PCRProduct.objects.none()
     return PCRProduct.objects.filter(creator=user)
+
+
+def accessible_cloning_constructs(user: User) -> QuerySet[CloningConstruct]:
+    if user is None:
+        return CloningConstruct.objects.none()
+    return CloningConstruct.objects.filter(users=user).distinct()
+
+
+def editable_cloning_constructs(user: User) -> QuerySet[CloningConstruct]:
+    if user is None:
+        return CloningConstruct.objects.none()
+    return CloningConstruct.objects.filter(creator=user)

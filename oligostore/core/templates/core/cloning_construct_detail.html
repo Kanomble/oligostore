@@ -1,0 +1,75 @@
+{% extends "core/base.html" %}
+{% block title %}{{ construct.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-8">
+    <div class="flex justify-between items-start gap-4">
+        <div>
+            <h1 class="text-3xl font-bold">{{ construct.name }}</h1>
+            <p class="opacity-70 mt-2">{{ construct.vector_name }} + {{ construct.insert_name }}</p>
+        </div>
+        <a href="{% url 'cloning_construct_list' %}" class="btn btn-ghost">Back</a>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-3">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Strategy</div>
+                <div class="font-semibold">{{ construct.get_assembly_strategy_display }}</div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Enzymes</div>
+                <div class="font-semibold">{{ construct.left_enzyme }} / {{ construct.right_enzyme }}</div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Status</div>
+                <div class="font-semibold">{% if construct.is_valid %}Valid{% else %}Needs review{% endif %}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-2">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Vector Source</div>
+                <div class="font-semibold">{{ construct.vector_name }}</div>
+                <div class="text-sm opacity-70">{{ construct.vector_source_type|title }}{% if construct.vector_record_id %} / {{ construct.vector_record_id }}{% endif %}</div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Insert Source</div>
+                <div class="font-semibold">{{ construct.insert_name }}</div>
+                <div class="text-sm opacity-70">{{ construct.insert_source_type|title }}{% if construct.insert_record_id %} / {{ construct.insert_record_id }}{% endif %}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow">
+        <div class="card-body">
+            <h2 class="card-title">Validation</h2>
+            <ul class="list-disc pl-6 space-y-2">
+                {% for message in construct.validation_messages %}
+                <li>{{ message }}</li>
+                {% empty %}
+                <li>No validation messages.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow">
+        <div class="card-body">
+            <div class="flex justify-between items-center">
+                <h2 class="card-title">Assembled Sequence</h2>
+                <span class="text-sm opacity-60">{{ construct.assembled_length }} bp</span>
+            </div>
+            <pre class="mt-4 whitespace-pre-wrap break-all font-mono text-sm">{{ construct.assembled_sequence|default:"No assembled sequence was generated." }}</pre>
+        </div>
+    </div>
+</div>
+{% endblock %}
