@@ -17,27 +17,22 @@ from ..access import (
     accessible_sequence_files,
 )
 from ..forms import ProjectForm
-from ..models import Primer, PrimerPair, Project, SequenceFile
-from ..services.user_assignment import assign_creator
+from ..models import Project
+from ..services.creation import create_owned_project
+from ..services.listing import apply_ordering, apply_search
 from .utils import paginate_queryset
 
 
 def _get_member_project(request, project_id):
-    project = get_object_or_404(
-        Project.objects.prefetch_related(
-            "users",
-            "primerpairs__forward_primer",
-            "primerpairs__reverse_primer",
-            "sequence_files",
-            "pcr_products__sequence_file",
-            "pcr_products__forward_primer",
-            "pcr_products__reverse_primer",
-        ),
-        id=project_id,
-    )
-    if request.user not in project.users.all():
-        return None
-    return project
+    return Project.objects.filter(users=request.user, id=project_id).prefetch_related(
+        "users",
+        "primerpairs__forward_primer",
+        "primerpairs__reverse_primer",
+        "sequence_files",
+        "pcr_products__sequence_file",
+        "pcr_products__forward_primer",
+        "pcr_products__reverse_primer",
+    ).first()
 
 
 def _project_member_forbidden(message):
@@ -116,14 +111,20 @@ def project_dashboard(request, project_id):
     if project is None:
         return _project_member_forbidden("You do not have access to this project.")
 
-    attached_pair_ids = set(project.primerpairs.values_list("id", flat=True))
-    attached_sequence_file_ids = set(project.sequence_files.values_list("id", flat=True))
-    attached_pcr_product_ids = set(project.pcr_products.values_list("id", flat=True))
-
     all_primers = accessible_primers(request.user)
-    all_pairs = accessible_primer_pairs(request.user).select_related("forward_primer", "reverse_primer").order_by("name")
-    all_sequence_files = accessible_sequence_files(request.user).order_by("name")
-    all_pcr_products = accessible_pcr_products(request.user).select_related(
+    attached_pairs = project.primerpairs.all()
+    attached_sequence_files = project.sequence_files.all()
+    attached_pcr_products = project.pcr_products.all()
+
+    available_pairs = accessible_primer_pairs(request.user).exclude(
+        id__in=attached_pairs.values_list("id", flat=True)
+    ).select_related("forward_primer", "reverse_primer").order_by("name")
+    available_sequence_files = accessible_sequence_files(request.user).exclude(
+        id__in=attached_sequence_files.values_list("id", flat=True)
+    ).order_by("name")
+    available_pcr_products = accessible_pcr_products(request.user).exclude(
+        id__in=attached_pcr_products.values_list("id", flat=True)
+    ).select_related(
         "sequence_file",
         "forward_primer",
         "reverse_primer",
@@ -135,12 +136,12 @@ def project_dashboard(request, project_id):
         {
             "project": project,
             "all_primers": all_primers,
-            "attached_pairs": project.primerpairs.all(),
-            "available_pairs": [pair for pair in all_pairs if pair.id not in attached_pair_ids],
-            "attached_sequence_files": project.sequence_files.all(),
-            "available_sequence_files": [item for item in all_sequence_files if item.id not in attached_sequence_file_ids],
-            "attached_pcr_products": project.pcr_products.all(),
-            "available_pcr_products": [item for item in all_pcr_products if item.id not in attached_pcr_product_ids],
+            "attached_pairs": attached_pairs,
+            "available_pairs": available_pairs,
+            "attached_sequence_files": attached_sequence_files,
+            "available_sequence_files": available_sequence_files,
+            "attached_pcr_products": attached_pcr_products,
+            "available_pcr_products": available_pcr_products,
         },
     )
 
@@ -157,12 +158,11 @@ def project_primer_list(request, project_id):
     ).distinct()
 
     q = request.GET.get("q")
-    if q:
-        primers = primers.filter(
-            Q(primer_name__icontains=q)
-            | Q(sequence__icontains=q)
-            | Q(creator__username__icontains=q)
-        )
+    primers = apply_search(
+        primers,
+        q,
+        ["primer_name", "sequence", "creator__username"],
+    )
 
     order = request.GET.get("order", "created_desc")
     allowed_orders = {
@@ -177,7 +177,7 @@ def project_primer_list(request, project_id):
         "tm": "tm",
         "tm_desc": "-tm",
     }
-    primers = primers.order_by(allowed_orders.get(order, "-created_at"))
+    primers = apply_ordering(primers, order, allowed_orders, "-created_at")
     page_obj, query_string = paginate_queryset(request, primers)
     return render(
         request,
@@ -223,10 +223,7 @@ def project_create(request):
     if request.method == "POST":
         form = ProjectForm(request.POST)
         if form.is_valid():
-            project = form.save(commit=False)
-            project = assign_creator(project, request.user)
-            project.save()
-
+            create_owned_project(form=form, user=request.user)
             return redirect("project_list")
     else:
         form = ProjectForm()
@@ -239,11 +236,7 @@ def project_list(request):
     projects = accessible_projects(request.user)
 
     q = request.GET.get("q")
-    if q:
-        projects = projects.filter(
-            Q(name__icontains=q)
-            | Q(description__icontains=q)
-        )
+    projects = apply_search(projects, q, ["name", "description"])
 
     order = request.GET.get("order", "created_desc")
     allowed_orders = {
@@ -252,7 +245,7 @@ def project_list(request):
         "created": "created_at",
         "created_desc": "-created_at",
     }
-    projects = projects.order_by(allowed_orders.get(order, "-created_at"))
+    projects = apply_ordering(projects, order, allowed_orders, "-created_at")
     page_obj, query_string = paginate_queryset(request, projects)
     return render(
         request,

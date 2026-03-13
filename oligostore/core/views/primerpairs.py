@@ -3,7 +3,6 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import Workbook
@@ -15,8 +14,11 @@ from ..forms import (
     PrimerPairCreateCombinedForm,
 )
 from ..models import Primer, PrimerPair
-from ..services.user_assignment import assign_creator
+from ..models import AnalysisJob
+from ..services.async_jobs import create_analysis_job, mark_job_running
+from ..services.creation import create_owned_primer_pair, create_primer_pair_with_new_primers
 from ..services.export_helpers import build_primerpair_worksheet
+from ..services.listing import apply_ordering, apply_search
 from ..tasks import analyze_primerpair_products_task
 from .utils import paginate_queryset
 
@@ -24,16 +26,18 @@ from .utils import paginate_queryset
 @login_required(login_url="login")
 def primerpair_list(request):
     primer_pairs = accessible_primer_pairs(request.user)
-
     q = request.GET.get("q")
-    if q:
-        primer_pairs = primer_pairs.filter(
-            Q(name__icontains=q)
-            | Q(forward_primer__primer_name__icontains=q)
-            | Q(forward_primer__sequence__icontains=q)
-            | Q(reverse_primer__primer_name__icontains=q)
-            | Q(reverse_primer__sequence__icontains=q)
-        )
+    primer_pairs = apply_search(
+        primer_pairs,
+        q,
+        [
+            "name",
+            "forward_primer__primer_name",
+            "forward_primer__sequence",
+            "reverse_primer__primer_name",
+            "reverse_primer__sequence",
+        ],
+    )
 
     order = request.GET.get("order", "name")
     allowed_orders = {
@@ -48,7 +52,7 @@ def primerpair_list(request):
         "reverse_tm": "reverse_primer__tm",
         "reverse_tm_desc": "-reverse_primer__tm",
     }
-    primer_pairs = primer_pairs.order_by(allowed_orders.get(order, "name"))
+    primer_pairs = apply_ordering(primer_pairs, order, allowed_orders, "name")
 
     page_obj, query_string = paginate_queryset(request, primer_pairs)
     return render(
@@ -96,13 +100,21 @@ def primerpair_products_async(request):
 
     primer_pair = form.cleaned_data["primer_pair"]
     sequence_file = form.cleaned_data["sequence_file"]
+    job = create_analysis_job(
+        owner=request.user,
+        job_type=AnalysisJob.TYPE_PCR_PRODUCT_DISCOVERY,
+        primer_pair=primer_pair,
+        sequence_file=sequence_file,
+    )
     task = analyze_primerpair_products_task.delay(
+        analysis_job_id=job.id,
         primer_pair_id=primer_pair.id,
         sequence_file_id=sequence_file.id,
         max_mismatches=form.cleaned_data["max_mismatches"],
         block_3prime_mismatch=form.cleaned_data["block_3prime_mismatch"],
     )
-    return JsonResponse({"task_id": task.id}, status=202)
+    mark_job_running(job, task.id)
+    return JsonResponse({"job_id": job.id, "task_id": task.id}, status=202)
 
 
 @login_required(login_url="login")
@@ -112,10 +124,7 @@ def primerpair_create(request):
     primers = all_primers
 
     q = request.GET.get("q")
-    if q:
-        primers = primers.filter(
-            Q(primer_name__icontains=q) | Q(sequence__icontains=q)
-        )
+    primers = apply_search(primers, q, ["primer_name", "sequence"])
 
     order = request.GET.get("order", "created_desc")
     allowed_orders = {
@@ -130,7 +139,7 @@ def primerpair_create(request):
         "tm_desc": "-tm",
         "tm": "tm",
     }
-    primers = primers.order_by(allowed_orders.get(order, "-created_at"))
+    primers = apply_ordering(primers, order, allowed_orders, "-created_at")
 
     page_obj, query_string = paginate_queryset(request, primers)
 
@@ -141,8 +150,12 @@ def primerpair_create(request):
         form = PrimerPairForm(request.POST, user=request.user)
         if form.is_valid():
             pair = form.save(commit=False)
-            pair = assign_creator(pair, request.user)
-            pair.save()
+            create_owned_primer_pair(
+                name=pair.name,
+                forward_primer=pair.forward_primer,
+                reverse_primer=pair.reverse_primer,
+                user=request.user,
+            )
             messages.success(request, "Primer pair created.")
             form = PrimerPairForm(user=request.user)
         else:
@@ -181,28 +194,16 @@ def primerpair_combined_create(request):
     if request.method == "POST":
         form = PrimerPairCreateCombinedForm(request.POST)
         if form.is_valid():
-
-            forward = Primer.create_with_analysis(
-                primer_name=form.cleaned_data["forward_name"],
-                sequence=form.cleaned_data["forward_sequence"],
-                overhang_sequence=form.cleaned_data.get("forward_overhang", ""),
+            _, _, pair = create_primer_pair_with_new_primers(
+                pair_name=form.cleaned_data["pair_name"],
+                forward_name=form.cleaned_data["forward_name"],
+                forward_sequence=form.cleaned_data["forward_sequence"],
+                reverse_name=form.cleaned_data["reverse_name"],
+                reverse_sequence=form.cleaned_data["reverse_sequence"],
+                forward_overhang=form.cleaned_data.get("forward_overhang", ""),
+                reverse_overhang=form.cleaned_data.get("reverse_overhang", ""),
                 user=request.user,
             )
-
-            reverse = Primer.create_with_analysis(
-                primer_name=form.cleaned_data["reverse_name"],
-                sequence=form.cleaned_data["reverse_sequence"],
-                overhang_sequence=form.cleaned_data.get("reverse_overhang", ""),
-                user=request.user,
-            )
-
-            pair = PrimerPair(
-                name=form.cleaned_data["pair_name"],
-                forward_primer=forward,
-                reverse_primer=reverse,
-            )
-            pair = assign_creator(pair, request.user)
-            pair.save()
             messages.success(request, "Primer pair created.")
             form = PrimerPairCreateCombinedForm()
 

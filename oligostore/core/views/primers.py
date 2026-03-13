@@ -2,12 +2,12 @@ from io import BytesIO
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import Workbook
 from ..access import accessible_primers, editable_primers
 from ..services.export_helpers import build_primer_worksheet
+from ..services.listing import apply_ordering, apply_search
 from ..forms import (
     PrimerExcelColumnMapForm,
     PrimerExcelUploadForm,
@@ -24,14 +24,12 @@ import json
 @login_required(login_url="login")
 def primer_list(request):
     primers = accessible_primers(request.user)
-
     q = request.GET.get("q")
-    if q:
-        primers = primers.filter(
-            Q(primer_name__icontains=q)
-            | Q(sequence__icontains=q)
-            | Q(creator__username__icontains=q)
-        )
+    primers = apply_search(
+        primers,
+        q,
+        ["primer_name", "sequence", "creator__username"],
+    )
 
     order = request.GET.get("order", "created_desc")
     allowed_orders = {
@@ -46,7 +44,7 @@ def primer_list(request):
         "tm": "tm",
         "tm_desc": "-tm",
     }
-    primers = primers.order_by(allowed_orders.get(order, "-created_at"))
+    primers = apply_ordering(primers, order, allowed_orders, "-created_at")
     page_obj, query_string = paginate_queryset(request, primers)
     return render(
         request,

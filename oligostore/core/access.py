@@ -43,7 +43,7 @@ def editable_projects(user: User) -> QuerySet[Project]:
 def accessible_sequence_files(user: User) -> QuerySet[SequenceFile]:
     if user is None:
         return SequenceFile.objects.none()
-    return SequenceFile.objects.filter(uploaded_by=user)
+    return SequenceFile.objects.filter(Q(uploaded_by=user) | Q(users=user)).distinct()
 
 
 def editable_sequence_files(user: User) -> QuerySet[SequenceFile]:

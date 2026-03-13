@@ -4,6 +4,7 @@ from django.test import TestCase, override_settings
 
 from core.access import accessible_pcr_products, accessible_sequence_files
 from core.models import (
+    AnalysisJob,
     PCRProduct,
     Primer,
     PrimerBindingResult,
@@ -292,21 +293,25 @@ class AccessHelperTests(TestCase):
         self._media_override.disable()
         super().tearDown()
 
-    def test_accessible_sequence_files_limits_to_owner(self):
+    def test_accessible_sequence_files_includes_shared_files(self):
         owned = SequenceFile.objects.create(
             name="Owned File",
             file=SimpleUploadedFile("owned.fasta", b">r1\nATCG"),
             file_type=SequenceFile.FILE_FASTA,
             uploaded_by=self.user,
         )
-        SequenceFile.objects.create(
+        shared = SequenceFile.objects.create(
             name="Other File",
             file=SimpleUploadedFile("other.fasta", b">r1\nATCG"),
             file_type=SequenceFile.FILE_FASTA,
             uploaded_by=self.other_user,
         )
+        shared.users.add(self.user)
 
-        self.assertEqual(list(accessible_sequence_files(self.user)), [owned])
+        self.assertEqual(
+            {item.name for item in accessible_sequence_files(self.user)},
+            {owned.name, shared.name},
+        )
 
     def test_accessible_pcr_products_includes_shared_records(self):
         sequence_file = SequenceFile.objects.create(
@@ -339,3 +344,19 @@ class AccessHelperTests(TestCase):
             {product.name for product in accessible_pcr_products(self.user)},
             {owned.name, shared.name},
         )
+
+    def test_analysis_job_str(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Job File",
+            file=SimpleUploadedFile("job.fasta", b">r1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        job = AnalysisJob.objects.create(
+            owner=self.user,
+            job_type=AnalysisJob.TYPE_PRIMER_BINDING,
+            sequence_file=sequence_file,
+            status=AnalysisJob.STATUS_PENDING,
+        )
+
+        self.assertIn("primer_binding", str(job))

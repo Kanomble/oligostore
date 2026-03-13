@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import json
 from core.models import (
+    AnalysisJob,
     PCRProduct,
     Primer,
     PrimerBindingResult,
@@ -1221,7 +1222,12 @@ class PCRProductDiscoveryViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["task_id"], "task-123")
+        self.assertIn("job_id", response.json())
+        job = AnalysisJob.objects.get(id=response.json()["job_id"])
+        self.assertEqual(job.owner, self.user)
+        self.assertEqual(job.status, AnalysisJob.STATUS_RUNNING)
         delay_mock.assert_called_once_with(
+            analysis_job_id=job.id,
             primer_pair_id=self.pair.id,
             sequence_file_id=self.sequence_file.id,
             max_mismatches=0,

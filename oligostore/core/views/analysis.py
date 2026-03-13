@@ -6,19 +6,15 @@ from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 
 from ..forms import Primer3GlobalArgsForm
-from ..models import Primer, PrimerPair
+from ..services.creation import create_primer_pair_with_new_primers
+from ..models import Primer
+from ..services.primer_design import enrich_primer_design_results
 from ..services.primer_analysis import (
     analyze_primer,
     analyze_cross_dimer,
     analyze_sequence,
     sanitize_sequence,
-    find_binding_site,
-    window_sequence,
-    render_windowed_line,
-    highlight_binding,
 )
-from ..services.user_assignment import assign_creator
-from ..services.sequence_utils import reverse_complement
 
 
 @login_required
@@ -98,65 +94,7 @@ def analyze_sequence_view(request):
 
             primer_list, raw_results, mode = analyze_sequence(sequence, global_args)
 
-            flank_size = 25
-
-            for p in primer_list:
-                if p["mode"] == "PAIR":
-                    fwd = p["left_seq"].upper()
-                    rev = p["right_seq"].upper()
-                    rev_rc = reverse_complement(rev)
-
-                    fwd_pos = find_binding_site(sequence, fwd)
-                    rev_pos = find_binding_site(sequence, rev_rc)
-
-                    fwd_window, fwd_start, fwd_len = window_sequence(
-                        sequence, fwd_pos, len(fwd), flank=flank_size
-                    )
-                    rev_window, rev_start, rev_len = window_sequence(
-                        sequence, rev_pos, len(rev_rc), flank=flank_size
-                    )
-
-                    p["forward_window"] = highlight_binding(
-                        fwd_window, fwd_start, fwd_len
-                    )
-                    p["reverse_window"] = highlight_binding(
-                        rev_window, rev_start, rev_len
-                    )
-
-                    p["forward_window_line"] = render_windowed_line(
-                        fwd_window, fwd_start, fwd_len
-                    )
-                    p["reverse_window_line"] = render_windowed_line(
-                        rev_window, rev_start, rev_len
-                    )
-                    p["forward_pos"] = fwd_pos
-                    p["reverse_pos"] = rev_pos
-
-                    product_start = fwd_pos
-                    product_end = rev_pos + len(rev)
-
-                    p["product_sequence"] = sequence[product_start:product_end]
-                    p["product_length"] = len(p["product_sequence"])
-
-                else:
-                    primer = p["seq"].upper()
-                    if p["mode"] == "RIGHT":
-                        primer = reverse_complement(primer)
-
-                    pos = find_binding_site(sequence, primer)
-
-                    window, start, length = window_sequence(
-                        sequence, pos, len(primer), flank=flank_size
-                    )
-
-                    p["window"] = highlight_binding(
-                        window, start, length
-                    )
-
-                    p["window_line"] = render_windowed_line(
-                        window, start, length
-                    )
-                    p["pos"] = pos
+            enrich_primer_design_results(sequence, primer_list)
 
             request.session["last_primer_results"] = {
                 "sequence": sequence,
@@ -293,35 +231,16 @@ def save_generated_primerpair(request):
         return redirect("analyze_sequence")
 
     try:
-        left_seq = request.POST.get("left_seq")
-        right_seq = request.POST.get("right_seq")
-        left_name = request.POST.get("forward_name")
-        right_name = request.POST.get("reverse_name")
-        pair_name = request.POST.get("pair_name")
-        left_overhang = request.POST.get("forward_overhang", "")
-        right_overhang = request.POST.get("reverse_overhang", "")
-
-        forward = Primer.create_with_analysis(
-            primer_name=left_name,
-            sequence=left_seq,
+        _, _, pair = create_primer_pair_with_new_primers(
+            pair_name=request.POST.get("pair_name"),
+            forward_name=request.POST.get("forward_name"),
+            forward_sequence=request.POST.get("left_seq"),
+            reverse_name=request.POST.get("reverse_name"),
+            reverse_sequence=request.POST.get("right_seq"),
+            forward_overhang=request.POST.get("forward_overhang", ""),
+            reverse_overhang=request.POST.get("reverse_overhang", ""),
             user=request.user,
-            overhang_sequence=left_overhang,
         )
-
-        reverse = Primer.create_with_analysis(
-            primer_name=right_name,
-            sequence=right_seq,
-            user=request.user,
-            overhang_sequence=right_overhang,
-        )
-
-        pair = PrimerPair(
-            name=pair_name,
-            forward_primer=forward,
-            reverse_primer=reverse,
-        )
-        pair = assign_creator(pair, request.user)
-        pair.save()
         messages.success(request, f"Primer Pair '{pair.name}' saved successfully!")
         last_results = request.session.get("last_primer_results")
         if last_results:

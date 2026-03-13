@@ -77,6 +77,11 @@ class SequenceFile(models.Model):
         on_delete=models.CASCADE,
         related_name="sequence_files",
     )
+    users = models.ManyToManyField(
+        User,
+        related_name="sequencefile_access",
+        blank=True,
+    )
 
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
@@ -306,3 +311,68 @@ class PCRProduct(AccessControllModel):
 
     def __str__(self):
         return self.name
+
+
+class AnalysisJob(models.Model):
+    TYPE_PRIMER_BINDING = "primer_binding"
+    TYPE_PCR_PRODUCT_DISCOVERY = "pcr_product_discovery"
+    TYPE_CHOICES = [
+        (TYPE_PRIMER_BINDING, "Primer binding"),
+        (TYPE_PCR_PRODUCT_DISCOVERY, "PCR product discovery"),
+    ]
+
+    STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
+    STATUS_SUCCESS = "success"
+    STATUS_FAILURE = "failure"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_SUCCESS, "Success"),
+        (STATUS_FAILURE, "Failure"),
+    ]
+
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="analysis_jobs",
+    )
+    job_type = models.CharField(max_length=50, choices=TYPE_CHOICES)
+    celery_task_id = models.CharField(max_length=255, blank=True, default="")
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+    )
+    error_message = models.TextField(blank=True, default="")
+    result_payload = models.JSONField(null=True, blank=True)
+    target_object_id = models.PositiveBigIntegerField(null=True, blank=True)
+    sequence_file = models.ForeignKey(
+        SequenceFile,
+        on_delete=models.CASCADE,
+        related_name="analysis_jobs",
+        null=True,
+        blank=True,
+    )
+    primer = models.ForeignKey(
+        Primer,
+        on_delete=models.CASCADE,
+        related_name="analysis_jobs",
+        null=True,
+        blank=True,
+    )
+    primer_pair = models.ForeignKey(
+        PrimerPair,
+        on_delete=models.CASCADE,
+        related_name="analysis_jobs",
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.job_type}:{self.owner_id}:{self.status}"

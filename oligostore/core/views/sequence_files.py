@@ -1,145 +1,33 @@
-import os
-import json
-from functools import lru_cache
-
-from celery.result import AsyncResult
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Value, When
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from Bio.Seq import Seq
-from Bio.Restriction import CommOnly
 
 from ..access import (
     accessible_pcr_products,
     accessible_primers,
     accessible_sequence_files,
 )
-from ..models import PCRProduct, Primer, SequenceFeature, SequenceFile
+from ..models import AnalysisJob, SequenceFeature, SequenceFile
 from ..forms import clean_optional_sequence_value, clean_sequence_value
+from ..services.async_jobs import create_analysis_job, get_owned_job_or_404, mark_job_running
+from ..services.creation import create_pcr_product, create_primer_and_optional_feature
+from ..services.listing import apply_ordering, apply_search
 from ..services.primer_binding import analyze_primer_binding
 from ..services.sequence_loader import load_sequences
+from ..services.sequence_records import (
+    get_sequence_records,
+    parse_json_or_form_payload,
+    serialize_record_region,
+    serialize_record_summary,
+)
 from ..tasks import analyze_primer_binding_task
 from .utils import paginate_queryset
 
-
-@lru_cache(maxsize=8)
-def _load_sequences_cached(file_path, file_type, mtime):
-    # mtime participates in the cache key so file updates invalidate cache.
-    return tuple(load_sequences(file_path, file_type))
-
-
 def _get_sequence_records(sequence_file):
-    file_path = sequence_file.file.path
-    file_mtime = os.path.getmtime(file_path)
-    return _load_sequences_cached(file_path, sequence_file.file_type, file_mtime)
-
-
-def _extract_record_features(record):
-    features = []
-    for feature in getattr(record, "features", []):
-        try:
-            start = int(feature.location.start) + 1
-            end = int(feature.location.end)
-        except (TypeError, ValueError):
-            continue
-
-        if end < start:
-            continue
-
-        qualifiers = getattr(feature, "qualifiers", {}) or {}
-        label = (
-            (qualifiers.get("label") or [None])[0]
-            or (qualifiers.get("gene") or [None])[0]
-            or (qualifiers.get("product") or [None])[0]
-            or feature.type
-        )
-        description = (
-            (qualifiers.get("note") or [None])[0]
-            or (qualifiers.get("function") or [None])[0]
-            or (qualifiers.get("product") or [None])[0]
-            or (qualifiers.get("gene") or [None])[0]
-            or (qualifiers.get("label") or [None])[0]
-            or feature.type
-        )
-
-        features.append(
-            {
-                "start": start,
-                "end": end,
-                "type": feature.type,
-                "strand": getattr(feature.location, "strand", None),
-                "label": str(label),
-                "description": str(description),
-                "note": str(description),
-            }
-        )
-    return features
-
-
-def _extract_user_features(sequence_file, record_id):
-    features = []
-    for feature in SequenceFeature.objects.filter(
-        sequence_file=sequence_file,
-        record_id=str(record_id),
-    ).select_related("primer"):
-        features.append(
-            {
-                "start": int(feature.start),
-                "end": int(feature.end),
-                "type": str(feature.feature_type),
-                "strand": int(feature.strand),
-                "label": str(feature.label),
-                "description": str(feature.get_feature_type_display()),
-                "note": str(feature.get_feature_type_display()),
-                "source": "user",
-                "feature_id": feature.id,
-                "primer_id": feature.primer_id,
-            }
-        )
-    return features
-
-
-def _extract_restriction_sites_in_range(window_sequence, range_start, range_end, record_length):
-    restriction_sites = []
-    try:
-        restriction_results = CommOnly.search(Seq(window_sequence), linear=True)
-        for enzyme, cut_positions in restriction_results.items():
-            site_length = len(getattr(enzyme, "site", "") or "")
-            if site_length <= 0:
-                continue
-            cut_offset = int(getattr(enzyme, "fst5", 0))
-            for cut_position in cut_positions:
-                global_cut_position = range_start + int(cut_position) - 1
-                start = global_cut_position - cut_offset
-                end = start + site_length - 1
-                if start < 1 or end > record_length:
-                    continue
-                if end < range_start or start > range_end:
-                    continue
-                restriction_sites.append(
-                    {
-                        "enzyme": str(enzyme),
-                        "site": str(getattr(enzyme, "site", "")),
-                        "cut_offset": cut_offset,
-                        "start": start,
-                        "end": end,
-                    }
-                )
-    except Exception:
-        restriction_sites = []
-    return restriction_sites
-
-
-def _serialize_record_summary(record):
-    return {
-        "id": record.id,
-        "name": record.name,
-        "description": record.description,
-        "length": len(record.seq),
-    }
+    return get_sequence_records(sequence_file, load_sequences)
 
 
 def _parse_bool(value):
@@ -153,15 +41,6 @@ def _parse_optional_int(value, default=None):
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _parse_json_or_form_payload(request):
-    if request.body:
-        try:
-            return json.loads(request.body.decode("utf-8"))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            raise ValueError("Invalid JSON payload.")
-    return request.POST
 
 
 def _normalize_feature_attachment_data(payload):
@@ -222,40 +101,6 @@ def _validate_feature_attachment(sequence_file, attachment_data):
         "strand": feature_strand,
     }
 
-
-def _serialize_record_region(record, range_start, range_end, sequence_file):
-    record_length = len(record.seq)
-    range_start = max(1, min(range_start, record_length))
-    range_end = max(1, min(range_end, record_length))
-    if range_end < range_start:
-        range_start, range_end = range_end, range_start
-    window_sequence = str(record.seq[range_start - 1:range_end]).upper()
-
-    combined_features = _extract_record_features(record) + _extract_user_features(
-        sequence_file=sequence_file,
-        record_id=record.id,
-    )
-    combined_features.sort(
-        key=lambda f: (
-            int(f.get("start", 1)),
-            int(f.get("end", 1)),
-            str(f.get("label", "")),
-        )
-    )
-
-    return {
-        "id": record.id,
-        "name": record.name,
-        "description": record.description,
-        "length": record_length,
-        "region_start": range_start,
-        "region_end": range_end,
-        "sequence": window_sequence,
-        "features": combined_features,
-        "restriction_sites": _extract_restriction_sites_in_range(window_sequence, range_start, range_end, record_length),
-    }
-
-
 @login_required
 def sequencefile_upload(request):
     """
@@ -277,13 +122,14 @@ def sequencefile_upload(request):
                 },
             )
 
-        SequenceFile.objects.create(
+        created_file = SequenceFile.objects.create(
             name=name,
             file=file,
             file_type=file_type,
             description=description,
             uploaded_by=request.user,
         )
+        created_file.users.add(request.user)
 
         return redirect("sequencefile_list")
 
@@ -304,32 +150,39 @@ def primer_binding_analysis_async(request):
     primer = get_object_or_404(accessible_primers(request.user), id=primer_id)
 
     sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequence_file_id)
+    job = create_analysis_job(
+        owner=request.user,
+        job_type=AnalysisJob.TYPE_PRIMER_BINDING,
+        primer=primer,
+        sequence_file=sequence_file,
+    )
 
     task = analyze_primer_binding_task.delay(
+        analysis_job_id=job.id,
         primer_id=primer.id,
         sequence_file_id=sequence_file.id,
         max_mismatches=2,
     )
-
-    return JsonResponse({"task_id": task.id}, status=202)
+    mark_job_running(job, task.id)
+    return JsonResponse({"job_id": job.id, "task_id": task.id}, status=202)
 
 
 @login_required
 def primer_binding_status(request, task_id):
-    result = AsyncResult(task_id)
-
-    if result.state == "FAILURE":
-        return JsonResponse(
-            {"state": result.state, "error": str(result.info)},
-            status=500,
-        )
-
-    if result.state == "SUCCESS":
-        return JsonResponse(
-            {"state": result.state, "result": result.result},
-        )
-
-    return JsonResponse({"state": result.state})
+    job = get_owned_job_or_404(owner=request.user, job_id=task_id)
+    status_map = {
+        AnalysisJob.STATUS_PENDING: "PENDING",
+        AnalysisJob.STATUS_RUNNING: "STARTED",
+        AnalysisJob.STATUS_SUCCESS: "SUCCESS",
+        AnalysisJob.STATUS_FAILURE: "FAILURE",
+    }
+    payload = {"state": status_map[job.status], "job_id": job.id}
+    if job.status == AnalysisJob.STATUS_FAILURE:
+        payload["error"] = job.error_message
+        return JsonResponse(payload, status=500)
+    if job.status == AnalysisJob.STATUS_SUCCESS:
+        payload["result"] = job.result_payload
+    return JsonResponse(payload)
 
 
 @login_required
@@ -342,11 +195,7 @@ def sequencefile_list(request):
     qs = accessible_sequence_files(request.user)
 
     q = request.GET.get("q")
-    if q:
-        qs = qs.filter(
-            Q(name__icontains=q)
-            | Q(description__icontains=q)
-        )
+    qs = apply_search(qs, q, ["name", "description"])
 
     file_type = request.GET.get("type")
     if file_type in ("fasta", "genbank"):
@@ -359,7 +208,7 @@ def sequencefile_list(request):
         "uploaded": "uploaded_at",
         "uploaded_desc": "-uploaded_at",
     }
-    qs = qs.order_by(allowed_orders.get(order, "-uploaded_at"))
+    qs = apply_ordering(qs, order, allowed_orders, "-uploaded_at")
 
     page_obj, query_string = paginate_queryset(request, qs)
     return render(
@@ -388,16 +237,19 @@ def pcrproduct_list(request):
     )
 
     q = request.GET.get("q")
-    if q:
-        qs = qs.filter(
-            Q(name__icontains=q)
-            | Q(record_id__icontains=q)
-            | Q(sequence_file__name__icontains=q)
-            | Q(forward_primer_label__icontains=q)
-            | Q(reverse_primer_label__icontains=q)
-            | Q(forward_primer__primer_name__icontains=q)
-            | Q(reverse_primer__primer_name__icontains=q)
-        )
+    qs = apply_search(
+        qs,
+        q,
+        [
+            "name",
+            "record_id",
+            "sequence_file__name",
+            "forward_primer_label",
+            "reverse_primer_label",
+            "forward_primer__primer_name",
+            "reverse_primer__primer_name",
+        ],
+    )
 
     order = request.GET.get("order", "created_desc")
     allowed_orders = {
@@ -408,7 +260,7 @@ def pcrproduct_list(request):
         "length_desc": "-length",
         "length": "length",
     }
-    qs = qs.order_by(allowed_orders.get(order, "-created_at"))
+    qs = apply_ordering(qs, order, allowed_orders, "-created_at")
 
     page_obj, query_string = paginate_queryset(request, qs)
     return render(
@@ -505,7 +357,7 @@ def sequencefile_linear_view(request, sequencefile_id):
 
     try:
         for record in records:
-            records_payload.append(_serialize_record_summary(record))
+            records_payload.append(serialize_record_summary(record))
     except Exception:
         messages.error(request, "Could not parse the selected sequence file.")
         return redirect("sequencefile_list")
@@ -576,7 +428,7 @@ def sequencefile_linear_record_data(request, sequencefile_id):
         return JsonResponse({"error": "start/end must be integers."}, status=400)
 
     try:
-        payload = _serialize_record_region(record, range_start, range_end, sequence_file)
+        payload = serialize_record_region(record, range_start, range_end, sequence_file)
     except Exception:
         return JsonResponse({"error": "Could not parse selected sequence record."}, status=400)
 
@@ -623,28 +475,15 @@ def sequencefile_linear_create_primer(request, sequencefile_id):
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 
-    primer = None
-    if attachment_data["save_to_primers"]:
-        primer = Primer.create_with_analysis(
-            primer_name=primer_name,
-            sequence=sequence,
-            overhang_sequence=overhang_sequence,
-            user=request.user,
-        )
-
-    attached_feature = None
-    if validated_attachment:
-        attached_feature = SequenceFeature.objects.create(
-            sequence_file=sequence_file,
-            primer=primer,
-            record_id=validated_attachment["record_id"],
-            start=validated_attachment["start"],
-            end=validated_attachment["end"],
-            strand=validated_attachment["strand"],
-            feature_type=SequenceFeature.TYPE_PRIMER_BIND,
-            label=primer.primer_name if primer else primer_name,
-            created_by=request.user,
-        )
+    primer, attached_feature = create_primer_and_optional_feature(
+        user=request.user,
+        sequence_file=sequence_file,
+        primer_name=primer_name,
+        sequence=sequence,
+        overhang_sequence=overhang_sequence,
+        save_to_primers=attachment_data["save_to_primers"],
+        feature_attachment=validated_attachment,
+    )
 
     return JsonResponse(
         {
@@ -741,22 +580,21 @@ def sequencefile_linear_save_pcr_product(request, sequencefile_id):
         if reverse_feature_id else None
     )
 
-    product = PCRProduct.objects.create(
-        name=name,
+    product = create_pcr_product(
+        user=request.user,
         sequence_file=sequence_file,
+        name=name,
         record_id=record_id,
+        start=start,
+        end=end,
+        sequence=sequence,
         forward_primer=forward_primer,
         reverse_primer=reverse_primer,
         forward_feature=forward_feature,
         reverse_feature=reverse_feature,
-        forward_primer_label=forward_primer_label or getattr(forward_primer, "primer_name", ""),
-        reverse_primer_label=reverse_primer_label or getattr(reverse_primer, "primer_name", ""),
-        start=start,
-        end=end,
-        sequence=sequence,
-        creator=request.user,
+        forward_primer_label=forward_primer_label,
+        reverse_primer_label=reverse_primer_label,
     )
-    product.users.add(request.user)
 
     return JsonResponse(
         {

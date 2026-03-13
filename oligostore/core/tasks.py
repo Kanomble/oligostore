@@ -2,6 +2,7 @@ from celery import shared_task
 from django.core.exceptions import ObjectDoesNotExist
 
 from core.models import Primer, PrimerPair, SequenceFile
+from core.services.async_jobs import mark_job_failure, mark_job_success
 from core.services.primer_binding import (
     analyze_primer_binding,
     analyze_primerpair_products,
@@ -44,6 +45,7 @@ def _serialize_pcr_products(products):
 @shared_task(bind=True)
 def analyze_primer_binding_task(
     self,
+    analysis_job_id: int,
     primer_id: int,
     sequence_file_id: int,
     max_mismatches: int = 2,
@@ -53,20 +55,29 @@ def analyze_primer_binding_task(
         primer = Primer.objects.get(id=primer_id)
         sequence_file = SequenceFile.objects.get(id=sequence_file_id)
     except ObjectDoesNotExist as exc:
-        raise ValueError("Primer or sequence file not found.") from exc
+        message = "Primer or sequence file not found."
+        mark_job_failure(analysis_job_id, message)
+        raise ValueError(message) from exc
 
-    hits = analyze_primer_binding(
-        primer_sequence=primer.sequence,
-        sequence_file=sequence_file,
-        max_mismatches=max_mismatches,
-        block_3prime_mismatch=block_3prime_mismatch,
-    )
-    return _serialize_binding_hits(hits)
+    try:
+        hits = analyze_primer_binding(
+            primer_sequence=primer.sequence,
+            sequence_file=sequence_file,
+            max_mismatches=max_mismatches,
+            block_3prime_mismatch=block_3prime_mismatch,
+        )
+        payload = _serialize_binding_hits(hits)
+        mark_job_success(analysis_job_id, payload)
+        return payload
+    except Exception as exc:
+        mark_job_failure(analysis_job_id, str(exc))
+        raise
 
 
 @shared_task(bind=True)
 def analyze_primerpair_products_task(
     self,
+    analysis_job_id: int,
     primer_pair_id: int,
     sequence_file_id: int,
     max_mismatches: int = 0,
@@ -79,25 +90,33 @@ def analyze_primerpair_products_task(
         ).get(id=primer_pair_id)
         sequence_file = SequenceFile.objects.get(id=sequence_file_id)
     except ObjectDoesNotExist as exc:
-        raise ValueError("Primer pair or sequence file not found.") from exc
+        message = "Primer pair or sequence file not found."
+        mark_job_failure(analysis_job_id, message)
+        raise ValueError(message) from exc
 
-    products = analyze_primerpair_products(
-        forward_primer_sequence=primer_pair.forward_primer.sequence,
-        reverse_primer_sequence=primer_pair.reverse_primer.sequence,
-        sequence_file=sequence_file,
-        max_mismatches=max_mismatches,
-        block_3prime_mismatch=block_3prime_mismatch,
-    )
-    return {
-        "primer_pair": {
-            "id": primer_pair.id,
-            "name": primer_pair.name,
-            "forward_name": primer_pair.forward_primer.primer_name,
-            "reverse_name": primer_pair.reverse_primer.primer_name,
-        },
-        "sequence_file": {
-            "id": sequence_file.id,
-            "name": sequence_file.name,
-        },
-        "products": _serialize_pcr_products(products),
-    }
+    try:
+        products = analyze_primerpair_products(
+            forward_primer_sequence=primer_pair.forward_primer.sequence,
+            reverse_primer_sequence=primer_pair.reverse_primer.sequence,
+            sequence_file=sequence_file,
+            max_mismatches=max_mismatches,
+            block_3prime_mismatch=block_3prime_mismatch,
+        )
+        payload = {
+            "primer_pair": {
+                "id": primer_pair.id,
+                "name": primer_pair.name,
+                "forward_name": primer_pair.forward_primer.primer_name,
+                "reverse_name": primer_pair.reverse_primer.primer_name,
+            },
+            "sequence_file": {
+                "id": sequence_file.id,
+                "name": sequence_file.name,
+            },
+            "products": _serialize_pcr_products(products),
+        }
+        mark_job_success(analysis_job_id, payload)
+        return payload
+    except Exception as exc:
+        mark_job_failure(analysis_job_id, str(exc))
+        raise

@@ -111,9 +111,9 @@ document.addEventListener("DOMContentLoaded", () => {
     `).join("");
   }
 
-  async function pollStatus(taskId) {
+  async function pollStatus(jobId) {
     const response = await fetch(
-      statusUrlTemplate.replace("TASK_ID", taskId),
+      statusUrlTemplate.replace("TASK_ID", jobId),
       { headers: { Accept: "application/json" } }
     );
     if (!response.ok) {
@@ -134,7 +134,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     window.setTimeout(() => {
-      void pollStatus(taskId);
+      void pollStatus(jobId);
     }, 2000);
   }
 
@@ -157,13 +157,14 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      if (!data.task_id) {
+      const jobId = data.job_id || data.task_id;
+      if (!jobId) {
         statusBox.classList.add("hidden");
-        showError("Task ID missing from response.");
+        showError("Job ID missing from response.");
         return;
       }
 
-      void pollStatus(data.task_id);
+      void pollStatus(jobId);
     } catch (error) {
       statusBox.classList.add("hidden");
       showError(error.message || "Unexpected error.");

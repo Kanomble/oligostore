@@ -295,5 +295,24 @@ class UserAssignmentTests(SimpleTestCase):
 
         self.assertIs(returned, obj)
         self.assertEqual(obj.creator, user)
-        self.assertTrue(obj.saved)
+        self.assertFalse(obj.saved)
+        self.assertIsNone(obj.users.added)
+
+    def test_grant_user_access_adds_user(self):
+        class Users:
+            def __init__(self):
+                self.added = None
+
+            def add(self, user):
+                self.added = user
+
+        class Obj:
+            def __init__(self):
+                self.users = Users()
+
+        obj = Obj()
+        user = "user-1"
+        returned = user_assignment.grant_user_access(obj, user)
+
+        self.assertIs(returned, obj)
         self.assertEqual(obj.users.added, user)
