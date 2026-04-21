@@ -9,7 +9,7 @@
     <div>
       <h1 class="text-3xl font-bold">Sequence Files</h1>
       <p class="opacity-70 mt-2">
-        Upload FASTA or GenBank files and reuse them for primer binding checks.
+        Upload FASTA, GenBank, or SnapGene files and reuse them for primer binding checks.
       </p>
     </div>
 
@@ -54,6 +54,7 @@
             <option value="" {% if not request.GET.type %}selected{% endif %}>All</option>
             <option value="fasta" {% if request.GET.type == "fasta" %}selected{% endif %}>FASTA</option>
             <option value="genbank" {% if request.GET.type == "genbank" %}selected{% endif %}>GenBank</option>
+            <option value="snapgene" {% if request.GET.type == "snapgene" %}selected{% endif %}>SnapGene</option>
           </select>
         </div>
 
@@ -116,7 +117,7 @@
                       <div class="avatar placeholder">
                         <div class="bg-base-200 text-base-content rounded-xl w-10">
                           <span class="text-sm font-bold">
-                            {% if sf.file_type == "genbank" %}GB{% else %}FA{% endif %}
+                            {% if sf.file_type == "genbank" %}GB{% elif sf.file_type == "snapgene" %}SG{% else %}FA{% endif %}
                           </span>
                         </div>
                       </div>
@@ -135,6 +136,8 @@
                   <td class="hidden md:table-cell">
                     {% if sf.file_type == "genbank" %}
                       <span class="badge badge-neutral">GenBank</span>
+                    {% elif sf.file_type == "snapgene" %}
+                      <span class="badge badge-accent">SnapGene</span>
                     {% else %}
                       <span class="badge badge-info">FASTA</span>
                     {% endif %}
@@ -197,7 +200,7 @@
         <div class="p-10 text-center">
           <h2 class="text-xl font-bold">No sequence files yet</h2>
           <p class="opacity-70 mt-2">
-            Upload a FASTA or GenBank file to start running binding checks.
+            Upload a FASTA, GenBank, or SnapGene file to start running binding checks.
           </p>
           <div class="mt-6">
             <a href="{% url 'sequencefile_upload' %}" class="btn btn-primary">

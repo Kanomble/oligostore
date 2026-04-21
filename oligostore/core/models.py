@@ -59,10 +59,12 @@ class AccessControllModel(models.Model):
 class SequenceFile(models.Model):
     FILE_FASTA = "fasta"
     FILE_GENBANK = "genbank"
+    FILE_SNAPGENE = "snapgene"
 
     FILE_TYPE_CHOICES = [
         (FILE_FASTA, "FASTA"),
         (FILE_GENBANK, "GenBank"),
+        (FILE_SNAPGENE, "SnapGene (.dna)"),
     ]
 
     name = models.CharField(max_length=255)

@@ -69,6 +69,22 @@ class SequenceFileViewTests(TestCase):
         self.assertRedirects(response, reverse("sequencefile_list"))
         self.assertTrue(SequenceFile.objects.filter(name="Upload").exists())
 
+    def test_sequencefile_upload_post_success_for_snapgene(self):
+        file_data = SimpleUploadedFile("plasmid.dna", b"SnapGene", content_type="application/octet-stream")
+        response = self.client.post(
+            reverse("sequencefile_upload"),
+            {
+                "name": "SnapGene Upload",
+                "file": file_data,
+                "file_type": SequenceFile.FILE_SNAPGENE,
+                "description": "SnapGene plasmid",
+            },
+        )
+
+        self.assertRedirects(response, reverse("sequencefile_list"))
+        uploaded = SequenceFile.objects.get(name="SnapGene Upload")
+        self.assertEqual(uploaded.file_type, SequenceFile.FILE_SNAPGENE)
+
     def test_sequencefile_list_filters(self):
         other_user = User.objects.create_user(
             username="other_user",
@@ -94,6 +110,13 @@ class SequenceFileViewTests(TestCase):
             file_type=SequenceFile.FILE_FASTA,
             uploaded_by=other_user,
         )
+        SequenceFile.objects.create(
+            name="Snap",
+            file=SimpleUploadedFile("snap.dna", b"SnapGene"),
+            file_type=SequenceFile.FILE_SNAPGENE,
+            uploaded_by=self.user,
+            description="SnapGene file",
+        )
 
         response = self.client.get(reverse("sequencefile_list"), {"q": "beta"})
         self.assertEqual(response.status_code, 200)
@@ -105,6 +128,12 @@ class SequenceFileViewTests(TestCase):
         listed = list(response.context["sequence_files"])
         self.assertTrue(all(item.file_type == SequenceFile.FILE_FASTA for item in listed))
         self.assertEqual({item.name for item in listed}, {"Alpha"})
+
+        response = self.client.get(reverse("sequencefile_list"), {"type": "snapgene"})
+        listed = list(response.context["sequence_files"])
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0].file_type, SequenceFile.FILE_SNAPGENE)
+        self.assertEqual(listed[0].name, "Snap")
 
     def test_sequencefile_linear_view_payload(self):
         sequence_file = SequenceFile.objects.create(

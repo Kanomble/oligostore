@@ -12,4 +12,7 @@ def load_sequences(file_path: str, file_type: str) -> Iterable:
     if file_type == "genbank":
         return SeqIO.parse(file_path, "genbank")
 
+    if file_type == "snapgene":
+        return SeqIO.parse(file_path, "snapgene")
+
     raise ValueError(f"Unsupported file type: {file_type}")

@@ -270,6 +270,13 @@ class SequenceLoaderTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             list(sequence_loader.load_sequences("fake.txt", "txt"))
 
+    def test_load_sequences_snapgene_uses_biopython_snapgene_parser(self):
+        with mock.patch.object(sequence_loader.SeqIO, "parse", return_value=iter(())) as parse_mock:
+            records = list(sequence_loader.load_sequences("example.dna", "snapgene"))
+
+        self.assertEqual(records, [])
+        parse_mock.assert_called_once_with("example.dna", "snapgene")
+
 
 class UserAssignmentTests(SimpleTestCase):
     def test_assign_creator_updates_object(self):

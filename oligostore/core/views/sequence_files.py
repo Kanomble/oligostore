@@ -104,8 +104,13 @@ def _validate_feature_attachment(sequence_file, attachment_data):
 @login_required
 def sequencefile_upload(request):
     """
-    Upload a FASTA or GenBank sequence file and persist it.
+    Upload a FASTA, GenBank, or SnapGene sequence file and persist it.
     """
+    allowed_file_types = {
+        SequenceFile.FILE_FASTA,
+        SequenceFile.FILE_GENBANK,
+        SequenceFile.FILE_SNAPGENE,
+    }
 
     if request.method == "POST":
         name = request.POST.get("name")
@@ -113,7 +118,7 @@ def sequencefile_upload(request):
         file_type = request.POST.get("file_type")
         description = request.POST.get("description", "")
 
-        if not name or not file or file_type not in ("fasta", "genbank"):
+        if not name or not file or file_type not in allowed_file_types:
             return render(
                 request,
                 "core/sequencefile_upload.html",
@@ -188,7 +193,7 @@ def primer_binding_status(request, task_id):
 @login_required
 def sequencefile_list(request):
     """
-    List uploaded FASTA / GenBank sequence files for the current user.
+    List uploaded FASTA / GenBank / SnapGene sequence files for the current user.
     Supports optional filtering by search term and file type.
     """
 
@@ -198,7 +203,11 @@ def sequencefile_list(request):
     qs = apply_search(qs, q, ["name", "description"])
 
     file_type = request.GET.get("type")
-    if file_type in ("fasta", "genbank"):
+    if file_type in (
+        SequenceFile.FILE_FASTA,
+        SequenceFile.FILE_GENBANK,
+        SequenceFile.FILE_SNAPGENE,
+    ):
         qs = qs.filter(file_type=file_type)
 
     order = request.GET.get("order", "uploaded_desc")
