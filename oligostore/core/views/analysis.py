@@ -5,9 +5,15 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 
+from ..access import accessible_sequence_files
 from ..forms import Primer3GlobalArgsForm
 from ..services.creation import create_primer_pair_with_new_primers
 from ..models import Primer
+from ..services.product_exports import (
+    build_product_record,
+    export_product_fasta,
+    export_product_genbank,
+)
 from ..services.primer_design import enrich_primer_design_results
 from ..services.primer_analysis import (
     analyze_primer,
@@ -207,16 +213,73 @@ def analyze_primerpair_view(request):
 
 @login_required
 def download_product_sequence(request):
+    export_format = (request.POST.get("export_format") or "fasta").strip().lower()
     product_seq = request.POST.get("product_sequence")
     pair_index = request.POST.get("pair_index", "unknown")
+    sequence_file_id = request.POST.get("sequence_file_id")
+    record_id = request.POST.get("record_id")
+    product_start = request.POST.get("product_start")
+    product_end = request.POST.get("product_end")
+    forward_overhang_sequence = request.POST.get("forward_overhang_sequence", "")
+    reverse_overhang_sequence = request.POST.get("reverse_overhang_sequence", "")
+    wraps_origin = str(request.POST.get("wraps_origin", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+    if export_format not in {"fasta", "genbank"}:
+        return HttpResponse("Unsupported export format.", status=400)
+
+    if export_format == "genbank":
+        if not sequence_file_id or not record_id or not product_start or not product_end:
+            return HttpResponse("GenBank export requires source record metadata.", status=400)
+        sequence_file = accessible_sequence_files(request.user).filter(id=sequence_file_id).first()
+        if sequence_file is None:
+            return HttpResponse("Sequence file not found.", status=404)
+        try:
+            product_record = build_product_record(
+                sequence_file=sequence_file,
+                record_id=record_id,
+                product_start=int(product_start),
+                product_end=int(product_end),
+                wraps_origin=wraps_origin,
+                forward_overhang_sequence=forward_overhang_sequence,
+                reverse_overhang_sequence=reverse_overhang_sequence,
+                exported_name=f"PCR_product_pair_{pair_index}",
+            )
+        except (TypeError, ValueError) as exc:
+            return HttpResponse(str(exc), status=400)
+
+        response = HttpResponse(
+            export_product_genbank(product_record),
+            content_type="application/genbank",
+        )
+        response["Content-Disposition"] = (
+            f"attachment; filename=pcr_product_pair_{pair_index}.gb"
+        )
+        return response
 
     if not product_seq:
         return HttpResponse("No product sequence provided.", status=400)
 
-    fasta = (
-        f">PCR_product_pair_{pair_index}\n"
-        f"{product_seq}\n"
-    )
+    if sequence_file_id and record_id and product_start and product_end:
+        sequence_file = accessible_sequence_files(request.user).filter(id=sequence_file_id).first()
+        if sequence_file is not None:
+            try:
+                product_record = build_product_record(
+                    sequence_file=sequence_file,
+                    record_id=record_id,
+                    product_start=int(product_start),
+                    product_end=int(product_end),
+                    wraps_origin=wraps_origin,
+                    forward_overhang_sequence=forward_overhang_sequence,
+                    reverse_overhang_sequence=reverse_overhang_sequence,
+                    exported_name=f"PCR_product_pair_{pair_index}",
+                )
+                fasta = export_product_fasta(product_record)
+            except (TypeError, ValueError):
+                fasta = f">PCR_product_pair_{pair_index}\n{product_seq}\n"
+        else:
+            fasta = f">PCR_product_pair_{pair_index}\n{product_seq}\n"
+    else:
+        fasta = f">PCR_product_pair_{pair_index}\n{product_seq}\n"
 
     response = HttpResponse(fasta, content_type="text/plain")
     response["Content-Disposition"] = (

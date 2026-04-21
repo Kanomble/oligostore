@@ -37,6 +37,8 @@ def _serialize_pcr_products(products):
             "product_end": product.product_end,
             "product_length": product.product_length,
             "product_sequence": product.product_sequence,
+            "forward_overhang_sequence": getattr(product, "forward_overhang_sequence", ""),
+            "reverse_overhang_sequence": getattr(product, "reverse_overhang_sequence", ""),
             "forward_mismatches": product.forward_mismatches,
             "reverse_mismatches": product.reverse_mismatches,
         }
@@ -100,6 +102,8 @@ def analyze_primerpair_products_task(
         products = analyze_primerpair_products(
             forward_primer_sequence=primer_pair.forward_primer.binding_sequence,
             reverse_primer_sequence=primer_pair.reverse_primer.binding_sequence,
+            forward_overhang_sequence=primer_pair.forward_primer.overhang_sequence,
+            reverse_overhang_sequence=primer_pair.reverse_primer.overhang_sequence,
             sequence_file=sequence_file,
             max_mismatches=max_mismatches,
             block_3prime_mismatch=block_3prime_mismatch,

@@ -62,6 +62,18 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const exportFields = (product, index) => `
+      <input type="hidden" name="product_sequence" value="${escapeHtml(product.product_sequence)}">
+      <input type="hidden" name="pair_index" value="${escapeHtml(`${primerPair.id || "pair"}_${index + 1}`)}">
+      <input type="hidden" name="sequence_file_id" value="${escapeHtml(sequenceFile.id || "")}">
+      <input type="hidden" name="record_id" value="${escapeHtml(product.record_id || "")}">
+      <input type="hidden" name="product_start" value="${escapeHtml(product.product_start)}">
+      <input type="hidden" name="product_end" value="${escapeHtml(product.product_end)}">
+      <input type="hidden" name="forward_overhang_sequence" value="${escapeHtml(product.forward_overhang_sequence || "")}">
+      <input type="hidden" name="reverse_overhang_sequence" value="${escapeHtml(product.reverse_overhang_sequence || "")}">
+      <input type="hidden" name="wraps_origin" value="${escapeHtml(product.wraps_origin ? "true" : "false")}">
+    `;
+
     listBox.innerHTML = products.map((product, index) => `
       <div class="card bg-base-100 shadow-lg border border-base-300">
         <div class="card-body">
@@ -79,12 +91,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 </div>
               ` : ""}
             </div>
-            <form method="POST" action="${escapeHtml(downloadUrl)}">
-              <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(getCookie("csrftoken"))}">
-              <input type="hidden" name="product_sequence" value="${escapeHtml(product.product_sequence)}">
-              <input type="hidden" name="pair_index" value="${escapeHtml(`${primerPair.id || "pair"}_${index + 1}`)}">
-              <button type="submit" class="btn btn-outline btn-sm">Download FASTA</button>
-            </form>
+            <div class="flex flex-wrap gap-2">
+              <form method="POST" action="${escapeHtml(downloadUrl)}">
+                <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(getCookie("csrftoken"))}">
+                <input type="hidden" name="export_format" value="fasta">
+                ${exportFields(product, index)}
+                <button type="submit" class="btn btn-outline btn-sm">Download FASTA</button>
+              </form>
+              <form method="POST" action="${escapeHtml(downloadUrl)}">
+                <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(getCookie("csrftoken"))}">
+                <input type="hidden" name="export_format" value="genbank">
+                ${exportFields(product, index)}
+                <button type="submit" class="btn btn-outline btn-sm">Download GenBank</button>
+              </form>
+            </div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
@@ -108,8 +128,11 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
 
           <div class="rounded-lg border border-base-300 bg-base-200 p-4 mt-2">
-            <div class="text-xs uppercase tracking-wide opacity-60">Product sequence</div>
-            <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm">${escapeHtml(product.product_sequence)}</pre>
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-xs uppercase tracking-wide opacity-60">Product sequence</div>
+              <div class="text-xs opacity-60">${product.product_sequence.length} nt</div>
+            </div>
+            <textarea class="textarea textarea-bordered mt-2 w-full font-mono text-sm" rows="6" readonly>${escapeHtml(product.product_sequence)}</textarea>
           </div>
         </div>
       </div>

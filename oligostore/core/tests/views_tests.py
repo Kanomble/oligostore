@@ -2,8 +2,13 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqFeature import SeqFeature, FeatureLocation
+from Bio.SeqRecord import SeqRecord
 from types import SimpleNamespace
 from unittest.mock import patch
+from io import StringIO
 import json
 from core.models import (
     AnalysisJob,
@@ -780,14 +785,30 @@ class PrimerBindingViewTests(TestCase):
 
 
 class DownloadProductSequenceViewTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._temp_media_root = tempfile.mkdtemp(prefix="oligostore-tests-")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls._temp_media_root)
+        super().tearDownClass()
+
     def setUp(self):
         super().setUp()
+        self._media_override = override_settings(MEDIA_ROOT=self._temp_media_root)
+        self._media_override.enable()
         self.user = User.objects.create_user(
             username="download_user",
             email="download@example.com",
             password="testpass123",
         )
         self.client.force_login(self.user)
+
+    def tearDown(self):
+        self._media_override.disable()
+        super().tearDown()
 
     def test_download_product_sequence_success(self):
         response = self.client.post(
@@ -804,6 +825,63 @@ class DownloadProductSequenceViewTests(TestCase):
     def test_download_product_sequence_missing_payload(self):
         response = self.client.post(reverse("download_product_sequence"), {})
         self.assertEqual(response.status_code, 400)
+
+    def test_download_product_sequence_genbank_includes_source_features(self):
+        record = SeqRecord(Seq("AAATTTCC"), id="seq1", name="seq1", description="template")
+        record.annotations["molecule_type"] = "DNA"
+        record.features.append(
+            SeqFeature(
+                FeatureLocation(0, 6, strand=1),
+                type="promoter",
+                qualifiers={"label": ["source_feature"]},
+            )
+        )
+        handle = StringIO()
+        SeqIO.write(record, handle, "genbank")
+        sequence_file = SequenceFile.objects.create(
+            name="Template",
+            file=SimpleUploadedFile("template.gb", handle.getvalue().encode("utf-8")),
+            file_type=SequenceFile.FILE_GENBANK,
+            uploaded_by=self.user,
+        )
+        sequence_file.users.add(self.user)
+        SequenceFeature.objects.create(
+            sequence_file=sequence_file,
+            record_id="seq1",
+            start=2,
+            end=5,
+            strand=1,
+            feature_type=SequenceFeature.TYPE_CUSTOM,
+            label="user_feature",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("download_product_sequence"),
+            {
+                "export_format": "genbank",
+                "pair_index": "7",
+                "sequence_file_id": sequence_file.id,
+                "record_id": "seq1",
+                "product_start": 1,
+                "product_end": 6,
+                "wraps_origin": "false",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Disposition"],
+            "attachment; filename=pcr_product_pair_7.gb",
+        )
+        exported_record = SeqIO.read(StringIO(response.content.decode("utf-8")), "genbank")
+        self.assertEqual(str(exported_record.seq), "AAATTT")
+        labels = {
+            (feature.qualifiers.get("label") or [""])[0]
+            for feature in exported_record.features
+        }
+        self.assertIn("source_feature", labels)
+        self.assertIn("user_feature", labels)
 
 
 class AnalyzePrimerViewTests(TestCase):
@@ -1296,7 +1374,7 @@ class PCRProductDiscoveryViewTests(TestCase):
     ):
         self.forward.overhang_sequence = "GGATCC"
         self.forward.save(update_fields=["overhang_sequence"])
-        self.reverse.overhang_sequence = "AAGCTT"
+        self.reverse.overhang_sequence = "GACT"
         self.reverse.save(update_fields=["overhang_sequence"])
         analyze_products_mock.return_value = []
 
@@ -1311,6 +1389,8 @@ class PCRProductDiscoveryViewTests(TestCase):
         analyze_products_mock.assert_called_once_with(
             forward_primer_sequence="AAA",
             reverse_primer_sequence="AAA",
+            forward_overhang_sequence="GGATCC",
+            reverse_overhang_sequence="GACT",
             sequence_file=self.sequence_file,
             max_mismatches=0,
             block_3prime_mismatch=True,

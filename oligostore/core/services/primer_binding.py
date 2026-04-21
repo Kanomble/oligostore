@@ -27,6 +27,8 @@ class PCRProductCandidate:
     product_end: int
     product_length: int
     product_sequence: str
+    forward_overhang_sequence: str
+    reverse_overhang_sequence: str
     forward_mismatches: int
     reverse_mismatches: int
 
@@ -44,6 +46,18 @@ def _extract_product_sequence(sequence: str, start: int, end: int, *, is_circula
     if not is_circular:
         return ""
     return sequence[start:] + sequence[:end]
+
+
+def _build_pcr_product_sequence(
+    template_product_sequence: str,
+    *,
+    forward_overhang_sequence: str,
+    reverse_overhang_sequence: str,
+) -> str:
+    forward_overhang = (forward_overhang_sequence or "").upper().strip()
+    reverse_overhang = (reverse_overhang_sequence or "").upper().strip()
+    reverse_overhang_on_product = reverse_complement(reverse_overhang) if reverse_overhang else ""
+    return f"{forward_overhang}{template_product_sequence}{reverse_overhang_on_product}"
 
 def iter_mismatch_counts(sequence: str, primer: str):
     primer_len = len(primer)
@@ -137,6 +151,8 @@ def analyze_primerpair_products(
     *,
     forward_primer_sequence: str,
     reverse_primer_sequence: str,
+    forward_overhang_sequence: str = "",
+    reverse_overhang_sequence: str = "",
     sequence_file,
     max_mismatches: int = 0,
     block_3prime_mismatch: bool = True,
@@ -181,14 +197,19 @@ def analyze_primerpair_products(
                 if wraps_origin and not is_circular_record:
                     continue
 
-                product_sequence = _extract_product_sequence(
+                template_product_sequence = _extract_product_sequence(
                     seq,
                     forward_hit.start,
                     reverse_hit.end,
                     is_circular=is_circular_record,
                 )
-                if not product_sequence:
+                if not template_product_sequence:
                     continue
+                product_sequence = _build_pcr_product_sequence(
+                    template_product_sequence,
+                    forward_overhang_sequence=forward_overhang_sequence,
+                    reverse_overhang_sequence=reverse_overhang_sequence,
+                )
 
                 products.append(
                     PCRProductCandidate(
@@ -204,6 +225,8 @@ def analyze_primerpair_products(
                         product_end=reverse_hit.end,
                         product_length=len(product_sequence),
                         product_sequence=product_sequence,
+                        forward_overhang_sequence=(forward_overhang_sequence or "").upper().strip(),
+                        reverse_overhang_sequence=(reverse_overhang_sequence or "").upper().strip(),
                         forward_mismatches=forward_hit.mismatches,
                         reverse_mismatches=reverse_hit.mismatches,
                     )

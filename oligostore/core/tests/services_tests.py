@@ -251,6 +251,30 @@ class PrimerBindingTests(SimpleTestCase):
         self.assertFalse(results[0].wraps_origin)
         self.assertFalse(results[0].is_circular_record)
 
+    def test_analyze_primerpair_products_includes_overhangs_in_product_sequence(self):
+        record = SeqRecord(Seq("AAATTT"), id="seq1", description="")
+        sequence_file = SimpleNamespace(
+            file=SimpleNamespace(path="ignored"),
+            file_type="fasta",
+        )
+
+        with mock.patch.object(
+            primer_binding,
+            "load_sequences_from_sequence_file",
+            return_value=iter([record]),
+        ):
+            results = primer_binding.analyze_primerpair_products(
+                forward_primer_sequence="AAA",
+                reverse_primer_sequence="AAA",
+                forward_overhang_sequence="GGATCC",
+                reverse_overhang_sequence="GACT",
+                sequence_file=sequence_file,
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].product_sequence, "GGATCCAAATTTAGTC")
+        self.assertEqual(results[0].product_length, 16)
+
     def test_analyze_primerpair_products_skips_wraparound_product_on_linear_record(self):
         record = SeqRecord(Seq("TTTAAA"), id="seq1", description="")
         sequence_file = SimpleNamespace(
