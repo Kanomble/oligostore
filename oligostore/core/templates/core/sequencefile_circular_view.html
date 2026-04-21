@@ -1,0 +1,206 @@
+{% extends "core/base.html" %}
+{% load static %}
+{% block title %}Circular Sequence View{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-10">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Circular Sequence Viewer</h1>
+      <p class="opacity-70 mt-2">
+        {{ sequence_file.name }} ({{ sequence_file.get_file_type_display }}) - inspect records as circular maps.
+      </p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn btn-outline" href="{% url 'sequencefile_linear_view' sequence_file.id %}">Open linear view</a>
+      <a class="btn btn-outline" href="{% url 'sequencefile_list' %}">Back to sequence files</a>
+    </div>
+  </div>
+
+  {% if records_payload %}
+    {{ records_payload|json_script:"sequence-circular-records-data" }}
+    <div
+      id="sequence-circular-config"
+      data-record-data-url="{% url 'sequencefile_linear_record_data' sequence_file.id %}"
+      class="hidden"
+    ></div>
+
+    <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-8">
+      <div class="card-body gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="form-control">
+            <label class="label"><span class="label-text font-semibold">Record</span></label>
+            <select id="circularRecordSelect" class="select select-bordered w-full"></select>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button id="circularZoomInBtn" class="btn btn-outline mt-8">Zoom in</button>
+            <button id="circularZoomOutBtn" class="btn btn-outline mt-8">Zoom out</button>
+            <button id="circularResetBtn" class="btn btn-ghost mt-8">Reset</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="label"><span class="label-text font-semibold">Visible radius scale</span></label>
+          <input id="circularZoomSlider" type="range" class="range range-primary" min="70" max="130" value="100" />
+          <div class="text-xs opacity-70 mt-1" id="circularZoomHint"></div>
+        </div>
+
+        <div class="rounded-xl border border-base-300 bg-base-200 p-4">
+          <div class="flex flex-col gap-3 mb-4">
+            <div class="flex justify-between items-center">
+              <div class="font-semibold">Circular map</div>
+              <div id="circularWindowLabel" class="text-sm opacity-70"></div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+                <div class="text-[11px] uppercase tracking-wide opacity-60">Length</div>
+                <div id="circularRecordLength" class="mt-1 font-semibold">-</div>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+                <div class="text-[11px] uppercase tracking-wide opacity-60">Features</div>
+                <div id="circularFeatureTotal" class="mt-1 font-semibold">-</div>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+                <div class="text-[11px] uppercase tracking-wide opacity-60">Restriction sites</div>
+                <div id="circularRestrictionCount" class="mt-1 font-semibold">-</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem] gap-6">
+            <div class="rounded-2xl border border-base-300 bg-[radial-gradient(circle_at_top,#f8fafc,#e2e8f0_65%,#cbd5e1)] p-4">
+            <svg id="circularMapSvg" viewBox="0 0 700 700" class="w-full h-auto">
+              <circle cx="350" cy="350" r="230" fill="#ffffff" fill-opacity="0.94" stroke="#cbd5e1" stroke-width="18"></circle>
+              <g id="circularRestrictionMarks"></g>
+              <g id="circularFeatureArcs"></g>
+              <g id="circularAxisTicks"></g>
+              <circle cx="350" cy="350" r="168" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"></circle>
+              <text id="circularCenterTitle" x="350" y="324" text-anchor="middle" fill="#334155" font-size="24" font-weight="700">Loading</text>
+              <text id="circularCenterMeta" x="350" y="354" text-anchor="middle" fill="#64748b" font-size="15">-</text>
+              <text id="circularCenterSecondary" x="350" y="382" text-anchor="middle" fill="#94a3b8" font-size="13">Circular sequence map</text>
+            </svg>
+            <div id="circularMapStatus" class="mt-3 text-sm opacity-70"></div>
+            <div class="mt-4 flex flex-wrap gap-4 text-xs">
+              <div class="flex items-center gap-2"><span class="legend-dot bg-sky-500"></span><span>Imported features</span></div>
+              <div class="flex items-center gap-2"><span class="legend-dot bg-emerald-500"></span><span>User-added primers/features</span></div>
+              <div class="flex items-center gap-2"><span class="legend-dot bg-amber-500"></span><span>Restriction sites</span></div>
+            </div>
+          </div>
+
+            <div class="space-y-4">
+              <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="font-semibold">Selected annotation</div>
+                    <div class="text-xs opacity-70">Click a feature arc or table row to inspect it.</div>
+                  </div>
+                  <button id="circularClearSelectionBtn" type="button" class="btn btn-ghost btn-xs">Clear</button>
+                </div>
+                <div id="circularFeatureDetails" class="mt-3 text-sm opacity-80">
+                  No feature selected.
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                <div class="font-semibold">Map summary</div>
+                <div id="circularSelectionSummary" class="text-xs opacity-70 mt-2">No feature selected on map.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div class="font-semibold">Features</div>
+              <div class="text-xs opacity-70">Imported annotations and user-added sequence features in record order.</div>
+            </div>
+            <div class="form-control w-full sm:max-w-sm">
+              <label class="label py-1"><span class="label-text text-xs">Filter features</span></label>
+              <input id="circularFeatureSearchInput" type="text" class="input input-bordered input-sm" placeholder="Label, type, position" />
+            </div>
+          </div>
+          <div id="circularFeatureCount" class="text-xs opacity-70 mt-3 mb-3"></div>
+          <div class="border border-base-300 rounded-lg overflow-hidden">
+            <div class="max-h-96 overflow-auto">
+              <table class="table table-zebra table-sm w-full">
+                <thead class="sticky top-0 bg-base-100 z-10">
+                  <tr>
+                    <th>Label</th>
+                    <th>Type</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Length</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody id="circularFeatureTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-base-300 p-4 bg-base-100">
+          <div class="flex flex-wrap items-end gap-2 mb-2">
+            <div class="form-control w-full sm:max-w-xs">
+              <label class="label py-1"><span class="label-text text-xs">Filter restriction enzymes</span></label>
+              <input id="circularRestrictionSearchInput" type="text" class="input input-bordered input-sm" placeholder="Search enzyme" />
+            </div>
+            <button id="circularSelectTopRestrictionEnzymesBtn" type="button" class="btn btn-outline btn-sm">Top 5</button>
+            <button id="circularClearRestrictionSelectionBtn" type="button" class="btn btn-ghost btn-sm">Clear</button>
+          </div>
+          <div id="circularRestrictionSelectionCount" class="text-xs opacity-70 mb-2"></div>
+          <div class="border border-base-300 rounded-lg overflow-hidden">
+            <div class="max-h-80 overflow-auto">
+              <table class="table table-zebra table-sm w-full">
+                <thead class="sticky top-0 bg-base-100 z-10">
+                  <tr>
+                    <th>Show</th>
+                    <th>Enzyme</th>
+                    <th>Cut site</th>
+                    <th>Sites</th>
+                  </tr>
+                </thead>
+                <tbody id="circularRestrictionTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="mt-2 flex items-center justify-between gap-2">
+            <div id="circularRestrictionPageInfo" class="text-xs opacity-70"></div>
+            <div class="join">
+              <button id="circularRestrictionPrevPageBtn" class="btn btn-xs join-item">Prev</button>
+              <button id="circularRestrictionNextPageBtn" class="btn btn-xs join-item">Next</button>
+            </div>
+          </div>
+          <div id="circularRestrictionSummary" class="mt-3 text-xs opacity-70"></div>
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-8">
+      <div class="card-body">
+        <p>No sequence records were found in this file.</p>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<style>
+  .legend-dot {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 9999px;
+    display: inline-block;
+  }
+  .circular-feature-row {
+    cursor: pointer;
+  }
+  .circular-feature-row.is-selected {
+    background: rgba(14, 165, 233, 0.12);
+  }
+</style>
+
+{% block extra_scripts %}
+<script src="{% static 'js/sequencefile_circular_view.js' %}"></script>
+{% endblock %}
+{% endblock %}
