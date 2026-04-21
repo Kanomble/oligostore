@@ -156,14 +156,20 @@
                   </td>
 
                   <td class="text-right">
-                    <div class="flex justify-end gap-2">
+                    <div class="flex justify-end gap-2 flex-wrap">
                       <!-- Optional: link to download raw file (requires media serving) -->
                       <a class="btn btn-ghost btn-sm" href="{{ sf.file.url }}">Download</a>
                       <a
                         class="btn btn-outline btn-sm"
                         href="{% url 'sequencefile_linear_view' sf.id %}"
                       >
-                        Visualize
+                        Linear
+                      </a>
+                      <a
+                        class="btn btn-outline btn-sm"
+                        href="{% url 'sequencefile_circular_view' sf.id %}"
+                      >
+                        Circular
                       </a>
 
                       <!-- Optional: detail page -->

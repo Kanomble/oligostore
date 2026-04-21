@@ -400,6 +400,34 @@ def sequencefile_linear_view(request, sequencefile_id):
 
 
 @login_required
+def sequencefile_circular_view(request, sequencefile_id):
+    sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
+
+    records_payload = []
+    try:
+        records = _get_sequence_records(sequence_file)
+    except Exception:
+        messages.error(request, "Could not parse the selected sequence file.")
+        return redirect("sequencefile_list")
+
+    try:
+        for record in records:
+            records_payload.append(serialize_record_summary(record))
+    except Exception:
+        messages.error(request, "Could not parse the selected sequence file.")
+        return redirect("sequencefile_list")
+
+    return render(
+        request,
+        "core/sequencefile_circular_view.html",
+        {
+            "sequence_file": sequence_file,
+            "records_payload": records_payload,
+        },
+    )
+
+
+@login_required
 def sequencefile_linear_record_data(request, sequencefile_id):
     sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 

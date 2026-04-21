@@ -144,7 +144,10 @@
                                             <td class="font-semibold">{{ sequence_file.name }}</td>
                                             <td>{{ sequence_file.get_file_type_display }}</td>
                                             <td>
-                                                <a href="{% url 'sequencefile_linear_view' sequence_file.id %}" class="btn btn-ghost btn-xs">Open linear viewer</a>
+                                                <div class="flex flex-wrap gap-2">
+                                                    <a href="{% url 'sequencefile_linear_view' sequence_file.id %}" class="btn btn-ghost btn-xs">Open linear viewer</a>
+                                                    <a href="{% url 'sequencefile_circular_view' sequence_file.id %}" class="btn btn-ghost btn-xs">Open circular viewer</a>
+                                                </div>
                                             </td>
                                             <td class="text-right">
                                                 <a href="{% url 'project_remove_sequencefile' project.id sequence_file.id %}" class="btn btn-error btn-outline btn-xs">Remove</a>

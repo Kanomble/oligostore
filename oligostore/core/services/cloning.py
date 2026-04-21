@@ -1,4 +1,5 @@
 from Bio.Restriction import CommOnly
+from Bio.Seq import Seq
 from django.db import transaction
 
 from ..access import accessible_pcr_products, accessible_sequence_files
@@ -7,8 +8,37 @@ from .ownership import assign_creator, grant_user_access
 from .sequence_loader import load_sequences
 
 
-def get_common_enzyme_choices():
-    return sorted((str(enzyme), str(enzyme)) for enzyme in CommOnly)
+def get_detected_enzyme_choices(*, user, selected_asset_choice=None):
+    sequences = []
+
+    if selected_asset_choice:
+        try:
+            asset = resolve_asset_choice(user=user, choice=selected_asset_choice)
+        except ValueError:
+            asset = None
+        if asset is not None:
+            sequences.append(asset["sequence"])
+
+    if not sequences:
+        for sequence_file in accessible_sequence_files(user).order_by("name"):
+            try:
+                sequences.append(_resolve_sequence_file_asset(sequence_file)["sequence"])
+            except ValueError:
+                continue
+        for pcr_product in accessible_pcr_products(user).order_by("name"):
+            sequences.append(_resolve_pcr_product_asset(pcr_product)["sequence"])
+
+    detected = set()
+    for sequence in sequences:
+        try:
+            results = CommOnly.search(Seq(sequence), linear=True)
+        except Exception:
+            continue
+        for enzyme, cut_positions in results.items():
+            if cut_positions:
+                detected.add(str(enzyme))
+
+    return [(name, name) for name in sorted(detected)]
 
 
 def _get_enzyme_by_name(name: str):
@@ -32,7 +62,12 @@ def _find_site_positions(sequence: str, site: str):
 
 
 def _resolve_sequence_file_asset(sequence_file):
-    records = list(load_sequences(sequence_file.file.path, sequence_file.file_type))
+    try:
+        records = list(load_sequences(sequence_file.file.path, sequence_file.file_type))
+    except Exception as exc:
+        raise ValueError(
+            f"Sequence file '{sequence_file.name}' could not be parsed for cloning."
+        ) from exc
     if not records:
         raise ValueError(f"Sequence file '{sequence_file.name}' does not contain any records.")
     record = records[0]
@@ -101,12 +136,27 @@ def _validate_restriction_ligation(vector_sequence: str, insert_sequence: str, l
     if messages:
         return False, messages, ""
 
-    if left_enzyme_name == right_enzyme_name:
-        messages.append("Choose two different enzymes for this workflow.")
-        return False, messages, ""
-
     left_site = str(getattr(left_enzyme, "site", "") or "")
     right_site = str(getattr(right_enzyme, "site", "") or "")
+    if left_enzyme_name == right_enzyme_name:
+        site_hits = _find_site_positions(vector_sequence, left_site)
+        if len(site_hits) != 1:
+            messages.append(
+                f"Vector must contain exactly one {left_enzyme_name} site for single-enzyme cloning; found {len(site_hits)}."
+            )
+        if _find_site_positions(insert_sequence, left_site):
+            messages.append(f"Insert contains an internal {left_enzyme_name} site.")
+        if messages:
+            return False, messages, ""
+
+        insertion_point = site_hits[0]
+        assembled_sequence = (
+            vector_sequence[:insertion_point]
+            + insert_sequence
+            + vector_sequence[insertion_point:]
+        )
+        return True, [f"Construct assembled successfully using single-enzyme cloning with {left_enzyme_name}."], assembled_sequence
+
     left_hits = _find_site_positions(vector_sequence, left_site)
     right_hits = _find_site_positions(vector_sequence, right_site)
 
@@ -134,7 +184,7 @@ def _validate_restriction_ligation(vector_sequence: str, insert_sequence: str, l
         + insert_sequence
         + vector_sequence[right_start + len(right_site):]
     )
-    return True, ["Construct assembled successfully."], assembled_sequence
+    return True, ["Construct assembled successfully using two-enzyme cloning."], assembled_sequence
 
 
 @transaction.atomic
@@ -149,6 +199,9 @@ def create_cloning_construct(
     right_enzyme: str,
     user,
 ):
+    if assembly_strategy != CloningConstruct.STRATEGY_RESTRICTION_LIGATION:
+        raise ValueError("Only restriction ligation is currently supported.")
+
     validation_messages = []
     if vector_asset.get("message"):
         validation_messages.append(vector_asset["message"])

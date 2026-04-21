@@ -50,6 +50,7 @@ from .views.sequence_files import (
     primer_binding_analysis,
     primer_binding_analysis_async,
     primer_binding_status,
+    sequencefile_circular_view,
     sequencefile_linear_create_primer,
     sequencefile_linear_delete_primer,
     sequencefile_linear_record_data,
@@ -117,6 +118,7 @@ urlpatterns = [
     path("sequence-files/upload/", sequencefile_upload, name="sequencefile_upload"),
     path("pcr-products/", pcrproduct_list, name="pcrproduct_list"),
     path("sequence-files/<int:sequencefile_id>/linear-view/", sequencefile_linear_view, name="sequencefile_linear_view"),
+    path("sequence-files/<int:sequencefile_id>/circular-view/", sequencefile_circular_view, name="sequencefile_circular_view"),
     path(
         "sequence-files/<int:sequencefile_id>/linear-view/record-data/",
         sequencefile_linear_record_data,

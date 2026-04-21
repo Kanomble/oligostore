@@ -81,9 +81,12 @@
                   </td>
                   <td>
                     <div>{{ product.sequence_file.name }}</div>
-                    <div class="text-xs opacity-70">
+                    <div class="text-xs opacity-70 flex flex-wrap gap-2">
                       <a href="{% url 'sequencefile_linear_view' product.sequence_file_id %}?pcr_product={{ product.id }}" class="btn btn-ghost btn-xs">
-                        Open viewer
+                        Open linear
+                      </a>
+                      <a href="{% url 'sequencefile_circular_view' product.sequence_file_id %}" class="btn btn-ghost btn-xs">
+                        Open circular
                       </a>
                     </div>
                   </td>

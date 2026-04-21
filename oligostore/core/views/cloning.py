@@ -90,21 +90,25 @@ def cloning_construct_create(request):
             except ValueError as exc:
                 form.add_error(None, str(exc))
             else:
-                construct = create_cloning_construct(
-                    name=form.cleaned_data["name"],
-                    description=form.cleaned_data["description"],
-                    vector_asset=vector_asset,
-                    insert_asset=insert_asset,
-                    assembly_strategy=form.cleaned_data["assembly_strategy"],
-                    left_enzyme=form.cleaned_data["left_enzyme"],
-                    right_enzyme=form.cleaned_data["right_enzyme"],
-                    user=request.user,
-                )
-                if construct.is_valid:
-                    messages.success(request, "Construct assembled successfully.")
+                try:
+                    construct = create_cloning_construct(
+                        name=form.cleaned_data["name"],
+                        description=form.cleaned_data["description"],
+                        vector_asset=vector_asset,
+                        insert_asset=insert_asset,
+                        assembly_strategy=form.cleaned_data["assembly_strategy"],
+                        left_enzyme=form.cleaned_data["left_enzyme"],
+                        right_enzyme=form.cleaned_data["right_enzyme"],
+                        user=request.user,
+                    )
+                except ValueError as exc:
+                    form.add_error(None, str(exc))
                 else:
-                    messages.warning(request, "Construct saved with validation warnings.")
-                return redirect("cloning_construct_detail", construct_id=construct.id)
+                    if construct.is_valid:
+                        messages.success(request, "Construct assembled successfully.")
+                    else:
+                        messages.warning(request, "Construct saved with validation warnings.")
+                    return redirect("cloning_construct_detail", construct_id=construct.id)
     else:
         form = CloningConstructForm(user=request.user)
     return render(request, "core/cloning_construct_form.html", {"form": form})

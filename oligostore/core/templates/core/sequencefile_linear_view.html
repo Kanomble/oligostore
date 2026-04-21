@@ -12,6 +12,7 @@
       </p>
     </div>
     <div class="flex gap-2">
+      <a class="btn btn-outline" href="{% url 'sequencefile_circular_view' sequence_file.id %}">Circular view</a>
       <a class="btn btn-outline" href="{% url 'pcrproduct_list' %}">Saved PCR products</a>
       <a class="btn btn-outline" href="{% url 'sequencefile_list' %}">Back to sequence files</a>
     </div>

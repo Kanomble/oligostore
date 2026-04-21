@@ -11,7 +11,7 @@ from .access import (
 )
 from .models import CloningConstruct, Primer, PrimerPair, Project, SequenceFile
 import re
-from .services.cloning import get_common_enzyme_choices
+from .services.cloning import get_detected_enzyme_choices
 
 def apply_tailwind_classes(fields):
     for field in fields.values():
@@ -74,6 +74,7 @@ class CloningConstructForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
+        selected_vector_asset = None
         if user is not None:
             vector_choices = []
             for sequence_file in accessible_sequence_files(user).order_by("name"):
@@ -92,17 +93,33 @@ class CloningConstructForm(forms.ModelForm):
                 )
             self.fields["vector_asset"].choices = vector_choices
             self.fields["insert_asset"].choices = list(vector_choices)
-        enzyme_choices = get_common_enzyme_choices()
+            selected_vector_asset = (
+                self.data.get("vector_asset")
+                if self.is_bound
+                else self.initial.get("vector_asset")
+            )
+        self.fields["vector_asset"].help_text = "Choose an uploaded sequence file or saved PCR product to use as the vector."
+        self.fields["insert_asset"].help_text = "Choose an uploaded sequence file or saved PCR product to insert into the vector."
+        self.fields["left_enzyme"].help_text = "Only enzymes detected in your available cloning assets are listed."
+        self.fields["right_enzyme"].help_text = "You may choose the same enzyme twice for single-enzyme cloning."
+        enzyme_choices = (
+            get_detected_enzyme_choices(
+                user=user,
+                selected_asset_choice=selected_vector_asset,
+            )
+            if user is not None
+            else []
+        )
         self.fields["left_enzyme"].choices = enzyme_choices
         self.fields["right_enzyme"].choices = enzyme_choices
         apply_tailwind_classes(self.fields)
 
     def clean(self):
         cleaned_data = super().clean()
-        left_enzyme = cleaned_data.get("left_enzyme")
-        right_enzyme = cleaned_data.get("right_enzyme")
-        if left_enzyme and right_enzyme and left_enzyme == right_enzyme:
-            raise forms.ValidationError("Choose two different restriction enzymes.")
+        vector_asset = cleaned_data.get("vector_asset")
+        insert_asset = cleaned_data.get("insert_asset")
+        if vector_asset and insert_asset and vector_asset == insert_asset:
+            raise forms.ValidationError("Vector and insert must be different assets.")
         return cleaned_data
 
 class PrimerForm(forms.ModelForm):
