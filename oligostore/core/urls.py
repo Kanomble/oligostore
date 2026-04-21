@@ -58,6 +58,7 @@ from .views.sequence_files import (
     sequencefile_linear_save_pcr_product,
     sequencefile_linear_view,
     sequencefile_list,
+    sequencefile_update_type,
     sequencefile_upload,
 )
 
@@ -118,6 +119,11 @@ urlpatterns = [
     path("primer-product/download/", download_product_sequence, name="download_product_sequence"),
     path("sequence-files/", sequencefile_list, name="sequencefile_list"),
     path("sequence-files/upload/", sequencefile_upload, name="sequencefile_upload"),
+    path(
+        "sequence-files/<int:sequencefile_id>/update-type/",
+        sequencefile_update_type,
+        name="sequencefile_update_type",
+    ),
     path("pcr-products/", pcrproduct_list, name="pcrproduct_list"),
     path("sequence-files/<int:sequencefile_id>/linear-view/", sequencefile_linear_view, name="sequencefile_linear_view"),
     path("sequence-files/<int:sequencefile_id>/circular-view/", sequencefile_circular_view, name="sequencefile_circular_view"),

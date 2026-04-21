@@ -26,6 +26,11 @@ from ..services.sequence_records import (
 from ..tasks import analyze_primer_binding_task
 from .utils import paginate_queryset
 
+
+def _allowed_sequence_file_types():
+    return {value for value, _label in SequenceFile.FILE_TYPE_CHOICES}
+
+
 def _get_sequence_records(sequence_file):
     return get_sequence_records(sequence_file, load_sequences)
 
@@ -106,11 +111,7 @@ def sequencefile_upload(request):
     """
     Upload a FASTA, GenBank, or SnapGene sequence file and persist it.
     """
-    allowed_file_types = {
-        SequenceFile.FILE_FASTA,
-        SequenceFile.FILE_GENBANK,
-        SequenceFile.FILE_SNAPGENE,
-    }
+    allowed_file_types = _allowed_sequence_file_types()
 
     if request.method == "POST":
         name = request.POST.get("name")
@@ -142,6 +143,31 @@ def sequencefile_upload(request):
         request,
         "core/sequencefile_upload.html",
     )
+
+
+@login_required
+def sequencefile_update_type(request, sequencefile_id):
+    if request.method != "POST":
+        return redirect("sequencefile_list")
+
+    sequence_file = get_object_or_404(
+        accessible_sequence_files(request.user),
+        id=sequencefile_id,
+    )
+    file_type = request.POST.get("file_type")
+    allowed_file_types = _allowed_sequence_file_types()
+    redirect_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("sequencefile_list").url
+
+    if file_type not in allowed_file_types:
+        messages.error(request, "Invalid sequence file type.")
+        return redirect(redirect_url)
+
+    if sequence_file.file_type != file_type:
+        sequence_file.file_type = file_type
+        sequence_file.save(update_fields=["file_type"])
+        messages.success(request, f"Updated sequence file type for {sequence_file.name}.")
+
+    return redirect(redirect_url)
 
 
 @login_required
@@ -203,11 +229,7 @@ def sequencefile_list(request):
     qs = apply_search(qs, q, ["name", "description"])
 
     file_type = request.GET.get("type")
-    if file_type in (
-        SequenceFile.FILE_FASTA,
-        SequenceFile.FILE_GENBANK,
-        SequenceFile.FILE_SNAPGENE,
-    ):
+    if file_type in _allowed_sequence_file_types():
         qs = qs.filter(file_type=file_type)
 
     order = request.GET.get("order", "uploaded_desc")

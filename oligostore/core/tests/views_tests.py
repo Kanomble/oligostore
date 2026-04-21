@@ -141,6 +141,51 @@ class SequenceFileViewTests(TestCase):
         self.assertEqual(listed[0].file_type, SequenceFile.FILE_SNAPGENE)
         self.assertEqual(listed[0].name, "Snap")
 
+    def test_sequencefile_update_type_changes_type_and_redirects_back_to_listing(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Mutable Type",
+            file=SimpleUploadedFile("mutable.fasta", b">seq\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_update_type", args=[sequence_file.id]),
+            {
+                "file_type": SequenceFile.FILE_GENBANK,
+                "next": f'{reverse("sequencefile_list")}?type=fasta&order=name',
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            f'{reverse("sequencefile_list")}?type=fasta&order=name',
+        )
+        sequence_file.refresh_from_db()
+        self.assertEqual(sequence_file.file_type, SequenceFile.FILE_GENBANK)
+
+    def test_sequencefile_update_type_rejects_invalid_type(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Immutable Type",
+            file=SimpleUploadedFile("immutable.fasta", b">seq\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_update_type", args=[sequence_file.id]),
+            {
+                "file_type": "invalid",
+                "next": reverse("sequencefile_list"),
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        sequence_file.refresh_from_db()
+        self.assertEqual(sequence_file.file_type, SequenceFile.FILE_FASTA)
+        self.assertContains(response, "Invalid sequence file type.")
+
     def test_sequencefile_linear_view_payload(self):
         sequence_file = SequenceFile.objects.create(
             name="Linear",

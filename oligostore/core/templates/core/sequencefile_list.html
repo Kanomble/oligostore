@@ -134,13 +134,42 @@
                   </td>
 
                   <td class="hidden md:table-cell">
-                    {% if sf.file_type == "genbank" %}
-                      <span class="badge badge-neutral">GenBank</span>
-                    {% elif sf.file_type == "snapgene" %}
-                      <span class="badge badge-accent">SnapGene</span>
-                    {% else %}
-                      <span class="badge badge-info">FASTA</span>
-                    {% endif %}
+                    <form
+                      method="post"
+                      action="{% url 'sequencefile_update_type' sf.id %}"
+                      class="min-w-[13rem]"
+                    >
+                      {% csrf_token %}
+                      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                      <div class="rounded-2xl border border-base-300 bg-base-200/60 p-3 shadow-sm">
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                          <span class="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-60">
+                            Format
+                          </span>
+                          {% if sf.file_type == "genbank" %}
+                            <span class="badge badge-neutral badge-sm">GenBank</span>
+                          {% elif sf.file_type == "snapgene" %}
+                            <span class="badge badge-accent badge-sm">SnapGene</span>
+                          {% else %}
+                            <span class="badge badge-info badge-sm">FASTA</span>
+                          {% endif %}
+                        </div>
+                        <div class="join w-full">
+                          <select
+                            name="file_type"
+                            class="select select-bordered select-sm join-item flex-1 bg-base-100"
+                            aria-label="Change type for {{ sf.name }}"
+                          >
+                            <option value="fasta" {% if sf.file_type == "fasta" %}selected{% endif %}>FASTA</option>
+                            <option value="genbank" {% if sf.file_type == "genbank" %}selected{% endif %}>GenBank</option>
+                            <option value="snapgene" {% if sf.file_type == "snapgene" %}selected{% endif %}>SnapGene</option>
+                          </select>
+                          <button type="submit" class="btn btn-primary btn-sm join-item">
+                            Update
+                          </button>
+                        </div>
+                      </div>
+                    </form>
                   </td>
 
                   <td class="hidden lg:table-cell max-w-[60ch]">
