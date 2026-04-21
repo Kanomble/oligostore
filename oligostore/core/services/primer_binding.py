@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List
-from core.services.sequence_loader import load_sequences
+
+from core.services.sequence_loader import load_sequences_from_sequence_file
 from core.services.sequence_utils import reverse_complement
 
 @dataclass
@@ -82,17 +83,14 @@ def analyze_primer_binding(
     block_3prime_mismatch: bool = True,
 ) -> List[PrimerBindingHit]:
     """
-    Analyze primer binding against a SequenceFile (FASTA or GenBank).
+    Analyze primer binding against a SequenceFile.
     """
     primer = primer_sequence.upper()
     primer_rc = reverse_complement(primer)
 
     results: List[PrimerBindingHit] = []
 
-    for record in load_sequences(
-        sequence_file.file.path,
-        sequence_file.file_type,
-    ):
+    for record in load_sequences_from_sequence_file(sequence_file):
         seq = str(record.seq).upper()
 
         fwd_hits = scan_sequence(
@@ -140,10 +138,7 @@ def analyze_primerpair_products(
 
     products: List[PCRProductCandidate] = []
 
-    for record in load_sequences(
-        sequence_file.file.path,
-        sequence_file.file_type,
-    ):
+    for record in load_sequences_from_sequence_file(sequence_file):
         seq = str(record.seq).upper()
         record_name = getattr(record, "name", "") or str(record.id)
 

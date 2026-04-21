@@ -249,6 +249,30 @@ class PrimerBindingTests(SimpleTestCase):
         self.assertEqual(results[0].reverse_end, 6)
         self.assertEqual(results[0].product_sequence, "AAATTT")
 
+    def test_binding_services_use_sequence_file_loader_helper(self):
+        record = SeqRecord(Seq("AAATTT"), id="seq1", description="")
+        sequence_file = SimpleNamespace(
+            file=SimpleNamespace(path="ignored"),
+            file_type="snapgene",
+        )
+
+        with mock.patch.object(
+            primer_binding,
+            "load_sequences_from_sequence_file",
+            return_value=iter([record]),
+        ) as loader_mock:
+            binding_hits = primer_binding.analyze_primer_binding("AAA", sequence_file)
+            product_hits = primer_binding.analyze_primerpair_products(
+                forward_primer_sequence="AAA",
+                reverse_primer_sequence="AAA",
+                sequence_file=sequence_file,
+            )
+
+        self.assertEqual(len(binding_hits), 1)
+        self.assertEqual(len(product_hits), 1)
+        self.assertEqual(loader_mock.call_count, 2)
+        loader_mock.assert_any_call(sequence_file)
+
 
 class SequenceLoaderTests(SimpleTestCase):
     def test_load_sequences_fasta_and_genbank(self):
@@ -273,6 +297,25 @@ class SequenceLoaderTests(SimpleTestCase):
     def test_load_sequences_snapgene_uses_biopython_snapgene_parser(self):
         with mock.patch.object(sequence_loader.SeqIO, "parse", return_value=iter(())) as parse_mock:
             records = list(sequence_loader.load_sequences("example.dna", "snapgene"))
+
+        self.assertEqual(records, [])
+        parse_mock.assert_called_once_with("example.dna", "snapgene")
+
+    def test_load_sequences_normalizes_file_type_before_parser_lookup(self):
+        with mock.patch.object(sequence_loader.SeqIO, "parse", return_value=iter(())) as parse_mock:
+            records = list(sequence_loader.load_sequences("example.dna", " SnapGene "))
+
+        self.assertEqual(records, [])
+        parse_mock.assert_called_once_with("example.dna", "snapgene")
+
+    def test_load_sequences_from_sequence_file_uses_sequence_file_metadata(self):
+        sequence_file = SimpleNamespace(
+            file=SimpleNamespace(path="example.dna"),
+            file_type="snapgene",
+        )
+
+        with mock.patch.object(sequence_loader.SeqIO, "parse", return_value=iter(())) as parse_mock:
+            records = list(sequence_loader.load_sequences_from_sequence_file(sequence_file))
 
         self.assertEqual(records, [])
         parse_mock.assert_called_once_with("example.dna", "snapgene")
