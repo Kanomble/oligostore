@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -7,16 +8,17 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import Workbook
 
-from ..access import accessible_primer_pairs, accessible_primers, editable_primer_pairs
+from ..access import accessible_primer_pairs, accessible_primers, accessible_sequence_files, editable_primer_pairs
 from ..forms import (
     PCRProductDiscoveryForm,
     PrimerPairForm,
     PrimerPairCreateCombinedForm,
 )
-from ..models import Primer, PrimerPair
+from ..models import Primer, PrimerPair, SequenceFeature
 from ..models import AnalysisJob
 from ..services.async_jobs import create_analysis_job, mark_job_running
-from ..services.creation import create_owned_primer_pair, create_primer_pair_with_new_primers
+from ..services.creation import create_owned_primer_pair, create_primer_pair_with_new_primers, create_pcr_product
+from ..services.product_exports import build_product_record
 from ..services.export_helpers import build_primerpair_worksheet
 from ..services.listing import apply_ordering, apply_search
 from ..tasks import analyze_primerpair_products_task
@@ -115,6 +117,113 @@ def primerpair_products_async(request):
     )
     mark_job_running(job, task.id)
     return JsonResponse({"job_id": job.id, "task_id": task.id}, status=202)
+
+
+@login_required(login_url="login")
+def primerpair_products_save(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required."}, status=405)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    try:
+        primer_pair_id = int(payload.get("primer_pair_id"))
+        sequence_file_id = int(payload.get("sequence_file_id"))
+        product_start = int(payload.get("product_start"))
+        product_end = int(payload.get("product_end"))
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "Primer pair, sequence file, and product coordinates are required."}, status=400)
+
+    primer_pair = accessible_primer_pairs(request.user).select_related(
+        "forward_primer",
+        "reverse_primer",
+    ).filter(id=primer_pair_id).first()
+    if primer_pair is None:
+        return JsonResponse({"error": "Primer pair not found."}, status=404)
+
+    sequence_file = accessible_sequence_files(request.user).filter(id=sequence_file_id).first()
+    if sequence_file is None:
+        return JsonResponse({"error": "Sequence file not found."}, status=404)
+
+    record_id = str(payload.get("record_id", "")).strip()
+    name = str(payload.get("name", "")).strip()
+    product_sequence = str(payload.get("product_sequence", "")).strip().upper()
+    wraps_origin = str(payload.get("wraps_origin", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+    if not record_id:
+        return JsonResponse({"error": "record_id is required."}, status=400)
+    if product_start < 1 or product_end < 1:
+        return JsonResponse({"error": "product_start/product_end are invalid."}, status=400)
+    if not product_sequence:
+        return JsonResponse({"error": "product_sequence is required."}, status=400)
+
+    try:
+        product_record = build_product_record(
+            sequence_file=sequence_file,
+            record_id=record_id,
+            product_start=product_start,
+            product_end=product_end,
+            wraps_origin=wraps_origin,
+            forward_overhang_sequence=primer_pair.forward_primer.overhang_sequence,
+            reverse_overhang_sequence=primer_pair.reverse_primer.overhang_sequence,
+            exported_name=name or f"{primer_pair.name}_{record_id}_{product_start}_{product_end}",
+        )
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    expected_sequence = str(product_record.seq).upper()
+    if expected_sequence != product_sequence:
+        return JsonResponse({"error": "PCR product sequence does not match the selected sequence record."}, status=400)
+
+    if not name:
+        name = product_record.id
+
+    forward_feature = SequenceFeature.objects.filter(
+        sequence_file=sequence_file,
+        record_id=record_id,
+        primer=primer_pair.forward_primer,
+        start=product_start,
+    ).order_by("end").first()
+    reverse_feature = SequenceFeature.objects.filter(
+        sequence_file=sequence_file,
+        record_id=record_id,
+        primer=primer_pair.reverse_primer,
+        end=product_end,
+    ).order_by("start").first()
+
+    product = create_pcr_product(
+        user=request.user,
+        sequence_file=sequence_file,
+        name=name,
+        record_id=record_id,
+        start=product_start,
+        end=product_end,
+        sequence=product_sequence,
+        forward_primer=primer_pair.forward_primer,
+        reverse_primer=primer_pair.reverse_primer,
+        forward_feature=forward_feature,
+        reverse_feature=reverse_feature,
+        forward_primer_label=primer_pair.forward_primer.primer_name,
+        reverse_primer_label=primer_pair.reverse_primer.primer_name,
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "pcr_product": {
+                "id": product.id,
+                "name": product.name,
+                "record_id": product.record_id,
+                "start": product.start,
+                "end": product.end,
+                "length": product.length,
+            },
+        },
+        status=201,
+    )
 
 
 @login_required(login_url="login")

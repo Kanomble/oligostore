@@ -23,6 +23,7 @@ from .views.primerpairs import (
     primerpair_list,
     primerpair_products,
     primerpair_products_async,
+    primerpair_products_save,
 )
 from .views.primers import (
     delete_selected_primers,
@@ -111,6 +112,7 @@ urlpatterns = [
     path("primerpairs/download/", download_selected_primerpairs, name="download_selected_primerpairs"),
     path("primerpairs/products/", primerpair_products, name="primerpair_products"),
     path("primerpairs/products/async/", primerpair_products_async, name="primerpair_products_async"),
+    path("primerpairs/products/save/", primerpair_products_save, name="primerpair_products_save"),
     path("analyze-sequence/", analyze_sequence_view, name="analyze_sequence"),
     path("save-primerpair/", save_generated_primerpair, name="save_generated_primerpair"),
     path("primer-product/download/", download_product_sequence, name="download_product_sequence"),

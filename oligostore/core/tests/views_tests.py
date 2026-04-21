@@ -1398,6 +1398,61 @@ class PCRProductDiscoveryViewTests(TestCase):
         self.assertEqual(payload["products"], [])
         mark_job_success_mock.assert_called_once()
 
+    def test_pcr_product_discovery_save_creates_pcr_product(self):
+        response = self.client.post(
+            reverse("primerpair_products_save"),
+            data=json.dumps(
+                {
+                    "primer_pair_id": self.pair.id,
+                    "sequence_file_id": self.sequence_file.id,
+                    "name": "Saved Finder Product",
+                    "record_id": "seq1",
+                    "product_start": 1,
+                    "product_end": 6,
+                    "product_sequence": "AAATTT",
+                    "wraps_origin": False,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        saved = PCRProduct.objects.get(name="Saved Finder Product")
+        self.assertEqual(saved.sequence_file, self.sequence_file)
+        self.assertEqual(saved.record_id, "seq1")
+        self.assertEqual(saved.start, 1)
+        self.assertEqual(saved.end, 6)
+        self.assertEqual(saved.sequence, "AAATTT")
+        self.assertEqual(saved.forward_primer, self.forward)
+        self.assertEqual(saved.reverse_primer, self.reverse)
+
+    def test_pcr_product_discovery_save_accepts_overhang_enriched_sequence(self):
+        self.forward.overhang_sequence = "GGATCC"
+        self.forward.save(update_fields=["overhang_sequence"])
+        self.reverse.overhang_sequence = "GACT"
+        self.reverse.save(update_fields=["overhang_sequence"])
+
+        response = self.client.post(
+            reverse("primerpair_products_save"),
+            data=json.dumps(
+                {
+                    "primer_pair_id": self.pair.id,
+                    "sequence_file_id": self.sequence_file.id,
+                    "record_id": "seq1",
+                    "product_start": 1,
+                    "product_end": 6,
+                    "product_sequence": "GGATCCAAATTTAGTC",
+                    "wraps_origin": False,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        saved = PCRProduct.objects.get(id=response.json()["pcr_product"]["id"])
+        self.assertEqual(saved.sequence, "GGATCCAAATTTAGTC")
+        self.assertEqual(saved.length, 16)
+
 
 class MiscViewTests(TestCase):
     def setUp(self):

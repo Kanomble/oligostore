@@ -15,6 +15,7 @@ from .primerpairs import (
     primerpair_list,
     primerpair_products,
     primerpair_products_async,
+    primerpair_products_save,
 )
 from .primers import (
     download_selected_primers,
@@ -74,6 +75,7 @@ __all__ = [
     "primerpair_list",
     "primerpair_products",
     "primerpair_products_async",
+    "primerpair_products_save",
     "project_add_pcr_product",
     "project_add_primerpair",
     "project_add_sequencefile",

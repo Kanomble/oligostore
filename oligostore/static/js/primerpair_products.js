@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const errorMessage = errorBox.querySelector(".alert");
   const asyncUrl = config.dataset.asyncUrl;
+  const saveUrl = config.dataset.saveUrl;
   const statusUrlTemplate = config.dataset.statusUrlTemplate;
   const downloadUrl = config.dataset.downloadUrl;
 
@@ -133,10 +134,79 @@ document.addEventListener("DOMContentLoaded", () => {
               <div class="text-xs opacity-60">${product.product_sequence.length} nt</div>
             </div>
             <textarea class="textarea textarea-bordered mt-2 w-full font-mono text-sm" rows="6" readonly>${escapeHtml(product.product_sequence)}</textarea>
+            <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label class="form-control flex-1">
+                <span class="label py-1"><span class="label-text text-xs">Save name</span></span>
+                <input
+                  type="text"
+                  class="input input-bordered input-sm"
+                  data-save-product-name="${index}"
+                  value="${escapeHtml(`${primerPair.name || "PCR_Product"}_${product.record_id}_${product.product_start}-${product.product_end}`)}"
+                />
+              </label>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                data-save-product-index="${index}"
+              >
+                Save PCR product
+              </button>
+            </div>
+            <div class="text-xs opacity-70" data-save-product-status="${index}"></div>
           </div>
         </div>
       </div>
     `).join("");
+  }
+
+  async function saveProduct(productIndex) {
+    const resultProducts = window.__primerPairProductsResult?.products || [];
+    const primerPair = window.__primerPairProductsResult?.primer_pair || {};
+    const sequenceFile = window.__primerPairProductsResult?.sequence_file || {};
+    const product = resultProducts[productIndex];
+    const nameInput = listBox.querySelector(`[data-save-product-name="${productIndex}"]`);
+    const statusEl = listBox.querySelector(`[data-save-product-status="${productIndex}"]`);
+    const button = listBox.querySelector(`[data-save-product-index="${productIndex}"]`);
+
+    if (!product || !nameInput || !statusEl || !button) {
+      return;
+    }
+
+    button.disabled = true;
+    statusEl.textContent = "Saving PCR product...";
+    statusEl.className = "text-xs opacity-70";
+
+    try {
+      const response = await fetch(saveUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("csrftoken"),
+        },
+        body: JSON.stringify({
+          primer_pair_id: primerPair.id,
+          sequence_file_id: sequenceFile.id,
+          name: nameInput.value.trim(),
+          record_id: product.record_id,
+          product_start: product.product_start,
+          product_end: product.product_end,
+          product_sequence: product.product_sequence,
+          wraps_origin: product.wraps_origin,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to save PCR product.");
+      }
+      nameInput.value = payload.pcr_product?.name || nameInput.value;
+      statusEl.textContent = `Saved as ${payload.pcr_product?.name || "PCR product"}.`;
+      statusEl.className = "text-xs text-success";
+    } catch (error) {
+      statusEl.textContent = error.message || "Unable to save PCR product.";
+      statusEl.className = "text-xs text-error";
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function pollStatus(jobId) {
@@ -151,6 +221,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (data.state === "SUCCESS") {
       statusBox.classList.add("hidden");
+      window.__primerPairProductsResult = data.result || {};
       renderProducts(data.result || {});
       return;
     }
@@ -197,5 +268,13 @@ document.addEventListener("DOMContentLoaded", () => {
       statusBox.classList.add("hidden");
       showError(error.message || "Unexpected error.");
     }
+  });
+
+  listBox.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-save-product-index]");
+    if (!button) {
+      return;
+    }
+    void saveProduct(Number(button.dataset.saveProductIndex));
   });
 });
