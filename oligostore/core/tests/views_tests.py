@@ -16,6 +16,7 @@ from core.models import (
     SequenceFeature,
     SequenceFile,
 )
+from core.tasks import analyze_primerpair_products_task
 
 import shutil
 import tempfile
@@ -1285,6 +1286,37 @@ class PCRProductDiscoveryViewTests(TestCase):
             max_mismatches=0,
             block_3prime_mismatch=True,
         )
+
+    @patch("core.tasks.analyze_primerpair_products")
+    @patch("core.tasks.mark_job_success")
+    def test_pcr_product_discovery_task_uses_binding_sequences_without_overhangs(
+        self,
+        mark_job_success_mock,
+        analyze_products_mock,
+    ):
+        self.forward.overhang_sequence = "GGATCC"
+        self.forward.save(update_fields=["overhang_sequence"])
+        self.reverse.overhang_sequence = "AAGCTT"
+        self.reverse.save(update_fields=["overhang_sequence"])
+        analyze_products_mock.return_value = []
+
+        payload = analyze_primerpair_products_task.run(
+            analysis_job_id=123,
+            primer_pair_id=self.pair.id,
+            sequence_file_id=self.sequence_file.id,
+            max_mismatches=0,
+            block_3prime_mismatch=True,
+        )
+
+        analyze_products_mock.assert_called_once_with(
+            forward_primer_sequence="AAA",
+            reverse_primer_sequence="AAA",
+            sequence_file=self.sequence_file,
+            max_mismatches=0,
+            block_3prime_mismatch=True,
+        )
+        self.assertEqual(payload["products"], [])
+        mark_job_success_mock.assert_called_once()
 
 
 class MiscViewTests(TestCase):

@@ -17,6 +17,8 @@ class PrimerBindingHit:
 class PCRProductCandidate:
     record_id: str
     record_name: str
+    is_circular_record: bool
+    wraps_origin: bool
     forward_start: int
     forward_end: int
     reverse_start: int
@@ -27,6 +29,21 @@ class PCRProductCandidate:
     product_sequence: str
     forward_mismatches: int
     reverse_mismatches: int
+
+
+def _record_is_circular(record) -> bool:
+    topology = str(getattr(record, "annotations", {}).get("topology", "") or "").strip().lower()
+    return topology == "circular"
+
+
+def _extract_product_sequence(sequence: str, start: int, end: int, *, is_circular: bool) -> str:
+    if not sequence:
+        return ""
+    if start <= end:
+        return sequence[start:end]
+    if not is_circular:
+        return ""
+    return sequence[start:] + sequence[:end]
 
 def iter_mismatch_counts(sequence: str, primer: str):
     primer_len = len(primer)
@@ -125,7 +142,7 @@ def analyze_primerpair_products(
     block_3prime_mismatch: bool = True,
 ) -> List[PCRProductCandidate]:
     """
-    Find candidate linear PCR products for a forward/reverse primer pair.
+    Find candidate PCR products for a forward/reverse primer pair.
 
     Coordinates returned here are 1-based and inclusive.
     """
@@ -141,6 +158,7 @@ def analyze_primerpair_products(
     for record in load_sequences_from_sequence_file(sequence_file):
         seq = str(record.seq).upper()
         record_name = getattr(record, "name", "") or str(record.id)
+        is_circular_record = _record_is_circular(record)
 
         forward_hits = scan_sequence(
             seq,
@@ -159,10 +177,16 @@ def analyze_primerpair_products(
 
         for forward_hit in forward_hits:
             for reverse_hit in reverse_hits:
-                if forward_hit.start > reverse_hit.start:
+                wraps_origin = forward_hit.start > reverse_hit.start
+                if wraps_origin and not is_circular_record:
                     continue
 
-                product_sequence = seq[forward_hit.start:reverse_hit.end]
+                product_sequence = _extract_product_sequence(
+                    seq,
+                    forward_hit.start,
+                    reverse_hit.end,
+                    is_circular=is_circular_record,
+                )
                 if not product_sequence:
                     continue
 
@@ -170,6 +194,8 @@ def analyze_primerpair_products(
                     PCRProductCandidate(
                         record_id=str(record.id),
                         record_name=str(record_name),
+                        is_circular_record=is_circular_record,
+                        wraps_origin=wraps_origin,
                         forward_start=forward_hit.start + 1,
                         forward_end=forward_hit.end,
                         reverse_start=reverse_hit.start + 1,

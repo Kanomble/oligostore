@@ -73,6 +73,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${product.product_start}-${product.product_end} |
                 ${product.product_length} bp
               </div>
+              ${(product.is_circular_record || product.wraps_origin) ? `
+                <div class="text-xs opacity-70 mt-1">
+                  ${product.wraps_origin ? "Circular amplicon crossing the record origin." : "Detected on a circular record."}
+                </div>
+              ` : ""}
             </div>
             <form method="POST" action="${escapeHtml(downloadUrl)}">
               <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(getCookie("csrftoken"))}">

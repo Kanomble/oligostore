@@ -27,6 +27,8 @@ def _serialize_pcr_products(products):
         {
             "record_id": product.record_id,
             "record_name": product.record_name,
+            "is_circular_record": product.is_circular_record,
+            "wraps_origin": product.wraps_origin,
             "forward_start": product.forward_start,
             "forward_end": product.forward_end,
             "reverse_start": product.reverse_start,
@@ -96,8 +98,8 @@ def analyze_primerpair_products_task(
 
     try:
         products = analyze_primerpair_products(
-            forward_primer_sequence=primer_pair.forward_primer.sequence,
-            reverse_primer_sequence=primer_pair.reverse_primer.sequence,
+            forward_primer_sequence=primer_pair.forward_primer.binding_sequence,
+            reverse_primer_sequence=primer_pair.reverse_primer.binding_sequence,
             sequence_file=sequence_file,
             max_mismatches=max_mismatches,
             block_3prime_mismatch=block_3prime_mismatch,

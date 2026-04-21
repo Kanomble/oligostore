@@ -155,6 +155,17 @@ class PrimerAndProjectModelTests(TestCase):
         self.assertIn("HindIII", primer.restriction_site_summary)
         self.assertIn("BamHI", primer.restriction_site_summary)
 
+    def test_binding_sequence_excludes_overhang(self):
+        primer = Primer.create_with_analysis(
+            primer_name="Binding Primer",
+            sequence=" atgcatgc ",
+            overhang_sequence="GGATCC",
+            user=self.creator,
+        )
+
+        self.assertEqual(primer.binding_sequence, "ATGCATGC")
+        self.assertEqual(primer.full_sequence, "GGATCCATGCATGC")
+
     def test_overhang_detects_restriction_sites_beyond_legacy_set(self):
         primer = Primer.create_with_analysis(
             primer_name="Expanded Restriction Primer",

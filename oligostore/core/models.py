@@ -201,8 +201,12 @@ class Primer(AccessControllModel):
         return self.primer_name
 
     @property
+    def binding_sequence(self):
+        return (self.sequence or "").strip().upper()
+
+    @property
     def full_sequence(self):
-        return f"{self.overhang_sequence}{self.sequence}"
+        return f"{self.overhang_sequence}{self.binding_sequence}"
 
     @property
     def overhang_restriction_sites(self):

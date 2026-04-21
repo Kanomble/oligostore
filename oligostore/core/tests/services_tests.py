@@ -248,6 +248,55 @@ class PrimerBindingTests(SimpleTestCase):
         self.assertEqual(results[0].forward_start, 1)
         self.assertEqual(results[0].reverse_end, 6)
         self.assertEqual(results[0].product_sequence, "AAATTT")
+        self.assertFalse(results[0].wraps_origin)
+        self.assertFalse(results[0].is_circular_record)
+
+    def test_analyze_primerpair_products_skips_wraparound_product_on_linear_record(self):
+        record = SeqRecord(Seq("TTTAAA"), id="seq1", description="")
+        sequence_file = SimpleNamespace(
+            file=SimpleNamespace(path="ignored"),
+            file_type="fasta",
+        )
+
+        with mock.patch.object(
+            primer_binding,
+            "load_sequences_from_sequence_file",
+            return_value=iter([record]),
+        ):
+            results = primer_binding.analyze_primerpair_products(
+                forward_primer_sequence="AAA",
+                reverse_primer_sequence="AAA",
+                sequence_file=sequence_file,
+            )
+
+        self.assertEqual(results, [])
+
+    def test_analyze_primerpair_products_allows_wraparound_product_on_circular_record(self):
+        record = SeqRecord(Seq("TTTAAA"), id="plasmid", description="")
+        record.annotations["topology"] = "circular"
+        sequence_file = SimpleNamespace(
+            file=SimpleNamespace(path="ignored"),
+            file_type="snapgene",
+        )
+
+        with mock.patch.object(
+            primer_binding,
+            "load_sequences_from_sequence_file",
+            return_value=iter([record]),
+        ):
+            results = primer_binding.analyze_primerpair_products(
+                forward_primer_sequence="AAA",
+                reverse_primer_sequence="AAA",
+                sequence_file=sequence_file,
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].is_circular_record)
+        self.assertTrue(results[0].wraps_origin)
+        self.assertEqual(results[0].forward_start, 4)
+        self.assertEqual(results[0].reverse_end, 3)
+        self.assertEqual(results[0].product_length, 6)
+        self.assertEqual(results[0].product_sequence, "AAATTT")
 
     def test_binding_services_use_sequence_file_loader_helper(self):
         record = SeqRecord(Seq("AAATTT"), id="seq1", description="")
