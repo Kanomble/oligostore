@@ -44,6 +44,45 @@
     return "#0284c7";
   }
 
+  function clampPosition(value, length) {
+    const position = Number(value);
+    if (!Number.isFinite(position)) {
+      return 1;
+    }
+    return Math.min(Math.max(1, position), length);
+  }
+
+  function assignFeatureTracks(features, length, trackCount) {
+    const sorted = features
+      .map((feature, index) => {
+        const start = clampPosition(feature.start, length);
+        const end = clampPosition(feature.end, length);
+        return {
+          index,
+          startAngle: ((start - 1) / length) * 360,
+          endAngle: (end / length) * 360,
+        };
+      })
+      .sort((left, right) => {
+        const startDelta = left.startAngle - right.startAngle;
+        if (startDelta !== 0) {
+          return startDelta;
+        }
+        return right.endAngle - left.endAngle;
+      });
+    const trackEnds = Array(trackCount).fill(-Infinity);
+    const assignments = new Map();
+    sorted.forEach((item) => {
+      let targetTrack = trackEnds.findIndex((endAngle) => item.startAngle > endAngle + 3);
+      if (targetTrack < 0) {
+        targetTrack = trackEnds.indexOf(Math.min(...trackEnds));
+      }
+      assignments.set(item.index, targetTrack);
+      trackEnds[targetTrack] = Math.max(trackEnds[targetTrack], item.endAngle);
+    });
+    return assignments;
+  }
+
   function formatCutSite(site, cutOffset) {
     const motif = String(site || "").toUpperCase();
     const offset = Number(cutOffset);
@@ -352,12 +391,16 @@
     const cx = 350;
     const cy = 350;
     const zoomScale = app.state.zoomPercent / 100;
-    const axisRadius = 255 * zoomScale;
-    const featureRadius = 230 * zoomScale;
-    const restrictionInner = 268 * zoomScale;
-    const restrictionOuter = 288 * zoomScale;
+    const zoomOffset = (zoomScale - 1) * 42;
+    const axisRadius = 255 + zoomOffset;
+    const featureBaseRadius = 230 + zoomOffset;
+    const featureTrackSpacing = 15;
+    const restrictionInner = 268 + zoomOffset;
+    const restrictionOuter = 288 + zoomOffset;
     const length = Math.max(1, Number(record.length) || 1);
     const selectedFeature = app.state.selectedFeatureIndex === null ? null : record.features[app.state.selectedFeatureIndex];
+    const featureTrackCount = Math.min(5, Math.max(2, Math.ceil(record.features.length / 12)));
+    const featureTracks = assignFeatureTracks(record.features, length, featureTrackCount);
 
     app.els.axisTicks.innerHTML = "";
     app.els.featureArcs.innerHTML = "";
@@ -391,15 +434,20 @@
     }
 
     record.features.forEach((feature, index) => {
-      const startAngle = ((Number(feature.start) - 1) / length) * 360;
-      const endAngle = (Number(feature.end) / length) * 360;
+      const start = clampPosition(feature.start, length);
+      const end = clampPosition(feature.end, length);
+      const startAngle = ((start - 1) / length) * 360;
+      const endAngle = (end / length) * 360;
+      const track = featureTracks.get(index) || 0;
+      const radius = featureBaseRadius - (track * featureTrackSpacing);
+      const isSelected = selectedFeature === feature;
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", describeArc(cx, cy, featureRadius, startAngle, endAngle));
+      path.setAttribute("d", describeArc(cx, cy, radius, startAngle, endAngle));
       path.setAttribute("fill", "none");
       path.setAttribute("stroke", featureColor(feature));
-      path.setAttribute("stroke-width", selectedFeature === feature ? "18" : "13");
+      path.setAttribute("stroke-width", isSelected ? "13" : "8");
       path.setAttribute("stroke-linecap", "round");
-      path.setAttribute("opacity", selectedFeature && selectedFeature !== feature ? "0.35" : "0.96");
+      path.setAttribute("opacity", selectedFeature && !isSelected ? "0.32" : "0.96");
       path.style.cursor = "pointer";
       path.addEventListener("click", () => {
         app.state.selectedFeatureIndex = index;
@@ -410,6 +458,26 @@
       title.textContent = `${feature.label || feature.type || "Feature"} (${feature.start}-${feature.end})`;
       path.appendChild(title);
       app.els.featureArcs.appendChild(path);
+
+      const spanDegrees = Math.abs(endAngle - startAngle);
+      if (isSelected || spanDegrees >= 24) {
+        const labelAngle = startAngle + (spanDegrees / 2);
+        const labelPoint = polarToCartesian(cx, cy, radius - 18, labelAngle);
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", labelPoint.x);
+        label.setAttribute("y", labelPoint.y);
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("dominant-baseline", "middle");
+        label.setAttribute("fill", isSelected ? "#0f172a" : "#334155");
+        label.setAttribute("font-size", isSelected ? "12" : "10");
+        label.setAttribute("font-weight", isSelected ? "700" : "600");
+        label.setAttribute("paint-order", "stroke");
+        label.setAttribute("stroke", "#ffffff");
+        label.setAttribute("stroke-width", "4");
+        label.setAttribute("pointer-events", "none");
+        label.textContent = String(feature.label || feature.type || "Feature").slice(0, 22);
+        app.els.featureArcs.appendChild(label);
+      }
     });
 
     const hasSelection = app.state.selectedRestrictionEnzymes.size > 0;

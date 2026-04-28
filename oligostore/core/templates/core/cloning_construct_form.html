@@ -60,11 +60,19 @@
             </form>
             {% else %}
             {% if assets %}
-            <div class="card bg-base-200/60 border border-base-300 mb-6">
-                <div class="card-body gap-3">
-                    <div class="text-sm opacity-70">Selected assets</div>
-                    <div class="font-semibold">{{ assets.vector_asset.name }} / {{ assets.vector_asset.record_id }} -> {{ assets.insert_asset.name }} / {{ assets.insert_asset.record_id }}</div>
-                    <div class="text-sm opacity-70">Vector: {{ assets.vector_asset.sequence|length }} bp | Insert: {{ assets.insert_asset.sequence|length }} bp</div>
+            <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 mb-6">
+                <div class="text-sm font-semibold mb-3">Selected assets</div>
+                <div class="grid gap-3 md:grid-cols-2">
+                    <div class="rounded-lg border border-base-300 bg-base-100 p-4">
+                        <div class="text-xs uppercase opacity-60">Vector</div>
+                        <div class="font-semibold mt-1">{{ assets.vector_asset.name }}</div>
+                        <div class="text-sm opacity-70">Record {{ assets.vector_asset.record_id }} | {{ assets.vector_asset.sequence|length }} bp</div>
+                    </div>
+                    <div class="rounded-lg border border-base-300 bg-base-100 p-4">
+                        <div class="text-xs uppercase opacity-60">Insert</div>
+                        <div class="font-semibold mt-1">{{ assets.insert_asset.name }}</div>
+                        <div class="text-sm opacity-70">Record {{ assets.insert_asset.record_id }} | {{ assets.insert_asset.sequence|length }} bp</div>
+                    </div>
                 </div>
             </div>
             {% endif %}
@@ -91,65 +99,83 @@
 
             {% if preview_data %}
             <div class="divider">Preview</div>
-            <div class="grid gap-4 md:grid-cols-3">
-                <div class="card bg-base-200/60 border border-base-300">
-                    <div class="card-body">
-                        <div class="text-sm opacity-60">Strategy</div>
-                        <div class="font-semibold">{{ preview_data.assembly_strategy|title }}</div>
+            <div class="rounded-xl border {% if preview_data.is_valid %}border-success/40 bg-success/10{% else %}border-warning/50 bg-warning/10{% endif %} p-4 mb-6">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <div class="text-sm font-semibold">Assembly status</div>
+                        <div class="text-sm opacity-80 mt-1">
+                            {% if preview_data.is_valid %}
+                            The selected assets and enzymes produce a valid assembled sequence.
+                            {% else %}
+                            The assembly was generated, but one or more validation checks need review before using this construct.
+                            {% endif %}
+                        </div>
                     </div>
-                </div>
-                <div class="card bg-base-200/60 border border-base-300">
-                    <div class="card-body">
-                        <div class="text-sm opacity-60">Enzymes</div>
-                        <div class="font-semibold">{{ preview_data.left_enzyme }} / {{ preview_data.right_enzyme }}</div>
-                    </div>
-                </div>
-                <div class="card bg-base-200/60 border border-base-300">
-                    <div class="card-body">
-                        <div class="text-sm opacity-60">Assembled Length</div>
-                        <div class="font-semibold">{{ preview_data.assembled_length }} bp</div>
-                    </div>
+                    <span class="badge {% if preview_data.is_valid %}badge-success{% else %}badge-warning{% endif %}">
+                        {% if preview_data.is_valid %}Valid{% else %}Needs review{% endif %}
+                    </span>
                 </div>
             </div>
 
-            <div class="card bg-base-200/60 border border-base-300 mt-6">
-                <div class="card-body">
-                    <h2 class="card-title">Cut Site Preview</h2>
-                    <div class="grid gap-3">
+            <div class="grid gap-4 md:grid-cols-3">
+                <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                    <div class="text-sm opacity-60">Strategy</div>
+                    <div class="font-semibold mt-1">{{ preview_data.assembly_strategy|title }}</div>
+                </div>
+                <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                    <div class="text-sm opacity-60">Enzymes</div>
+                    <div class="font-semibold mt-1">{{ preview_data.left_enzyme }} / {{ preview_data.right_enzyme }}</div>
+                </div>
+                <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                    <div class="text-sm opacity-60">Assembled Length</div>
+                    <div class="font-semibold mt-1">{{ preview_data.assembled_length }} bp</div>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 mt-6">
+                <div class="flex flex-col gap-1 mb-4">
+                    <h2 class="text-lg font-semibold">Cut Site Preview</h2>
+                    <p class="text-sm opacity-70">Vector cleavage positions and insert recognition sites for the selected restriction enzymes.</p>
+                </div>
+                <div class="grid gap-3">
                         {% for cut_preview in preview_data.cut_site_previews %}
                         <div class="rounded-lg border border-base-300 bg-base-100 p-4">
-                            <div class="font-semibold">{{ cut_preview.enzyme_name }}{% if cut_preview.site_sequence %} ({{ cut_preview.site_sequence }}){% endif %}</div>
-                            <div class="text-sm opacity-70 mt-1">Vector cleavage positions: {% if cut_preview.vector_cut_positions %}{{ cut_preview.vector_cut_positions|join:", " }}{% else %}none{% endif %}</div>
-                            <div class="text-sm opacity-70">Insert recognition-site positions: {% if cut_preview.insert_recognition_site_positions %}{{ cut_preview.insert_recognition_site_positions|join:", " }}{% else %}none{% endif %}</div>
+                            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div class="font-semibold">{{ cut_preview.enzyme_name }}</div>
+                                <div class="badge badge-outline font-mono">{% if cut_preview.site_sequence %}{{ cut_preview.site_sequence }}{% else %}site unavailable{% endif %}</div>
+                            </div>
+                            <div class="grid gap-2 sm:grid-cols-2 mt-3 text-sm">
+                                <div>
+                                    <div class="opacity-60">Vector cuts</div>
+                                    <div class="font-mono">{% if cut_preview.vector_cut_positions %}{{ cut_preview.vector_cut_positions|join:", " }}{% else %}none{% endif %}</div>
+                                </div>
+                                <div>
+                                    <div class="opacity-60">Insert sites</div>
+                                    <div class="font-mono">{% if cut_preview.insert_recognition_site_positions %}{{ cut_preview.insert_recognition_site_positions|join:", " }}{% else %}none{% endif %}</div>
+                                </div>
+                            </div>
                         </div>
                         {% endfor %}
-                    </div>
                 </div>
             </div>
 
-            <div class="card bg-base-200/60 border border-base-300 mt-6">
-                <div class="card-body">
-                    <h2 class="card-title">Validation Preview</h2>
-                    <ul class="list-disc pl-6 space-y-2">
-                        {% for message in preview_data.validation_messages %}
-                        <li>{{ message }}</li>
-                        {% empty %}
-                        <li>No validation messages.</li>
-                        {% endfor %}
-                    </ul>
-                </div>
+            <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 mt-6">
+                <h2 class="text-lg font-semibold">Validation Preview</h2>
+                <ul class="list-disc pl-6 space-y-2 mt-3">
+                    {% for message in preview_data.validation_messages %}
+                    <li>{{ message }}</li>
+                    {% empty %}
+                    <li>No validation messages.</li>
+                    {% endfor %}
+                </ul>
             </div>
 
-            <div class="card bg-base-200/60 border border-base-300 mt-6">
-                <div class="card-body">
-                    <div class="flex justify-between items-center">
-                        <h2 class="card-title">Assembled Sequence Preview</h2>
-                        <span class="badge {% if preview_data.is_valid %}badge-success{% else %}badge-warning{% endif %}">
-                            {% if preview_data.is_valid %}Valid{% else %}Needs review{% endif %}
-                        </span>
-                    </div>
-                    <pre class="mt-4 whitespace-pre-wrap break-all font-mono text-sm">{{ preview_data.assembled_sequence|default:"No assembled sequence was generated." }}</pre>
+            <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 mt-6">
+                <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <h2 class="text-lg font-semibold">Assembled Sequence Preview</h2>
+                    <span class="text-sm opacity-60">{{ preview_data.assembled_length }} bp</span>
                 </div>
+                <pre class="mt-4 max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-base-100 border border-base-300 p-4 font-mono text-sm">{{ preview_data.assembled_sequence|default:"No assembled sequence was generated." }}</pre>
             </div>
 
             <form method="POST" class="mt-6">
