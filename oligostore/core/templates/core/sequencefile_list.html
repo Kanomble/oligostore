@@ -99,12 +99,12 @@
 
       {% if sequence_files %}
         <div class="overflow-x-auto">
-          <table class="table table-zebra table-sm md:table-md">
+          <table class="table table-zebra table-sm md:table-md sequence-file-table">
             <thead>
               <tr>
                 <th>Name</th>
                 <th class="hidden md:table-cell">Type</th>
-                <th class="hidden lg:table-cell">Description</th>
+                <th class="hidden lg:table-cell sequence-description-heading">Description</th>
                 <th class="hidden md:table-cell">Uploaded</th>
                 <th class="text-right">Actions</th>
               </tr>
@@ -172,8 +172,8 @@
                     </form>
                   </td>
 
-                  <td class="hidden lg:table-cell max-w-[60ch]">
-                    <div class="truncate opacity-80">
+                  <td class="hidden lg:table-cell sequence-description-cell">
+                    <div class="sequence-description-text opacity-80">
                       {{ sf.description|default:"—" }}
                     </div>
                   </td>
@@ -242,4 +242,26 @@
     </div>
   </div>
 </div>
+
+<style>
+  .sequence-file-table {
+    table-layout: auto;
+  }
+  .sequence-description-heading,
+  .sequence-description-cell {
+    width: 16rem;
+    max-width: 16rem;
+  }
+  .sequence-description-cell {
+    vertical-align: top;
+  }
+  .sequence-description-text {
+    max-width: 16rem;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    font-size: 0.875rem;
+    line-height: 1.35rem;
+  }
+</style>
 {% endblock %}

@@ -233,6 +233,39 @@
       return app.isPrimerBindingFeature(feature) || typeValue === "misc_feature" || typeValue === "misc_features" || typeValue === "misc features" || typeValue === "misc";
     };
 
+    app.isMiscFeature = function isMiscFeature(feature) {
+      const typeValue = app.normalize(feature.type);
+      return typeValue === "misc_feature" || typeValue === "misc_features" || typeValue === "misc features" || typeValue === "misc";
+    };
+
+    app.shouldDisplayFeatureOnMap = function shouldDisplayFeatureOnMap(feature) {
+      if (app.isCdsFeature(feature)) {
+        return state.showCdsFeatures;
+      }
+      if (app.isPrimerBindingFeature(feature)) {
+        return state.showPrimerFeatures;
+      }
+      if (app.isMiscFeature(feature)) {
+        return state.showMiscFeatures;
+      }
+      return false;
+    };
+
+    app.updateFeatureToggleButtons = function updateFeatureToggleButtons() {
+      [
+        [els.toggleCdsFeaturesBtn, state.showCdsFeatures],
+        [els.togglePrimerFeaturesBtn, state.showPrimerFeatures],
+        [els.toggleMiscFeaturesBtn, state.showMiscFeatures],
+      ].forEach(([button, enabled]) => {
+        if (!button) {
+          return;
+        }
+        button.classList.toggle("btn-primary", enabled);
+        button.classList.toggle("btn-outline", !enabled);
+        button.setAttribute("aria-pressed", enabled ? "true" : "false");
+      });
+    };
+
     app.assignOverlapLane = function assignOverlapLane(laneEnds, visibleStart, visibleEnd, maxLanes = 5) {
       let lane = laneEnds.findIndex((end) => visibleStart > end);
       if (lane < 0) {
@@ -473,6 +506,7 @@
     };
 
     app.renderFeatureTrack = function renderFeatureTrack(record) {
+      app.updateFeatureToggleButtons();
       els.featureTrack.innerHTML = "";
       els.cdsFeatureTrack.innerHTML = "";
       els.primerMiscFeatureTrack.innerHTML = "";
@@ -517,7 +551,7 @@
         .map((feature, index) => ({ feature, index }))
         .filter(({ feature }) => {
           const bounds = app.featureBounds(feature);
-          return !(bounds.end < mapStart || bounds.start > mapEnd);
+          return app.shouldDisplayFeatureOnMap(feature) && !(bounds.end < mapStart || bounds.start > mapEnd);
         })
         .sort((a, b) => {
           const aBounds = app.featureBounds(a.feature);
@@ -600,7 +634,7 @@
         .map((feature, index) => ({ feature, index }))
         .filter(({ feature }) => {
           const bounds = app.featureBounds(feature);
-          return (app.isCdsFeature(feature) || app.isPrimerOrMiscFeature(feature)) && !(bounds.end < start || bounds.start > end);
+          return app.shouldDisplayFeatureOnMap(feature) && !(bounds.end < start || bounds.start > end);
         })
         .sort((a, b) => {
           const aBounds = app.featureBounds(a.feature);

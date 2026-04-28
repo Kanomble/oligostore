@@ -76,6 +76,39 @@
     return isPrimerBindingFeature(feature) || typeValue === "misc_feature" || typeValue === "misc_features" || typeValue === "misc features" || typeValue === "misc";
   }
 
+  function isMiscFeature(feature) {
+    const typeValue = normalize(feature.type);
+    return typeValue === "misc_feature" || typeValue === "misc_features" || typeValue === "misc features" || typeValue === "misc";
+  }
+
+  function shouldDisplayFeature(app, feature) {
+    if (isCdsFeature(feature)) {
+      return app.state.showCdsFeatures;
+    }
+    if (isPrimerBindingFeature(feature)) {
+      return app.state.showPrimerFeatures;
+    }
+    if (isMiscFeature(feature)) {
+      return app.state.showMiscFeatures;
+    }
+    return false;
+  }
+
+  function updateFeatureToggleButtons(app) {
+    [
+      [app.els.toggleCdsFeaturesBtn, app.state.showCdsFeatures],
+      [app.els.togglePrimerFeaturesBtn, app.state.showPrimerFeatures],
+      [app.els.toggleMiscFeaturesBtn, app.state.showMiscFeatures],
+    ].forEach(([button, enabled]) => {
+      if (!button) {
+        return;
+      }
+      button.classList.toggle("btn-primary", enabled);
+      button.classList.toggle("btn-outline", !enabled);
+      button.setAttribute("aria-pressed", enabled ? "true" : "false");
+    });
+  }
+
   function circularFeatureRadius(feature, baseRadius) {
     return isCdsFeature(feature) ? baseRadius : baseRadius - 22;
   }
@@ -110,6 +143,9 @@
         zoomInBtn: getElement("circularZoomInBtn"),
         zoomOutBtn: getElement("circularZoomOutBtn"),
         resetBtn: getElement("circularResetBtn"),
+        toggleCdsFeaturesBtn: getElement("circularToggleCdsFeaturesBtn"),
+        togglePrimerFeaturesBtn: getElement("circularTogglePrimerFeaturesBtn"),
+        toggleMiscFeaturesBtn: getElement("circularToggleMiscFeaturesBtn"),
         zoomHint: getElement("circularZoomHint"),
         windowLabel: getElement("circularWindowLabel"),
         featureArcs: getElement("circularFeatureArcs"),
@@ -149,6 +185,9 @@
         restrictionEnzymeQuery: "",
         restrictionTablePage: 1,
         restrictionTablePageSize: 10,
+        showCdsFeatures: true,
+        showPrimerFeatures: true,
+        showMiscFeatures: true,
       },
     };
   }
@@ -395,9 +434,10 @@
     const restrictionOuter = 288 + zoomOffset;
     const length = Math.max(1, Number(record.length) || 1);
     const selectedFeature = app.state.selectedFeatureIndex === null ? null : record.features[app.state.selectedFeatureIndex];
+    const selectedFeatureVisible = selectedFeature ? shouldDisplayFeature(app, selectedFeature) : false;
     const displayFeatures = record.features
       .map((feature, index) => ({ feature, index }))
-      .filter(({ feature }) => isCdsFeature(feature) || isPrimerOrMiscFeature(feature));
+      .filter(({ feature }) => shouldDisplayFeature(app, feature));
 
     app.els.axisTicks.innerHTML = "";
     app.els.featureArcs.innerHTML = "";
@@ -443,7 +483,7 @@
       path.setAttribute("stroke", featureColor(feature));
       path.setAttribute("stroke-width", isSelected ? "13" : "8");
       path.setAttribute("stroke-linecap", "round");
-      path.setAttribute("opacity", selectedFeature && !isSelected ? "0.32" : "0.96");
+      path.setAttribute("opacity", selectedFeatureVisible && !isSelected ? "0.32" : "0.96");
       path.style.cursor = "pointer";
       path.addEventListener("click", () => {
         app.state.selectedFeatureIndex = index;
@@ -504,6 +544,7 @@
   function render(app) {
     const summary = app.recordSummaries[app.state.recordIndex];
     const record = getRecord(app);
+    updateFeatureToggleButtons(app);
     app.els.centerTitle.textContent = summary ? summary.id : "Record";
     app.els.centerMeta.textContent = summary ? `${Number(summary.length).toLocaleString()} bp` : "-";
     app.els.centerSecondary.textContent = "Circular sequence map";
@@ -531,7 +572,7 @@
 
     app.els.featureTotal.textContent = `${record.features.length.toLocaleString()} total`;
     app.els.restrictionCount.textContent = `${record.restriction_sites.length.toLocaleString()} total`;
-    const displayedFeatureCount = record.features.filter((feature) => isCdsFeature(feature) || isPrimerOrMiscFeature(feature)).length;
+    const displayedFeatureCount = record.features.filter((feature) => shouldDisplayFeature(app, feature)).length;
     app.els.mapStatus.textContent = `${displayedFeatureCount.toLocaleString()} displayed feature(s): CDS and primer_bind/misc_feature lanes | ${record.restriction_sites.length.toLocaleString()} restriction site(s) available`;
     renderCircularMap(app, record);
     renderFeatureTable(app, record);
@@ -584,6 +625,18 @@
     });
     app.els.resetBtn.addEventListener("click", () => {
       app.state.zoomPercent = 100;
+      render(app);
+    });
+    app.els.toggleCdsFeaturesBtn.addEventListener("click", () => {
+      app.state.showCdsFeatures = !app.state.showCdsFeatures;
+      render(app);
+    });
+    app.els.togglePrimerFeaturesBtn.addEventListener("click", () => {
+      app.state.showPrimerFeatures = !app.state.showPrimerFeatures;
+      render(app);
+    });
+    app.els.toggleMiscFeaturesBtn.addEventListener("click", () => {
+      app.state.showMiscFeatures = !app.state.showMiscFeatures;
       render(app);
     });
     app.els.clearSelectionBtn.addEventListener("click", () => {

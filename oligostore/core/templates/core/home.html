@@ -1,137 +1,163 @@
 {% extends "core/base.html" %}
-{% block title %}Oligostore – Home{% endblock %}
+{% block title %}Oligostore - Home{% endblock %}
 
 {% block content %}
-<section class="bg-base-200/60">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-        <div class="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-            <div class="text-center lg:text-left">
-                <span class="badge badge-outline text-sm mb-4">Oligo management made easy</span>
-                <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-primary mb-5">
-                    Welcome to Oligostore
-                </h1>
-                <p class="text-base sm:text-lg opacity-80 max-w-2xl mx-auto lg:mx-0">
-                    A modern platform for organizing oligos, primers, and projects with clear workflows and
-                    lightning-fast access to everything your lab needs.
-                </p>
-                <div class="mt-8 flex flex-col sm:flex-row sm:flex-wrap justify-center lg:justify-start gap-3">
-                    <a href="{% url 'primer_list' %}" class="btn btn-primary btn-md sm:btn-lg">
-                        View Primers
-                    </a>
-                    <a href="{% url 'primerpair_list' %}" class="btn btn-primary btn-md sm:btn-lg">
-                        View Primer Pairs
-                    </a>
-                    <a href="{% url 'project_list' %}" class="btn btn-primary btn-md sm:btn-lg">
-                        View Projects
-                    </a>
-                    <a href="{% url 'sequencefile_list' %}" class="btn btn-primary btn-md sm:btn-lg">
-                        Sequence Files
-                    </a>
-                    <a href="{% url 'pcrproduct_list' %}" class="btn btn-primary btn-md sm:btn-lg">
-                        View PCR Products
-                    </a>
-                    <a href="{% url 'cloning_construct_list' %}" class="btn btn-primary btn-md sm:btn-lg">
-                        Cloning Constructs
-                    </a>
-                </div>
-                <div class="mt-4 flex flex-col sm:flex-row sm:flex-wrap justify-center lg:justify-start gap-3">
-                    <a href="{% url 'analyze_sequence' %}" class="btn btn-accent btn-md sm:btn-lg">
-                        Design Primer
-                    </a>
-                    <a href="{% url 'cloning_construct_create' %}" class="btn btn-accent btn-md sm:btn-lg">
-                        New Construct
-                    </a>
-                    <a href="{% url 'cloning_asset_list' %}" class="btn btn-accent btn-md sm:btn-lg">
-                        Cloning Assets
-                    </a>
-                    <a href="{% url 'primer_create' %}" class="btn btn-accent btn-md sm:btn-lg">
-                        Create Primer
-                    </a>
-                    <a href="{% url 'primerpair_combined_create' %}" class="btn btn-accent btn-md sm:btn-lg">
-                        Create Primer Pairs
-                    </a>
-                    <a href="{% url 'project_create' %}" class="btn btn-accent btn-md sm:btn-lg">
-                        Create New Project
-                    </a>
-                </div>
-            </div>
-            <div class="card bg-base-100 shadow-xl border border-base-200">
-                <div class="card-body gap-6">
-                    <h2 class="card-title text-2xl">Quick Start</h2>
-                    <div class="space-y-4">
-                        <div class="flex items-start gap-4">
-                            <div class="badge badge-primary badge-lg">1</div>
-                            <div>
-                                <p class="font-semibold">Capture oligos fast</p>
-                                <p class="text-sm opacity-70">Add primers manually or design them directly in-app.</p>
-                            </div>
-                        </div>
-                        <div class="flex items-start gap-4">
-                            <div class="badge badge-primary badge-lg">2</div>
-                            <div>
-                                <p class="font-semibold">Group into projects</p>
-                                <p class="text-sm opacity-70">Track project progress with primer pairs and files.</p>
-                            </div>
-                        </div>
-                        <div class="flex items-start gap-4">
-                            <div class="badge badge-primary badge-lg">3</div>
-                            <div>
-                                <p class="font-semibold">Stay organized</p>
-                                <p class="text-sm opacity-70">Search and filter your sequence library in seconds.</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="alert alert-info text-sm">
-                        Tip: Use the navigation menu on mobile for one-tap access to all tools.
-                    </div>
-                </div>
-            </div>
+<div class="max-w-6xl mx-auto px-4 py-10 space-y-8">
+  <section class="rounded-2xl border border-base-300 bg-base-100 shadow-xl overflow-hidden">
+    <div class="grid gap-0 lg:grid-cols-[1.15fr_0.85fr]">
+      <div class="p-8 sm:p-10 lg:p-12">
+        <div class="badge badge-outline mb-5">Lab workspace</div>
+        <h1 class="text-4xl sm:text-5xl font-bold tracking-normal text-base-content">Oligostore</h1>
+        <p class="mt-4 max-w-2xl text-base sm:text-lg opacity-75">
+          Manage primers, sequence files, PCR products, projects, and cloning constructs from one focused workspace.
+        </p>
+        <div class="mt-8 flex flex-col gap-3 sm:flex-row">
+          <a href="{% url 'sequencefile_list' %}" class="btn btn-primary">Open sequence files</a>
+          <a href="{% url 'cloning_construct_list' %}" class="btn btn-outline">Review constructs</a>
         </div>
+      </div>
+
+      <div class="border-t lg:border-l lg:border-t-0 border-base-300 bg-base-200/70 p-8 sm:p-10 lg:p-12">
+        <div class="text-sm font-semibold uppercase tracking-wide opacity-60">Current workflow</div>
+        <div class="mt-5 space-y-5">
+          <div>
+            <div class="font-semibold">Design and save primers</div>
+            <p class="text-sm opacity-70 mt-1">Create primers manually or from sequence selections.</p>
+          </div>
+          <div>
+            <div class="font-semibold">Inspect sequence files</div>
+            <p class="text-sm opacity-70 mt-1">Use linear and circular views for features, primers, and saved PCR products.</p>
+          </div>
+          <div>
+            <div class="font-semibold">Assemble constructs</div>
+            <p class="text-sm opacity-70 mt-1">Combine cloning assets and check restriction-ligation validation output.</p>
+          </div>
+        </div>
+      </div>
     </div>
-</section>
+  </section>
 
-</br>
-
-<section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div class="card bg-base-100 shadow-md border border-base-200">
-            <div class="card-body">
-                <h2 class="card-title">Manage Oligos</h2>
-                <p class="opacity-80">
-                    Store, search, and annotate your oligonucleotide sequences with clarity.
-                </p>
-            </div>
-        </div>
-
-        <div class="card bg-base-100 shadow-md border border-base-200">
-            <div class="card-body">
-                <h2 class="card-title">Project Workflows</h2>
-                <p class="opacity-80">
-                    Organize oligos into projects and keep every experiment on track.
-                </p>
-            </div>
-        </div>
-
-        <div class="card bg-base-100 shadow-md border border-base-200">
-            <div class="card-body">
-                <h2 class="card-title">Modern Interface</h2>
-                <p class="opacity-80">
-                    Built with Tailwind and DaisyUI for fast, mobile-friendly navigation.
-                </p>
-            </div>
-        </div>
-
-        <div class="card bg-base-100 shadow-md border border-base-200">
-            <div class="card-body">
-                <h2 class="card-title">Cloning Planning</h2>
-                <p class="opacity-80">
-                    Build vectors, inserts, and restriction-ligation constructs with saved validation output.
-                </p>
-                <div class="pt-3">
-                    <a href="{% url 'cloning_construct_list' %}" class="btn btn-sm btn-outline">Open Constructs</a>
-                </div>
-            </div>
-        </div>
+  <section class="grid gap-4 lg:grid-cols-3">
+    <div class="rounded-xl border border-base-300 bg-base-100 p-6 shadow">
+      <div class="text-sm opacity-60">Molecules</div>
+      <h2 class="mt-2 text-xl font-semibold">Primers and products</h2>
+      <p class="mt-2 text-sm opacity-70">Browse stored primers, primer pairs, and generated PCR products.</p>
+      <div class="mt-5 flex flex-wrap gap-2">
+        <a href="{% url 'primer_list' %}" class="btn btn-sm home-action home-action-sky">Primers</a>
+        <a href="{% url 'primerpair_list' %}" class="btn btn-sm home-action home-action-indigo">Primer pairs</a>
+        <a href="{% url 'pcrproduct_list' %}" class="btn btn-sm home-action home-action-cyan">PCR products</a>
+      </div>
     </div>
-</section>
+
+    <div class="rounded-xl border border-base-300 bg-base-100 p-6 shadow">
+      <div class="text-sm opacity-60">Sequences</div>
+      <h2 class="mt-2 text-xl font-semibold">Files and analysis</h2>
+      <p class="mt-2 text-sm opacity-70">Upload sequence files, inspect features, and run primer-design workflows.</p>
+      <div class="mt-5 flex flex-wrap gap-2">
+        <a href="{% url 'sequencefile_list' %}" class="btn btn-sm home-action home-action-emerald">Sequence files</a>
+        <a href="{% url 'analyze_sequence' %}" class="btn btn-sm home-action home-action-lime">Design primer</a>
+        <a href="{% url 'primer_binding' %}" class="btn btn-sm home-action home-action-teal">Primer binding</a>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-base-300 bg-base-100 p-6 shadow">
+      <div class="text-sm opacity-60">Organization</div>
+      <h2 class="mt-2 text-xl font-semibold">Projects and cloning</h2>
+      <p class="mt-2 text-sm opacity-70">Group work into projects and assemble saved cloning constructs.</p>
+      <div class="mt-5 flex flex-wrap gap-2">
+        <a href="{% url 'project_list' %}" class="btn btn-sm home-action home-action-amber">Projects</a>
+        <a href="{% url 'cloning_asset_list' %}" class="btn btn-sm home-action home-action-orange">Cloning assets</a>
+        <a href="{% url 'cloning_construct_list' %}" class="btn btn-sm home-action home-action-rose">Constructs</a>
+      </div>
+    </div>
+  </section>
+</div>
+
+<style>
+  .home-action {
+    border-width: 1px;
+    box-shadow: none;
+  }
+  .home-action-sky {
+    border-color: #7dd3fc;
+    background: #e0f2fe;
+    color: #075985;
+  }
+  .home-action-sky:hover {
+    border-color: #38bdf8;
+    background: #bae6fd;
+  }
+  .home-action-indigo {
+    border-color: #a5b4fc;
+    background: #e0e7ff;
+    color: #3730a3;
+  }
+  .home-action-indigo:hover {
+    border-color: #818cf8;
+    background: #c7d2fe;
+  }
+  .home-action-cyan {
+    border-color: #67e8f9;
+    background: #cffafe;
+    color: #155e75;
+  }
+  .home-action-cyan:hover {
+    border-color: #22d3ee;
+    background: #a5f3fc;
+  }
+  .home-action-emerald {
+    border-color: #6ee7b7;
+    background: #d1fae5;
+    color: #065f46;
+  }
+  .home-action-emerald:hover {
+    border-color: #34d399;
+    background: #a7f3d0;
+  }
+  .home-action-lime {
+    border-color: #bef264;
+    background: #ecfccb;
+    color: #3f6212;
+  }
+  .home-action-lime:hover {
+    border-color: #a3e635;
+    background: #d9f99d;
+  }
+  .home-action-teal {
+    border-color: #5eead4;
+    background: #ccfbf1;
+    color: #115e59;
+  }
+  .home-action-teal:hover {
+    border-color: #2dd4bf;
+    background: #99f6e4;
+  }
+  .home-action-amber {
+    border-color: #fcd34d;
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .home-action-amber:hover {
+    border-color: #fbbf24;
+    background: #fde68a;
+  }
+  .home-action-orange {
+    border-color: #fdba74;
+    background: #ffedd5;
+    color: #9a3412;
+  }
+  .home-action-orange:hover {
+    border-color: #fb923c;
+    background: #fed7aa;
+  }
+  .home-action-rose {
+    border-color: #fda4af;
+    background: #ffe4e6;
+    color: #9f1239;
+  }
+  .home-action-rose:hover {
+    border-color: #fb7185;
+    background: #fecdd3;
+  }
+</style>
 {% endblock %}
