@@ -385,6 +385,7 @@ class AnalysisJob(models.Model):
 
 
 class CloningConstruct(AccessControllModel):
+    JUNCTION_CONTEXT_WINDOW = 12
     STRATEGY_RESTRICTION_LIGATION = "restriction_ligation"
     STRATEGY_CHOICES = [
         (STRATEGY_RESTRICTION_LIGATION, "Restriction ligation"),
@@ -441,6 +442,7 @@ class CloningConstruct(AccessControllModel):
     assembled_length = models.IntegerField(default=0)
     is_valid = models.BooleanField(default=False)
     validation_messages = models.JSONField(default=list, blank=True)
+    detail_display_snapshot = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -465,6 +467,26 @@ class CloningConstruct(AccessControllModel):
     @property
     def insert_name(self):
         if self.insert_sequence_file_id:
+            return self.insert_sequence_file.name
+        if self.insert_pcr_product_id:
+            return self.insert_pcr_product.name
+        return "Unknown insert"
+
+    @property
+    def vector_asset_label(self):
+        if self.vector_sequence_file_id:
+            if self.vector_record_id:
+                return f"{self.vector_sequence_file.name} / {self.vector_record_id}"
+            return self.vector_sequence_file.name
+        if self.vector_pcr_product_id:
+            return self.vector_pcr_product.name
+        return "Unknown vector"
+
+    @property
+    def insert_asset_label(self):
+        if self.insert_sequence_file_id:
+            if self.insert_record_id:
+                return f"{self.insert_sequence_file.name} / {self.insert_record_id}"
             return self.insert_sequence_file.name
         if self.insert_pcr_product_id:
             return self.insert_pcr_product.name

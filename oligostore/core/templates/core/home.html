@@ -30,6 +30,9 @@
                     <a href="{% url 'pcrproduct_list' %}" class="btn btn-primary btn-md sm:btn-lg">
                         View PCR Products
                     </a>
+                    <a href="{% url 'cloning_construct_list' %}" class="btn btn-primary btn-md sm:btn-lg">
+                        Cloning Constructs
+                    </a>
                 </div>
                 <div class="mt-4 flex flex-col sm:flex-row sm:flex-wrap justify-center lg:justify-start gap-3">
                     <a href="{% url 'analyze_sequence' %}" class="btn btn-accent btn-md sm:btn-lg">
@@ -124,6 +127,9 @@
                 <p class="opacity-80">
                     Build vectors, inserts, and restriction-ligation constructs with saved validation output.
                 </p>
+                <div class="pt-3">
+                    <a href="{% url 'cloning_construct_list' %}" class="btn btn-sm btn-outline">Open Constructs</a>
+                </div>
             </div>
         </div>
     </div>

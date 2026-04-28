@@ -11,7 +11,9 @@ from .views.auth import register
 from .views.cloning import (
     cloning_asset_list,
     cloning_construct_create,
+    cloning_construct_delete,
     cloning_construct_detail,
+    cloning_construct_download_genbank,
     cloning_construct_list,
 )
 from .views.home import home
@@ -47,6 +49,8 @@ from .views.projects import (
     project_remove_sequencefile,
 )
 from .views.sequence_files import (
+    pcrproduct_delete,
+    pcrproduct_detail,
     pcrproduct_list,
     primer_binding_analysis,
     primer_binding_analysis_async,
@@ -100,6 +104,12 @@ urlpatterns = [
     path("cloning/constructs/", cloning_construct_list, name="cloning_construct_list"),
     path("cloning/constructs/create/", cloning_construct_create, name="cloning_construct_create"),
     path("cloning/constructs/<int:construct_id>/", cloning_construct_detail, name="cloning_construct_detail"),
+    path("cloning/constructs/<int:construct_id>/delete/", cloning_construct_delete, name="cloning_construct_delete"),
+    path(
+        "cloning/constructs/<int:construct_id>/download/genbank/",
+        cloning_construct_download_genbank,
+        name="cloning_construct_download_genbank",
+    ),
     path("primers/", primer_list, name="primer_list"),
     path("primers/create/", primer_create, name="primer_create"),
     path("primers/import/", primer_import_excel, name="primer_import_excel"),
@@ -125,6 +135,8 @@ urlpatterns = [
         name="sequencefile_update_type",
     ),
     path("pcr-products/", pcrproduct_list, name="pcrproduct_list"),
+    path("pcr-products/<int:pcrproduct_id>/", pcrproduct_detail, name="pcrproduct_detail"),
+    path("pcr-products/<int:pcrproduct_id>/delete/", pcrproduct_delete, name="pcrproduct_delete"),
     path("sequence-files/<int:sequencefile_id>/linear-view/", sequencefile_linear_view, name="sequencefile_linear_view"),
     path("sequence-files/<int:sequencefile_id>/circular-view/", sequencefile_circular_view, name="sequencefile_circular_view"),
     path(

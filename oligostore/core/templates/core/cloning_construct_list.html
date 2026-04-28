@@ -2,33 +2,142 @@
 {% block title %}Cloning Constructs{% endblock %}
 
 {% block content %}
-<div class="flex justify-between items-center mb-8">
-    <div>
-        <h1 class="text-3xl font-bold">Cloning Constructs</h1>
-        <p class="opacity-70 mt-2">Saved cloning plans with vector, insert, and enzyme validation.</p>
+<div class="max-w-6xl mx-auto px-4 py-10">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+            <h1 class="text-3xl font-bold">Cloning Constructs</h1>
+            <p class="opacity-70 mt-2">A dedicated workspace for browsing assembled constructs, checking their status, and exporting annotated GenBank files.</p>
+        </div>
+        <div class="flex gap-2">
+            <a href="{% url 'cloning_construct_create' %}" class="btn btn-primary">+ New Construct</a>
+            <a href="{% url 'cloning_asset_list' %}" class="btn btn-ghost">Browse Assets</a>
+        </div>
     </div>
-    <a href="{% url 'cloning_construct_create' %}" class="btn btn-primary">+ New Construct</a>
-</div>
 
-{% if constructs %}
-<div class="grid gap-4">
-    {% for construct in constructs %}
-    <a href="{% url 'cloning_construct_detail' construct.id %}" class="card bg-base-100 shadow p-4 hover:shadow-lg">
-        <div class="flex justify-between items-start gap-4">
-            <div>
-                <h2 class="text-xl font-bold">{{ construct.name }}</h2>
-                <p class="opacity-70">{{ construct.vector_name }} + {{ construct.insert_name }}</p>
-                <p class="text-sm opacity-60 mt-1">{{ construct.left_enzyme }} / {{ construct.right_enzyme }}</p>
-            </div>
-            <div class="badge {% if construct.is_valid %}badge-success{% else %}badge-warning{% endif %}">
-                {% if construct.is_valid %}Valid{% else %}Needs review{% endif %}
+    <div class="grid gap-4 md:grid-cols-3 mt-8">
+        <div class="card bg-base-100 shadow border border-base-300">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Constructs</div>
+                <div class="text-3xl font-bold">{{ page_obj.paginator.count }}</div>
+                <div class="text-sm opacity-70">All saved cloning constructs visible to you.</div>
             </div>
         </div>
-    </a>
-    {% endfor %}
+        <div class="card bg-base-100 shadow border border-base-300">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Current Page</div>
+                <div class="text-3xl font-bold">{{ constructs|length }}</div>
+                <div class="text-sm opacity-70">Constructs shown after the current search and sort filters.</div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow border border-base-300">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Exports</div>
+                <div class="text-3xl font-bold">GB</div>
+                <div class="text-sm opacity-70">Download annotated GenBank directly from each construct.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-8">
+        <div class="card-body gap-4">
+            <form method="GET" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                <div class="form-control md:col-span-6">
+                    <label class="label"><span class="label-text font-semibold">Search</span></label>
+                    <input
+                        type="text"
+                        name="q"
+                        value="{{ request.GET.q }}"
+                        placeholder="Name, description, vector, insert, enzyme"
+                        class="input input-bordered w-full"
+                    />
+                </div>
+                <div class="form-control md:col-span-4">
+                    <label class="label"><span class="label-text font-semibold">Order by</span></label>
+                    <select name="order" class="select select-bordered w-full">
+                        <option value="created_desc" {% if request.GET.order == "created_desc" or not request.GET.order %}selected{% endif %}>Newest</option>
+                        <option value="created" {% if request.GET.order == "created" %}selected{% endif %}>Oldest</option>
+                        <option value="name" {% if request.GET.order == "name" %}selected{% endif %}>Name (A-Z)</option>
+                        <option value="name_desc" {% if request.GET.order == "name_desc" %}selected{% endif %}>Name (Z-A)</option>
+                    </select>
+                </div>
+                <div class="md:col-span-2 flex gap-2">
+                    <button class="btn btn-primary flex-1" type="submit">Apply</button>
+                    <a class="btn btn-ghost" href="{% url 'cloning_construct_list' %}">Reset</a>
+                </div>
+            </form>
+            <div class="badge badge-outline">
+                Total: {{ page_obj.paginator.count }}
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-6">
+        <div class="card-body">
+            {% if constructs %}
+            <div class="overflow-x-auto">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Construct</th>
+                            <th>Assets</th>
+                            <th>Enzymes</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                {% for construct in constructs %}
+                        <tr class="hover">
+                            <td>
+                                <div class="font-semibold">{{ construct.name }}</div>
+                                <div class="text-sm opacity-70">{{ construct.assembled_length }} bp</div>
+                                {% if construct.description %}
+                                <div class="text-sm opacity-60 mt-1">{{ construct.description }}</div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="font-medium">{{ construct.vector_asset_label }}</div>
+                                <div class="text-sm opacity-70">with insert {{ construct.insert_asset_label }}</div>
+                            </td>
+                            <td>
+                                <div>{{ construct.left_enzyme }} / {{ construct.right_enzyme }}</div>
+                                <div class="text-sm opacity-60">{{ construct.get_assembly_strategy_display }}</div>
+                            </td>
+                            <td>
+                                <div class="badge {% if construct.is_valid %}badge-success{% else %}badge-warning{% endif %}">
+                                    {% if construct.is_valid %}Valid{% else %}Needs review{% endif %}
+                                </div>
+                                {% if not construct.is_valid %}
+                                <div class="mt-2">
+                                    <a href="{% url 'cloning_construct_create' %}?review_construct={{ construct.id }}" class="btn btn-warning btn-outline btn-xs">Step Back</a>
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="flex flex-wrap gap-2">
+                                    <a href="{% url 'cloning_construct_detail' construct.id %}" class="btn btn-sm btn-ghost">Open</a>
+                                    <a href="{% url 'cloning_construct_download_genbank' construct.id %}" class="btn btn-sm btn-outline">GenBank</a>
+                                    {% if construct.creator_id == request.user.id %}
+                                    <form method="POST" action="{% url 'cloning_construct_delete' construct.id %}" onsubmit="return confirm('Delete cloning construct {{ construct.name|escapejs }}?');">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-error btn-outline">Delete</button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% include "core/pagination.html" %}
+            {% else %}
+            <div class="p-10 text-center">
+                <h2 class="text-xl font-bold">No cloning constructs found</h2>
+                <p class="opacity-70 mt-2">Adjust the current filters or create a new construct.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
 </div>
-{% include "core/pagination.html" %}
-{% else %}
-<p class="text-center opacity-60 mt-10">No constructs yet.</p>
-{% endif %}
 {% endblock %}

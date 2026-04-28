@@ -11,7 +11,13 @@ from .access import (
 )
 from .models import CloningConstruct, Primer, PrimerPair, Project, SequenceFile
 import re
-from .services.cloning import get_detected_enzyme_choices
+from .services.cloning import (
+    build_pcr_product_asset_choice,
+    build_sequence_file_asset_choice,
+    get_detected_enzyme_choices,
+)
+from .services.sequence_loader import load_sequences
+from .services.sequence_records import get_sequence_records
 
 def apply_tailwind_classes(fields):
     for field in fields.values():
@@ -53,55 +59,105 @@ class ProjectForm(forms.ModelForm):
         apply_tailwind_classes(self.fields)
 
 
-class CloningConstructForm(forms.ModelForm):
+def _build_cloning_asset_choices(user):
+    if user is None:
+        return []
+
+    asset_choices = []
+    for sequence_file in accessible_sequence_files(user).order_by("name"):
+        try:
+            records = get_sequence_records(sequence_file, load_sequences)
+        except Exception:
+            records = None
+        if records:
+            multi_record_label = (
+                "multi-record file" if len(records) > 1 else "single-record file"
+            )
+            for record in records:
+                asset_choice = build_sequence_file_asset_choice(
+                    sequence_file_id=sequence_file.id,
+                    record_id=str(record.id),
+                )
+                asset_choices.append(
+                    (
+                        asset_choice.encoded_value,
+                        (
+                            f"Sequence file | {sequence_file.name} | "
+                            f"record {record.id} | {len(record.seq)} bp | "
+                            f"{multi_record_label}"
+                        ),
+                    )
+                )
+        else:
+            asset_choices.append(
+                (
+                    f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{sequence_file.id}",
+                    f"Sequence file | {sequence_file.name} | record unavailable | length unavailable | parse required",
+                )
+            )
+    for pcr_product in accessible_pcr_products(user).order_by("name"):
+        asset_choice = build_pcr_product_asset_choice(pcr_product_id=pcr_product.id)
+        asset_choices.append(
+            (
+                asset_choice.encoded_value,
+                (
+                    f"PCR product | {pcr_product.name} | "
+                    f"record {pcr_product.record_id or 'n/a'} | "
+                    f"{pcr_product.length} bp | single record"
+                ),
+            )
+        )
+    return asset_choices
+
+
+class BaseCloningConstructForm(forms.Form):
+    def clean(self):
+        cleaned_data = super().clean()
+        vector_asset = cleaned_data.get("vector_asset")
+        insert_asset = cleaned_data.get("insert_asset")
+        if vector_asset and insert_asset and vector_asset == insert_asset:
+            raise forms.ValidationError("Vector and insert must be different assets.")
+        return cleaned_data
+
+
+class CloningConstructAssetForm(BaseCloningConstructForm):
+    name = forms.CharField(max_length=255)
+    description = forms.CharField(required=False, widget=forms.Textarea)
+    assembly_strategy = forms.ChoiceField(choices=CloningConstruct.STRATEGY_CHOICES)
     vector_asset = forms.ChoiceField(choices=())
     insert_asset = forms.ChoiceField(choices=())
-    left_enzyme = forms.ChoiceField(choices=())
-    right_enzyme = forms.ChoiceField(choices=())
-
-    class Meta:
-        model = CloningConstruct
-        fields = [
-            "name",
-            "description",
-            "assembly_strategy",
-            "vector_asset",
-            "insert_asset",
-            "left_enzyme",
-            "right_enzyme",
-        ]
 
     def __init__(self, *args, **kwargs):
         user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
-        selected_vector_asset = None
-        if user is not None:
-            vector_choices = []
-            for sequence_file in accessible_sequence_files(user).order_by("name"):
-                vector_choices.append(
-                    (
-                        f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{sequence_file.id}",
-                        f"Sequence file: {sequence_file.name}",
-                    )
-                )
-            for pcr_product in accessible_pcr_products(user).order_by("name"):
-                vector_choices.append(
-                    (
-                        f"{CloningConstruct.SOURCE_PCR_PRODUCT}:{pcr_product.id}",
-                        f"PCR product: {pcr_product.name}",
-                    )
-                )
-            self.fields["vector_asset"].choices = vector_choices
-            self.fields["insert_asset"].choices = list(vector_choices)
-            selected_vector_asset = (
-                self.data.get("vector_asset")
-                if self.is_bound
-                else self.initial.get("vector_asset")
-            )
-        self.fields["vector_asset"].help_text = "Choose an uploaded sequence file or saved PCR product to use as the vector."
-        self.fields["insert_asset"].help_text = "Choose an uploaded sequence file or saved PCR product to insert into the vector."
-        self.fields["left_enzyme"].help_text = "Only enzymes detected in your available cloning assets are listed."
-        self.fields["right_enzyme"].help_text = "You may choose the same enzyme twice for single-enzyme cloning."
+        asset_choices = _build_cloning_asset_choices(user)
+        self.fields["vector_asset"].choices = asset_choices
+        self.fields["insert_asset"].choices = list(asset_choices)
+        self.fields["vector_asset"].help_text = "Choose an uploaded sequence-file record or saved PCR product to use as the vector."
+        self.fields["insert_asset"].help_text = "Choose an uploaded sequence-file record or saved PCR product to insert into the vector."
+        apply_tailwind_classes(self.fields)
+
+
+class CloningConstructAssemblyForm(BaseCloningConstructForm):
+    name = forms.CharField(max_length=255, widget=forms.HiddenInput)
+    description = forms.CharField(required=False, widget=forms.HiddenInput)
+    assembly_strategy = forms.ChoiceField(choices=CloningConstruct.STRATEGY_CHOICES, widget=forms.HiddenInput)
+    vector_asset = forms.ChoiceField(choices=(), widget=forms.HiddenInput)
+    insert_asset = forms.ChoiceField(choices=(), widget=forms.HiddenInput)
+    left_enzyme = forms.ChoiceField(choices=())
+    right_enzyme = forms.ChoiceField(choices=())
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        super().__init__(*args, **kwargs)
+        asset_choices = _build_cloning_asset_choices(user)
+        self.fields["vector_asset"].choices = asset_choices
+        self.fields["insert_asset"].choices = list(asset_choices)
+        selected_vector_asset = (
+            self.data.get("vector_asset")
+            if self.is_bound
+            else self.initial.get("vector_asset")
+        )
         enzyme_choices = (
             get_detected_enzyme_choices(
                 user=user,
@@ -112,15 +168,9 @@ class CloningConstructForm(forms.ModelForm):
         )
         self.fields["left_enzyme"].choices = enzyme_choices
         self.fields["right_enzyme"].choices = enzyme_choices
+        self.fields["left_enzyme"].help_text = "Only enzymes detected in the selected vector are listed."
+        self.fields["right_enzyme"].help_text = "Choose the same enzyme twice for same-enzyme cloning. Supported same-enzyme layouts are vector 1 cut / insert 0 cuts for direct insertion, or vector 2 cuts / insert 2 cuts for fragment replacement."
         apply_tailwind_classes(self.fields)
-
-    def clean(self):
-        cleaned_data = super().clean()
-        vector_asset = cleaned_data.get("vector_asset")
-        insert_asset = cleaned_data.get("insert_asset")
-        if vector_asset and insert_asset and vector_asset == insert_asset:
-            raise forms.ValidationError("Vector and insert must be different assets.")
-        return cleaned_data
 
 class PrimerForm(forms.ModelForm):
     class Meta:

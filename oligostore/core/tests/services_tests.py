@@ -11,6 +11,7 @@ from core.services import primer_analysis
 from core.services import primer_binding
 from core.services import sequence_loader
 from core.services import user_assignment
+from core.services import cloning
 
 
 class PrimerAnalysisTests(SimpleTestCase):
@@ -439,3 +440,238 @@ class UserAssignmentTests(SimpleTestCase):
 
         self.assertIs(returned, obj)
         self.assertEqual(obj.users.added, user)
+
+
+class CloningServiceTests(SimpleTestCase):
+    def test_asset_choice_helpers_encode_record_aware_values(self):
+        sequence_choice = cloning.build_sequence_file_asset_choice(
+            sequence_file_id=7,
+            record_id="plasmidA",
+        )
+        product_choice = cloning.build_pcr_product_asset_choice(pcr_product_id=12)
+
+        self.assertEqual(sequence_choice.encoded_value, "sequence_file:7:plasmidA")
+        self.assertEqual(product_choice.encoded_value, "pcr_product:12")
+
+    def test_resolve_cloning_assets_returns_vector_and_insert_assets(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="GAATTC",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="pcr_product",
+            sequence_file=None,
+            pcr_product=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="ATGC",
+        )
+
+        with mock.patch.object(cloning, "resolve_asset_choice", side_effect=[vector_asset, insert_asset]) as resolve_mock:
+            assets = cloning.resolve_cloning_assets(
+                user="user-1",
+                vector_asset_choice="sequence_file:1:vec1",
+                insert_asset_choice="pcr_product:2",
+            )
+
+        self.assertEqual(assets.vector_asset, vector_asset)
+        self.assertEqual(assets.insert_asset, insert_asset)
+        self.assertEqual(resolve_mock.call_count, 2)
+
+    def test_preview_cloning_construct_returns_persistable_payload(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file="vector-file",
+            pcr_product=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="GAATTCACCCCGGATCC",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="pcr_product",
+            sequence_file=None,
+            pcr_product="insert-product",
+            record_id="ins1",
+            name="Insert",
+            sequence="ATGCATGC",
+        )
+
+        with mock.patch.object(
+            cloning,
+            "_validate_restriction_ligation",
+            return_value=cloning.CloningValidationResult(
+                is_valid=True,
+                validation_messages=("ok",),
+                assembled_sequence="assembled-seq",
+            ),
+        ) as validate_mock:
+            preview_data = cloning.preview_cloning_construct(
+                vector_asset=vector_asset,
+                insert_asset=insert_asset,
+                assembly_strategy="restriction_ligation",
+                left_enzyme="EcoRI",
+                right_enzyme="BamHI",
+            )
+
+        self.assertEqual(preview_data.vector_asset.sequence_file, "vector-file")
+        self.assertEqual(preview_data.insert_asset.pcr_product, "insert-product")
+        self.assertEqual(preview_data.assembled_sequence, "assembled-seq")
+        self.assertTrue(preview_data.is_valid)
+        self.assertEqual(preview_data.validation_messages, ("ok",))
+        validate_mock.assert_called_once_with("GAATTCACCCCGGATCC", "ATGCATGC", "EcoRI", "BamHI")
+
+    def test_build_cloning_construct_detail_display_returns_read_model(self):
+        construct = SimpleNamespace(
+            vector_source_type="sequence_file",
+            vector_sequence_file="vector-file",
+            vector_pcr_product=None,
+            vector_record_id="vec1",
+            insert_source_type="pcr_product",
+            insert_sequence_file=None,
+            insert_pcr_product="insert-product",
+            insert_record_id="ins1",
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembly_strategy="restriction_ligation",
+            assembled_sequence="GATGCATGCGATCC",
+        )
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file="vector-file",
+            pcr_product=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="GAATTCACCCCGGATCC",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="pcr_product",
+            sequence_file=None,
+            pcr_product="insert-product",
+            record_id="ins1",
+            name="Insert",
+            sequence="ATGCATGC",
+        )
+
+        with mock.patch.object(cloning, "_resolve_construct_asset", side_effect=[vector_asset, insert_asset]), \
+             mock.patch.object(
+                 cloning,
+                 "_build_cut_site_preview",
+                 side_effect=[
+                     cloning.CloningCutSitePreview(
+                         enzyme_name="EcoRI",
+                         site_sequence="GAATTC",
+                         vector_cut_positions=(1,),
+                         insert_recognition_site_positions=(),
+                     ),
+                     cloning.CloningCutSitePreview(
+                         enzyme_name="BamHI",
+                         site_sequence="GGATCC",
+                         vector_cut_positions=(11,),
+                         insert_recognition_site_positions=(),
+                     ),
+                 ],
+             ), \
+             mock.patch.object(cloning, "_get_enzyme_by_name", side_effect=["eco", "bam"]), \
+             mock.patch.object(cloning, "_find_cut_positions", side_effect=[[1], [9]]):
+            detail_display = cloning.build_cloning_construct_detail_display(construct)
+
+        self.assertEqual(detail_display.junction_context_window, 12)
+        self.assertEqual(len(detail_display.cut_site_previews), 2)
+        self.assertEqual(detail_display.cut_site_previews[0].enzyme_name, "EcoRI")
+        self.assertEqual(detail_display.cut_site_previews[1].enzyme_name, "BamHI")
+        self.assertEqual(detail_display.junction_contexts[0].display, "G|ATGCATGCGATC")
+        self.assertEqual(detail_display.junction_contexts[1].display, "GATGCATGC|GATCC")
+        self.assertEqual(detail_display.source_errors, ())
+
+    def test_build_cloning_construct_detail_display_reports_source_errors(self):
+        construct = SimpleNamespace(
+            vector_source_type="sequence_file",
+            vector_sequence_file="vector-file",
+            vector_pcr_product=None,
+            vector_record_id="vec1",
+            insert_source_type="pcr_product",
+            insert_sequence_file=None,
+            insert_pcr_product="insert-product",
+            insert_record_id="ins1",
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembly_strategy="restriction_ligation",
+            assembled_sequence="GATGCATGCGATCC",
+        )
+
+        with mock.patch.object(
+            cloning,
+            "_resolve_construct_asset",
+            side_effect=[ValueError("Vector source is unavailable."), cloning.ResolvedCloningAsset(
+                source_type="pcr_product",
+                sequence_file=None,
+                pcr_product="insert-product",
+                record_id="ins1",
+                name="Insert",
+                sequence="ATGCATGC",
+            )],
+        ):
+            detail_display = cloning.build_cloning_construct_detail_display(construct)
+
+        self.assertEqual(detail_display.cut_site_previews, ())
+        self.assertEqual(detail_display.junction_contexts, ())
+        self.assertEqual(detail_display.source_errors, ("Vector source is unavailable.",))
+
+    def test_build_cloning_construct_detail_display_uses_persisted_snapshot(self):
+        construct = SimpleNamespace(
+            detail_display_snapshot={
+                "junction_context_window": 12,
+                "cut_site_previews": [
+                    {
+                        "enzyme_name": "EcoRI",
+                        "site_sequence": "GAATTC",
+                        "vector_cut_positions": [2],
+                        "insert_recognition_site_positions": [],
+                    }
+                ],
+                "junction_contexts": [
+                    {
+                        "label": "Vector -> insert junction",
+                        "left_context": "G",
+                        "right_context": "ATGCATGCGATC",
+                    }
+                ],
+                "source_errors": [],
+            },
+        )
+
+        detail_display = cloning.build_cloning_construct_detail_display(construct)
+
+        self.assertEqual(detail_display.junction_context_window, 12)
+        self.assertEqual(len(detail_display.cut_site_previews), 1)
+        self.assertEqual(detail_display.cut_site_previews[0].enzyme_name, "EcoRI")
+        self.assertEqual(detail_display.junction_contexts[0].display, "G|ATGCATGCGATC")
+        self.assertEqual(detail_display.source_errors, ())
+
+    def test_build_cloning_construct_detail_display_reads_legacy_insert_site_snapshot_key(self):
+        construct = SimpleNamespace(
+            detail_display_snapshot={
+                "junction_context_window": 12,
+                "cut_site_previews": [
+                    {
+                        "enzyme_name": "EcoRI",
+                        "site_sequence": "GAATTC",
+                        "vector_cut_positions": [2],
+                        "insert_site_positions": [5],
+                    }
+                ],
+                "junction_contexts": [],
+                "source_errors": [],
+            },
+        )
+
+        detail_display = cloning.build_cloning_construct_detail_display(construct)
+
+        self.assertEqual(
+            detail_display.cut_site_previews[0].insert_recognition_site_positions,
+            (5,),
+        )

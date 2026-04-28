@@ -70,6 +70,7 @@
                 <th>Amplicon</th>
                 <th>Primers</th>
                 <th>Created</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -102,9 +103,20 @@
                     <div>{{ product.created_at|date:"Y-m-d" }}</div>
                     <div class="text-xs opacity-70">{{ product.created_at|date:"H:i" }}</div>
                   </td>
+                  <td>
+                    <div class="flex flex-wrap gap-2">
+                      <a href="{% url 'pcrproduct_detail' product.id %}" class="btn btn-ghost btn-xs">Details</a>
+                      {% if product.creator_id == request.user.id %}
+                        <form method="POST" action="{% url 'pcrproduct_delete' product.id %}" onsubmit="return confirm('Delete PCR product {{ product.name|escapejs }}?');">
+                          {% csrf_token %}
+                          <button type="submit" class="btn btn-error btn-outline btn-xs">Delete</button>
+                        </form>
+                      {% endif %}
+                    </div>
+                  </td>
                 </tr>
                 <tr>
-                  <td colspan="6" class="bg-base-200/50">
+                  <td colspan="7" class="bg-base-200/50">
                     <div class="font-mono text-xs break-all">{{ product.sequence }}</div>
                   </td>
                 </tr>

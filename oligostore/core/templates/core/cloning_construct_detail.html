@@ -6,9 +6,21 @@
     <div class="flex justify-between items-start gap-4">
         <div>
             <h1 class="text-3xl font-bold">{{ construct.name }}</h1>
-            <p class="opacity-70 mt-2">{{ construct.vector_name }} + {{ construct.insert_name }}</p>
+            <p class="opacity-70 mt-2">{{ construct.vector_asset_label }} + {{ construct.insert_asset_label }}</p>
         </div>
-        <a href="{% url 'cloning_construct_list' %}" class="btn btn-ghost">Back</a>
+        <div class="flex gap-2">
+            {% if not construct.is_valid %}
+            <a href="{% url 'cloning_construct_create' %}?review_construct={{ construct.id }}" class="btn btn-warning btn-outline">Review Setup</a>
+            {% endif %}
+            <a href="{% url 'cloning_construct_download_genbank' construct.id %}" class="btn btn-outline">Download GenBank</a>
+            <a href="{% url 'cloning_construct_list' %}" class="btn btn-ghost">Back</a>
+            {% if can_delete %}
+            <form method="POST" action="{% url 'cloning_construct_delete' construct.id %}" onsubmit="return confirm('Delete cloning construct {{ construct.name|escapejs }}?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-error btn-outline">Delete</button>
+            </form>
+            {% endif %}
+        </div>
     </div>
 
     <div class="grid gap-4 md:grid-cols-3">
@@ -28,6 +40,9 @@
             <div class="card-body">
                 <div class="text-sm opacity-60">Status</div>
                 <div class="font-semibold">{% if construct.is_valid %}Valid{% else %}Needs review{% endif %}</div>
+                {% if not construct.is_valid %}
+                <a href="{% url 'cloning_construct_create' %}?review_construct={{ construct.id }}" class="btn btn-warning btn-outline btn-sm mt-3">Step Back</a>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -36,15 +51,15 @@
         <div class="card bg-base-100 shadow">
             <div class="card-body">
                 <div class="text-sm opacity-60">Vector Source</div>
-                <div class="font-semibold">{{ construct.vector_name }}</div>
-                <div class="text-sm opacity-70">{{ construct.vector_source_type|title }}{% if construct.vector_record_id %} / {{ construct.vector_record_id }}{% endif %}</div>
+                <div class="font-semibold">{{ construct.vector_asset_label }}</div>
+                <div class="text-sm opacity-70">{{ construct.vector_source_type|title }}</div>
             </div>
         </div>
         <div class="card bg-base-100 shadow">
             <div class="card-body">
                 <div class="text-sm opacity-60">Insert Source</div>
-                <div class="font-semibold">{{ construct.insert_name }}</div>
-                <div class="text-sm opacity-70">{{ construct.insert_source_type|title }}{% if construct.insert_record_id %} / {{ construct.insert_record_id }}{% endif %}</div>
+                <div class="font-semibold">{{ construct.insert_asset_label }}</div>
+                <div class="text-sm opacity-70">{{ construct.insert_source_type|title }}</div>
             </div>
         </div>
     </div>
@@ -58,14 +73,57 @@
                 {% empty %}
                 <li>No validation messages.</li>
                 {% endfor %}
+                {% for message in detail_display.source_errors %}
+                <li>{{ message }}</li>
+                {% endfor %}
             </ul>
+        </div>
+    </div>
+
+    <div class="grid gap-4 lg:grid-cols-2">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title">Cut Site Summary</h2>
+                <div class="space-y-4">
+                    {% for preview in detail_display.cut_site_previews %}
+                    <div class="rounded-xl border border-base-300 p-4 space-y-2">
+                        <div class="font-semibold">{{ preview.enzyme_name }}</div>
+                        <div class="text-sm opacity-70">Recognition site: {{ preview.site_sequence|default:"Unavailable" }}</div>
+                        <div class="text-sm">Vector cleavage positions: {% if preview.vector_cut_positions %}{{ preview.vector_cut_positions|join:", " }}{% else %}None{% endif %}</div>
+                        <div class="text-sm">Insert recognition-site positions: {% if preview.insert_recognition_site_positions %}{{ preview.insert_recognition_site_positions|join:", " }}{% else %}None{% endif %}</div>
+                    </div>
+                    {% empty %}
+                    <p class="text-sm opacity-70">No cut-site summary is available for this construct.</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="flex justify-between items-center">
+                    <h2 class="card-title">Junction Context</h2>
+                    <span class="text-sm opacity-60">{{ construct.assembled_length }} bp construct</span>
+                </div>
+                <div class="space-y-4">
+                    {% for junction in detail_display.junction_contexts %}
+                    <div class="rounded-xl border border-base-300 p-4 space-y-2">
+                        <div class="font-semibold">{{ junction.label }}</div>
+                        <div class="text-sm opacity-70">Boundary shown as `|` with {{ detail_display.junction_context_window }} bp of context per side when available.</div>
+                        <div class="font-mono text-sm break-all">{{ junction.display }}</div>
+                    </div>
+                    {% empty %}
+                        <p class="text-sm opacity-70">Junction context is unavailable for this construct.</p>
+                    {% endfor %}
+                </div>
+            </div>
         </div>
     </div>
 
     <div class="card bg-base-100 shadow">
         <div class="card-body">
             <div class="flex justify-between items-center">
-                <h2 class="card-title">Assembled Sequence</h2>
+                <h2 class="card-title">Full Assembled Sequence</h2>
                 <span class="text-sm opacity-60">{{ construct.assembled_length }} bp</span>
             </div>
             <pre class="mt-4 whitespace-pre-wrap break-all font-mono text-sm">{{ construct.assembled_sequence|default:"No assembled sequence was generated." }}</pre>

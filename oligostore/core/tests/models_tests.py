@@ -251,6 +251,8 @@ class PrimerAndProjectModelTests(TestCase):
         self.assertEqual(construct.assembled_length, 16)
         self.assertEqual(construct.vector_name, "Vector A")
         self.assertEqual(construct.insert_name, "Insert Source")
+        self.assertEqual(construct.vector_asset_label, "Vector A / vecA")
+        self.assertEqual(construct.insert_asset_label, "Insert Source / insA")
 
 
 class PrimerBindingResultModelTests(TestCase):

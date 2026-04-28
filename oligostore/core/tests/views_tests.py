@@ -769,6 +769,84 @@ class SequenceFileViewTests(TestCase):
             response,
             f'{reverse("sequencefile_linear_view", args=[sequence_file.id])}?pcr_product={product.id}',
         )
+        self.assertContains(response, reverse("pcrproduct_detail", args=[product.id]))
+        self.assertContains(response, reverse("pcrproduct_delete", args=[product.id]))
+
+    def test_pcrproduct_detail_shows_delete_for_owner(self):
+        sequence_file = SequenceFile.objects.create(
+            name="PCR Detail File",
+            file=SimpleUploadedFile("pcr_detail.fasta", b">record1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        product = PCRProduct.objects.create(
+            name="Detail Product",
+            sequence_file=sequence_file,
+            record_id="record1",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=self.user,
+        )
+        product.users.add(self.user)
+
+        response = self.client.get(reverse("pcrproduct_detail", args=[product.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("pcrproduct_delete", args=[product.id]))
+        self.assertContains(response, "Delete")
+
+    def test_pcrproduct_delete_requires_owner(self):
+        other_user = User.objects.create_user(
+            username="pcr_delete_other",
+            email="pcr_delete_other@example.com",
+            password="testpass123",
+        )
+        sequence_file = SequenceFile.objects.create(
+            name="Shared PCR File",
+            file=SimpleUploadedFile("shared_pcr.fasta", b">record1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=other_user,
+        )
+        sequence_file.users.add(self.user)
+        product = PCRProduct.objects.create(
+            name="Shared Product",
+            sequence_file=sequence_file,
+            record_id="record1",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=other_user,
+        )
+        product.users.add(self.user, other_user)
+
+        response = self.client.post(reverse("pcrproduct_delete", args=[product.id]))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(PCRProduct.objects.filter(id=product.id).exists())
+
+    def test_pcrproduct_delete_removes_owned_product(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Delete PCR File",
+            file=SimpleUploadedFile("delete_pcr.fasta", b">record1\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        product = PCRProduct.objects.create(
+            name="Delete Product",
+            sequence_file=sequence_file,
+            record_id="record1",
+            start=1,
+            end=4,
+            sequence="ATCG",
+            creator=self.user,
+        )
+        product.users.add(self.user)
+
+        response = self.client.post(reverse("pcrproduct_delete", args=[product.id]))
+
+        self.assertRedirects(response, reverse("pcrproduct_list"))
+        self.assertFalse(PCRProduct.objects.filter(id=product.id).exists())
 
 
 class PrimerBindingViewTests(TestCase):
@@ -1513,6 +1591,7 @@ class MiscViewTests(TestCase):
         response = self.client.get(reverse("home"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("pcrproduct_list"))
+        self.assertContains(response, reverse("cloning_construct_list"))
 
     def test_register_view_get(self):
         response = self.client.get(reverse("register"))
@@ -1610,7 +1689,7 @@ class CloningViewTests(TestCase):
             {
                 "name": "Construct One",
                 "description": "Restriction ligation construct",
-                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
                 "insert_asset": f"{CloningConstruct.SOURCE_PCR_PRODUCT}:{insert.id}",
                 "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
                 "left_enzyme": "EcoRI",
@@ -1624,9 +1703,386 @@ class CloningViewTests(TestCase):
             reverse("cloning_construct_detail", args=[construct.id]),
         )
         self.assertTrue(construct.is_valid)
-        self.assertIn("ATGCATGC", construct.assembled_sequence)
+        self.assertEqual(construct.assembled_sequence, "GATGCATGCGATCC")
         self.assertEqual(construct.vector_sequence_file, vector)
         self.assertEqual(construct.insert_pcr_product, insert)
+
+    def test_cloning_construct_detail_shows_cut_site_summary_and_junction_context(self):
+        vector = SequenceFile.objects.create(
+            name="Vector Backbone",
+            file=SimpleUploadedFile("vector_backbone.fasta", b">vec1\nGAATTCACCCCGGATCC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="Insert Fragment",
+            file=SimpleUploadedFile("insert_fragment.fasta", b">ins1\nATGCATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+        construct = CloningConstruct.objects.create(
+            name="Construct Detail",
+            description="Restriction ligation construct",
+            vector_source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
+            vector_sequence_file=vector,
+            vector_record_id="vec1",
+            insert_source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
+            insert_sequence_file=insert_source,
+            insert_record_id="ins1",
+            assembly_strategy=CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="GATGCATGCGATCC",
+            is_valid=True,
+            validation_messages=["Construct assembled successfully using two-enzyme cloning."],
+            creator=self.user,
+        )
+        construct.users.add(self.user)
+
+        response = self.client.get(
+            reverse("cloning_construct_detail", args=[construct.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cut Site Summary")
+        self.assertContains(response, "Recognition site: GAATTC")
+        self.assertContains(response, "Recognition site: GGATCC")
+        self.assertContains(response, "Vector cleavage positions")
+        self.assertContains(response, "Insert recognition-site positions")
+        self.assertContains(response, "Junction Context")
+        self.assertContains(response, "G|ATGCATGCGATC")
+        self.assertContains(response, "GATGCATGC|GATCC")
+        self.assertContains(response, "Full Assembled Sequence")
+
+    def test_cloning_construct_detail_uses_persisted_snapshot_when_source_metadata_is_stale(self):
+        vector = SequenceFile.objects.create(
+            name="Vector Backbone",
+            file=SimpleUploadedFile("vector_backbone.fasta", b">vec1\nGAATTCACCCCGGATCC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="Insert Fragment",
+            file=SimpleUploadedFile("insert_fragment.fasta", b">ins1\nATGCATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+        construct = CloningConstruct.objects.create(
+            name="Construct Snapshot",
+            description="Uses persisted detail snapshot",
+            vector_source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
+            vector_sequence_file=vector,
+            vector_record_id="missing-record",
+            insert_source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
+            insert_sequence_file=insert_source,
+            insert_record_id="also-missing",
+            assembly_strategy=CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="GATGCATGCGATCC",
+            is_valid=True,
+            validation_messages=["Construct assembled successfully using two-enzyme cloning."],
+            detail_display_snapshot={
+                "junction_context_window": 12,
+                "cut_site_previews": [
+                    {
+                        "enzyme_name": "EcoRI",
+                        "site_sequence": "GAATTC",
+                        "vector_cut_positions": [2],
+                        "insert_recognition_site_positions": [],
+                    },
+                    {
+                        "enzyme_name": "BamHI",
+                        "site_sequence": "GGATCC",
+                        "vector_cut_positions": [10],
+                        "insert_recognition_site_positions": [],
+                    },
+                ],
+                "junction_contexts": [
+                    {
+                        "label": "Vector -> insert junction",
+                        "left_context": "G",
+                        "right_context": "ATGCATGCGATC",
+                    },
+                    {
+                        "label": "Insert -> vector junction",
+                        "left_context": "GATGCATGC",
+                        "right_context": "GATCC",
+                    },
+                ],
+                "source_errors": [],
+            },
+            creator=self.user,
+        )
+        construct.users.add(self.user)
+
+        response = self.client.get(
+            reverse("cloning_construct_detail", args=[construct.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cut Site Summary")
+        self.assertContains(response, "G|ATGCATGCGATC")
+        self.assertContains(response, "GATGCATGC|GATCC")
+        self.assertNotContains(response, "Record &#x27;missing-record&#x27;")
+
+    def test_cloning_construct_download_genbank_includes_source_and_user_features(self):
+        vector_record = SeqRecord(
+            Seq("TTTTGAATTCACCCCGGATCCAAAA"),
+            id="vec1",
+            name="vec1",
+            description="vector",
+        )
+        vector_record.annotations["molecule_type"] = "DNA"
+        vector_record.features.append(
+            SeqFeature(
+                FeatureLocation(20, 24, strand=1),
+                type="promoter",
+                qualifiers={"label": ["vector_tail_feature"]},
+            )
+        )
+        vector_handle = StringIO()
+        SeqIO.write(vector_record, vector_handle, "genbank")
+        vector = SequenceFile.objects.create(
+            name="Vector Backbone",
+            file=SimpleUploadedFile("vector_backbone.gb", vector_handle.getvalue().encode("utf-8")),
+            file_type=SequenceFile.FILE_GENBANK,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+
+        insert_record = SeqRecord(
+            Seq("ATGCATGC"),
+            id="ins1",
+            name="ins1",
+            description="insert",
+        )
+        insert_record.annotations["molecule_type"] = "DNA"
+        insert_record.features.append(
+            SeqFeature(
+                FeatureLocation(1, 7, strand=1),
+                type="CDS",
+                qualifiers={"label": ["insert_source_feature"]},
+            )
+        )
+        insert_handle = StringIO()
+        SeqIO.write(insert_record, insert_handle, "genbank")
+        insert_source = SequenceFile.objects.create(
+            name="Insert Fragment",
+            file=SimpleUploadedFile("insert_fragment.gb", insert_handle.getvalue().encode("utf-8")),
+            file_type=SequenceFile.FILE_GENBANK,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+        SequenceFeature.objects.create(
+            sequence_file=insert_source,
+            record_id="ins1",
+            start=2,
+            end=5,
+            strand=1,
+            feature_type=SequenceFeature.TYPE_CUSTOM,
+            label="insert_user_feature",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "name": "Cloning TEST Spa ce",
+                "description": "Construct with annotations",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "BamHI",
+            },
+        )
+
+        construct = CloningConstruct.objects.get(name="Cloning TEST Spa ce")
+        self.assertRedirects(
+            response,
+            reverse("cloning_construct_detail", args=[construct.id]),
+        )
+
+        download_response = self.client.get(
+            reverse("cloning_construct_download_genbank", args=[construct.id])
+        )
+
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(
+            download_response["Content-Disposition"],
+            'attachment; filename="Cloning_TEST_Spa_ce.gb"',
+        )
+        self.assertIn("LOCUS       Cloning_TEST_Spa", download_response.content.decode("utf-8"))
+        exported_record = SeqIO.read(StringIO(download_response.content.decode("utf-8")), "genbank")
+        labels = {
+            (feature.qualifiers.get("label") or [""])[0]
+            for feature in exported_record.features
+        }
+        self.assertIn("vector_tail_feature", labels)
+        self.assertIn("insert_source_feature", labels)
+        self.assertIn("insert_user_feature", labels)
+
+    def test_cloning_construct_list_shows_genbank_download_action(self):
+        construct = CloningConstruct.objects.create(
+            name="Downloadable Construct",
+            vector_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            insert_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="ATGC",
+            creator=self.user,
+        )
+        construct.users.add(self.user)
+
+        response = self.client.get(reverse("cloning_construct_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse("cloning_construct_download_genbank", args=[construct.id]),
+        )
+        self.assertContains(response, reverse("cloning_construct_delete", args=[construct.id]))
+        self.assertContains(response, f'{reverse("cloning_construct_create")}?review_construct={construct.id}')
+        self.assertContains(response, "GenBank")
+
+    def test_cloning_construct_detail_shows_delete_for_owner(self):
+        construct = CloningConstruct.objects.create(
+            name="Delete Detail Construct",
+            vector_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            insert_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="ATGC",
+            creator=self.user,
+        )
+        construct.users.add(self.user)
+
+        response = self.client.get(reverse("cloning_construct_detail", args=[construct.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("cloning_construct_delete", args=[construct.id]))
+        self.assertContains(response, f'{reverse("cloning_construct_create")}?review_construct={construct.id}')
+        self.assertContains(response, "Step Back")
+        self.assertContains(response, "Delete")
+
+    def test_cloning_construct_review_step_reopens_original_asset_and_enzyme_choices(self):
+        vector = SequenceFile.objects.create(
+            name="Review Vector",
+            file=SimpleUploadedFile("review_vector.fasta", b">vec1\nGAATTCACCCCGGATCC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert = SequenceFile.objects.create(
+            name="Review Insert",
+            file=SimpleUploadedFile("review_insert.fasta", b">ins1\nATGCATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert.users.add(self.user)
+        construct = CloningConstruct.objects.create(
+            name="Reviewable Construct",
+            vector_source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
+            vector_sequence_file=vector,
+            vector_record_id="vec1",
+            insert_source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
+            insert_sequence_file=insert,
+            insert_record_id="ins1",
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="",
+            is_valid=False,
+            creator=self.user,
+        )
+        construct.users.add(self.user)
+
+        response = self.client.get(
+            reverse("cloning_construct_create"),
+            {"review_construct": construct.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["review_construct"], construct)
+        self.assertIsNotNone(response.context["assembly_form"])
+        self.assertContains(response, "Reviewing Reviewable Construct")
+        self.assertContains(response, "Review Vector / vec1")
+        form = response.context["assembly_form"]
+        self.assertEqual(
+            form["vector_asset"].value(),
+            f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+        )
+        self.assertEqual(
+            form["insert_asset"].value(),
+            f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert.id}:ins1",
+        )
+        self.assertEqual(form["left_enzyme"].value(), "EcoRI")
+        self.assertEqual(form["right_enzyme"].value(), "BamHI")
+
+    def test_cloning_construct_review_step_is_only_available_for_invalid_constructs(self):
+        construct = CloningConstruct.objects.create(
+            name="Valid Construct",
+            vector_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            insert_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="ATGC",
+            is_valid=True,
+            creator=self.user,
+        )
+        construct.users.add(self.user)
+
+        detail_response = self.client.get(reverse("cloning_construct_detail", args=[construct.id]))
+        review_response = self.client.get(
+            reverse("cloning_construct_create"),
+            {"review_construct": construct.id},
+        )
+
+        self.assertNotContains(detail_response, f'{reverse("cloning_construct_create")}?review_construct={construct.id}')
+        self.assertEqual(review_response.status_code, 404)
+
+    def test_cloning_construct_delete_requires_owner(self):
+        other_user = User.objects.create_user(
+            username="construct_delete_other",
+            email="construct_delete_other@example.com",
+            password="testpass123",
+        )
+        construct = CloningConstruct.objects.create(
+            name="Shared Construct",
+            vector_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            insert_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="ATGC",
+            creator=other_user,
+        )
+        construct.users.add(self.user, other_user)
+
+        response = self.client.post(reverse("cloning_construct_delete", args=[construct.id]))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(CloningConstruct.objects.filter(id=construct.id).exists())
+
+    def test_cloning_construct_delete_removes_owned_construct(self):
+        construct = CloningConstruct.objects.create(
+            name="Delete Owned Construct",
+            vector_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            insert_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="ATGC",
+            creator=self.user,
+        )
+        construct.users.add(self.user)
+
+        response = self.client.post(reverse("cloning_construct_delete", args=[construct.id]))
+
+        self.assertRedirects(response, reverse("cloning_construct_list"))
+        self.assertFalse(CloningConstruct.objects.filter(id=construct.id).exists())
 
     def test_cloning_construct_rejects_same_asset_for_vector_and_insert(self):
         vector = SequenceFile.objects.create(
@@ -1642,8 +2098,8 @@ class CloningViewTests(TestCase):
             {
                 "name": "Construct Invalid",
                 "description": "Invalid restriction ligation construct",
-                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}",
-                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
                 "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
                 "left_enzyme": "EcoRI",
                 "right_enzyme": "BamHI",
@@ -1675,8 +2131,8 @@ class CloningViewTests(TestCase):
             {
                 "name": "Construct Parse Error",
                 "description": "Should fail on parse",
-                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}",
-                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:bad_vector",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
                 "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
                 "left_enzyme": "EcoRI",
                 "right_enzyme": "BamHI",
@@ -1708,8 +2164,8 @@ class CloningViewTests(TestCase):
             {
                 "name": "Single Enzyme Construct",
                 "description": "Single enzyme ligation",
-                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}",
-                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
                 "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
                 "left_enzyme": "EcoRI",
                 "right_enzyme": "EcoRI",
@@ -1722,9 +2178,82 @@ class CloningViewTests(TestCase):
             reverse("cloning_construct_detail", args=[construct.id]),
         )
         self.assertTrue(construct.is_valid)
-        self.assertIn("ATGCATGC", construct.assembled_sequence)
+        self.assertEqual(construct.assembled_sequence, "AAAAGATGCATGCAATTCTTTT")
 
-    def test_cloning_construct_form_filters_enzymes_to_detected_sites(self):
+    def test_cloning_construct_allows_same_enzyme_double_cut_fragment_replacement(self):
+        vector = SequenceFile.objects.create(
+            name="Double Cut Vector",
+            file=SimpleUploadedFile("double_cut_vector.fasta", b">vec1\nTTTGAATTCACCCGAATTCGGG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="Double Cut Insert",
+            file=SimpleUploadedFile("double_cut_insert.fasta", b">ins1\nAAAAGAATTCATGCGAATTCTTTT"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+
+        response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "name": "Same Enzyme Replacement Construct",
+                "description": "Same enzyme double cut replacement",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "EcoRI",
+            },
+        )
+
+        construct = CloningConstruct.objects.get(name="Same Enzyme Replacement Construct")
+        self.assertRedirects(
+            response,
+            reverse("cloning_construct_detail", args=[construct.id]),
+        )
+        self.assertTrue(construct.is_valid)
+        self.assertEqual(construct.assembled_sequence, "TTTGAATTCATGCGAATTCGGG")
+
+    def test_cloning_construct_rejects_same_enzyme_mismatched_single_and_double_cut_topology(self):
+        vector = SequenceFile.objects.create(
+            name="Double Cut Vector",
+            file=SimpleUploadedFile("double_cut_vector.fasta", b">vec1\nTTTGAATTCACCCGAATTCGGG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="Insert Without Cut Sites",
+            file=SimpleUploadedFile("insert_without_sites.fasta", b">ins1\nATGCATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+
+        response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "name": "Unsupported Same Enzyme Topology",
+                "description": "Vector has two cuts but insert has none",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "EcoRI",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Use vector 1 cut / insert 0 cuts for direct insertion, or vector 2 cuts / insert 2 cuts for fragment replacement.",
+        )
+        self.assertFalse(CloningConstruct.objects.filter(name="Unsupported Same Enzyme Topology").exists())
+
+    def test_cloning_construct_form_shows_no_enzymes_until_vector_is_selected(self):
         sequence_file = SequenceFile.objects.create(
             name="EcoRI Only",
             file=SimpleUploadedFile("ecori_only.fasta", b">vec1\nAAAAGAATTCTTTT"),
@@ -1736,6 +2265,187 @@ class CloningViewTests(TestCase):
         response = self.client.get(reverse("cloning_construct_create"))
 
         self.assertEqual(response.status_code, 200)
-        form = response.context["form"]
+        form = response.context["asset_form"]
+        vector_choices = {value for value, _ in form.fields["vector_asset"].choices}
+        self.assertIn(f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{sequence_file.id}:vec1", vector_choices)
+        self.assertIsNone(response.context["assembly_form"])
+
+    def test_cloning_construct_form_asset_picker_shows_source_record_length_and_record_count_state(self):
+        multi_record_file = SequenceFile.objects.create(
+            name="Vector Source",
+            file=SimpleUploadedFile("vector_source.fasta", b">vec1\nATGC\n>vec2\nATGCAA"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        multi_record_file.users.add(self.user)
+        pcr_product = PCRProduct.objects.create(
+            name="Insert Product",
+            sequence_file=multi_record_file,
+            record_id="vec2",
+            start=1,
+            end=6,
+            sequence="ATGCAA",
+            creator=self.user,
+        )
+        pcr_product.users.add(self.user)
+
+        response = self.client.get(reverse("cloning_construct_create"))
+
+        self.assertEqual(response.status_code, 200)
+        form = response.context["asset_form"]
+        choice_labels = dict(form.fields["vector_asset"].choices)
+        self.assertEqual(
+            choice_labels[f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{multi_record_file.id}:vec1"],
+            "Sequence file | Vector Source | record vec1 | 4 bp | multi-record file",
+        )
+        self.assertEqual(
+            choice_labels[f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{multi_record_file.id}:vec2"],
+            "Sequence file | Vector Source | record vec2 | 6 bp | multi-record file",
+        )
+        self.assertEqual(
+            choice_labels[f"{CloningConstruct.SOURCE_PCR_PRODUCT}:{pcr_product.id}"],
+            "PCR product | Insert Product | record vec2 | 6 bp | single record",
+        )
+
+    def test_cloning_construct_form_filters_enzymes_to_selected_vector(self):
+        eco_vector = SequenceFile.objects.create(
+            name="EcoRI Only",
+            file=SimpleUploadedFile("ecori_only.fasta", b">vec1\nAAAAGAATTCTTTT"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        eco_vector.users.add(self.user)
+        bam_vector = SequenceFile.objects.create(
+            name="BamHI Only",
+            file=SimpleUploadedFile("bamhi_only.fasta", b">vec2\nAAAAGGATCCTTTT"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        bam_vector.users.add(self.user)
+
+        response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "assets",
+                "name": "Construct Missing Enzymes",
+                "description": "Force form re-render with selected vector",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{eco_vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{bam_vector.id}:vec2",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        form = response.context["assembly_form"]
         left_choices = {value for value, _ in form.fields["left_enzyme"].choices}
         self.assertIn("EcoRI", left_choices)
+        self.assertNotIn("BamHI", left_choices)
+
+    def test_cloning_construct_create_uses_two_step_preview_flow(self):
+        vector = SequenceFile.objects.create(
+            name="Vector Backbone",
+            file=SimpleUploadedFile("vector_backbone.fasta", b">vec1\nGAATTCACCCCGGATCC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="Insert Fragment",
+            file=SimpleUploadedFile("insert_fragment.fasta", b">ins1\nATGCATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+
+        step_one = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "assets",
+                "name": "Wizard Construct",
+                "description": "Two step create flow",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+            },
+        )
+
+        self.assertEqual(step_one.status_code, 200)
+        self.assertIsNotNone(step_one.context["assembly_form"])
+        self.assertIsNone(step_one.context["preview_data"])
+
+        step_two = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "preview",
+                "name": "Wizard Construct",
+                "description": "Two step create flow",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "BamHI",
+            },
+        )
+
+        self.assertEqual(step_two.status_code, 200)
+        self.assertContains(step_two, "Preview")
+        self.assertContains(step_two, "Cut Site Preview")
+        self.assertContains(step_two, "Assembled Length")
+        self.assertContains(step_two, "Save Construct")
+        self.assertEqual(step_two.context["preview_data"].assembled_length, 14)
+
+    def test_cloning_construct_requires_explicit_record_for_multi_record_sequence_file(self):
+        vector = SequenceFile.objects.create(
+            name="Multi Record Vector",
+            file=SimpleUploadedFile("multi_record_vector.fasta", b">vec1\nGAATTCACCCCGGATCC\n>vec2\nAAAAGAATTCTTTT"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="Insert Source",
+            file=SimpleUploadedFile("insert_ok.fasta", b">ins1\nATGCATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+
+        response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "name": "Construct Needs Record",
+                "description": "Should fail without explicit record choice",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "BamHI",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "contains multiple records. Select a specific record for cloning")
+        self.assertFalse(CloningConstruct.objects.filter(name="Construct Needs Record").exists())
+
+    def test_cloning_construct_list_exposes_search_and_order_controls(self):
+        construct = CloningConstruct.objects.create(
+            name="Vector Sort Target",
+            vector_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            insert_source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            creator=self.user,
+        )
+        construct.users.add(self.user)
+
+        response = self.client.get(
+            reverse("cloning_construct_list"),
+            {"q": "Vector", "order": "name_desc"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="q"')
+        self.assertContains(response, 'value="Vector"')
+        self.assertContains(response, 'name="order"')
+        self.assertContains(response, "Name (Z-A)")
+        self.assertContains(response, "Total: 1")

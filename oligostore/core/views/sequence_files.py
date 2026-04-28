@@ -1,7 +1,7 @@
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db.models import Case, IntegerField, Value, When
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 
@@ -9,6 +9,7 @@ from ..access import (
     accessible_pcr_products,
     accessible_primers,
     accessible_sequence_files,
+    editable_pcr_products,
 )
 from ..models import AnalysisJob, SequenceFeature, SequenceFile
 from ..forms import clean_optional_sequence_value, clean_sequence_value
@@ -303,6 +304,42 @@ def pcrproduct_list(request):
             "query_string": query_string,
         },
     )
+
+
+@login_required
+def pcrproduct_detail(request, pcrproduct_id):
+    product = get_object_or_404(
+        accessible_pcr_products(request.user)
+        .distinct()
+        .select_related(
+            "sequence_file",
+            "forward_primer",
+            "reverse_primer",
+            "forward_feature",
+            "reverse_feature",
+        ),
+        id=pcrproduct_id,
+    )
+    return render(
+        request,
+        "core/pcrproduct_detail.html",
+        {
+            "product": product,
+            "can_delete": product.creator_id == request.user.id,
+        },
+    )
+
+
+@login_required
+def pcrproduct_delete(request, pcrproduct_id):
+    if request.method != "POST":
+        return HttpResponse("POST only", status=405)
+
+    product = get_object_or_404(editable_pcr_products(request.user), id=pcrproduct_id)
+    product_name = product.name
+    product.delete()
+    messages.success(request, f"Deleted PCR product {product_name}.")
+    return redirect("pcrproduct_list")
 
 
 @login_required
