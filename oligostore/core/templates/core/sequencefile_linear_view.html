@@ -89,22 +89,16 @@
           </div>
           <div class="space-y-1">
             <div class="flex items-center gap-2">
-              <div class="text-[11px] opacity-70 w-24">Forward primers</div>
-              <div class="h-5 rounded-full bg-base-300/60 relative overflow-hidden flex-1" style="height: 28px;">
-                <div id="forwardPrimerTrack" class="absolute inset-0"></div>
+              <div class="text-[11px] opacity-70 w-24">CDS</div>
+              <div id="cdsFeatureTrackContainer" class="rounded-xl bg-base-300/60 relative overflow-hidden flex-1 map-track-grid" style="height: 28px;">
+                <div id="cdsFeatureTrack" class="absolute inset-0"></div>
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <div class="text-[11px] opacity-70 w-24">Features</div>
+              <div class="text-[11px] opacity-70 w-24">Primers / misc</div>
               <div id="featureTrackContainer" class="h-10 rounded-xl bg-base-300 relative overflow-hidden map-track-grid flex-1">
                 <div id="viewportBox" class="absolute top-0 h-full border-x-2 border-primary/70 bg-primary/10 pointer-events-none z-0"></div>
-                <div id="featureTrack" class="absolute inset-0 z-10"></div>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <div class="text-[11px] opacity-70 w-24">Reverse primers</div>
-              <div class="h-5 rounded-full bg-base-300/60 relative overflow-hidden flex-1" style="height: 28px;">
-                <div id="reversePrimerTrack" class="absolute inset-0"></div>
+                <div id="primerMiscFeatureTrack" class="absolute inset-0 z-10"></div>
               </div>
             </div>
           </div>

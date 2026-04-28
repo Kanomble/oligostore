@@ -224,6 +224,24 @@
       return labelValue.includes("_fw") || labelValue.includes("_rv") || labelValue.includes("_rev");
     };
 
+    app.isCdsFeature = function isCdsFeature(feature) {
+      return app.normalize(feature.type) === "cds";
+    };
+
+    app.isPrimerOrMiscFeature = function isPrimerOrMiscFeature(feature) {
+      const typeValue = app.normalize(feature.type);
+      return app.isPrimerBindingFeature(feature) || typeValue === "misc_feature" || typeValue === "misc_features" || typeValue === "misc features" || typeValue === "misc";
+    };
+
+    app.assignOverlapLane = function assignOverlapLane(laneEnds, visibleStart, visibleEnd, maxLanes = 5) {
+      let lane = laneEnds.findIndex((end) => visibleStart > end);
+      if (lane < 0) {
+        lane = Math.min(laneEnds.length, maxLanes - 1);
+      }
+      laneEnds[lane] = Math.max(laneEnds[lane] || 0, visibleEnd);
+      return lane;
+    };
+
     app.normalizedStrandValue = function normalizedStrandValue(strand) {
       if (strand === -1 || strand === 1) {
         return strand;
@@ -456,34 +474,34 @@
 
     app.renderFeatureTrack = function renderFeatureTrack(record) {
       els.featureTrack.innerHTML = "";
-      els.forwardPrimerTrack.innerHTML = "";
-      els.reversePrimerTrack.innerHTML = "";
-      const colors = [
-        "rgba(14, 165, 233, 0.55)",
-        "rgba(234, 179, 8, 0.55)",
-        "rgba(16, 185, 129, 0.55)",
-        "rgba(244, 114, 182, 0.55)",
-        "rgba(59, 130, 246, 0.55)",
-      ];
+      els.cdsFeatureTrack.innerHTML = "";
+      els.primerMiscFeatureTrack.innerHTML = "";
       const visibleFeatureIndexes = new Set(app.getFilteredFeatureIndexes(record));
       const mapStart = state.mapStart;
       const mapEnd = Math.min(record.length, mapStart + state.mapWindowSize - 1);
       const mapLength = mapEnd - mapStart + 1;
-      const nonPrimerLanes = [];
-      let forwardPrimerCount = 0;
-      let reversePrimerCount = 0;
+      let cdsCount = 0;
+      let primerMiscCount = 0;
+      const cdsLaneEnds = [];
+      const primerMiscLaneEnds = [];
+      const laneHeight = 18;
+      const laneGap = 4;
 
-      function buildPrimerArrow(color, isForward) {
+      function buildMarker(feature, index, color, shape) {
         const marker = document.createElement("div");
         marker.style.position = "absolute";
         marker.style.top = "0";
         marker.style.height = "100%";
-        marker.style.borderRadius = "9999px";
         marker.style.backgroundColor = color;
         marker.style.border = "1px solid rgba(15, 23, 42, 0.35)";
-        marker.style.clipPath = isForward
-          ? "polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%)"
-          : "polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 50%)";
+        marker.style.borderRadius = "9999px";
+        if (shape === "arrow-forward") {
+          marker.style.clipPath = "polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%)";
+        } else if (shape === "arrow-reverse") {
+          marker.style.clipPath = "polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 50%)";
+        }
+        marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
+        marker.addEventListener("mousedown", (event) => handleFeatureMouseDown(event, index, feature));
         return marker;
       }
 
@@ -519,46 +537,47 @@
         const width = (visibleEnd - visibleStart + 1) / mapLength * 100;
         const isSelected = state.selectedFeatureIndex === index;
         const isVisible = visibleFeatureIndexes.has(index);
-        if (app.isPrimerBindingFeature(feature)) {
-          const isForward = app.normalizedStrandValue(feature.strand) !== -1;
-          const primerColor = isForward ? "rgba(37, 99, 235, 0.92)" : "rgba(220, 38, 38, 0.92)";
-          const primerMarker = buildPrimerArrow(primerColor, isForward);
-          primerMarker.className = `cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200 rounded" : ""} ${isVisible ? "opacity-100" : "opacity-45"}`;
-          primerMarker.style.left = `${left}%`;
-          primerMarker.style.width = `${Math.max(0.1, Math.min(width, 100 - left))}%`;
-          primerMarker.style.minWidth = "12px";
-          primerMarker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
-          primerMarker.addEventListener("mousedown", (event) => handleFeatureMouseDown(event, index, feature));
-          if (isForward) {
-            els.forwardPrimerTrack.appendChild(primerMarker);
-            forwardPrimerCount += 1;
-          } else {
-            els.reversePrimerTrack.appendChild(primerMarker);
-            reversePrimerCount += 1;
-          }
+        if (app.isCdsFeature(feature)) {
+          const lane = app.assignOverlapLane(cdsLaneEnds, visibleStart, visibleEnd);
+          const marker = buildMarker(feature, index, "rgba(14, 165, 233, 0.86)", "pill");
+          marker.className = `cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200 rounded" : ""} ${isVisible ? "opacity-100" : "opacity-25"}`;
+          marker.style.left = `${left}%`;
+          marker.style.width = `${Math.max(0.1, Math.min(width, 100 - left))}%`;
+          marker.style.minWidth = "10px";
+          marker.style.top = `${lane * (laneHeight + laneGap) + 2}px`;
+          marker.style.height = `${laneHeight}px`;
+          els.cdsFeatureTrack.appendChild(marker);
+          cdsCount += 1;
           return;
         }
 
-        let lane = 0;
-        while (lane < nonPrimerLanes.length && visibleStart <= nonPrimerLanes[lane]) {
-          lane += 1;
+        if (!app.isPrimerOrMiscFeature(feature)) {
+          return;
         }
-        nonPrimerLanes[lane] = visibleEnd;
 
-        const marker = document.createElement("div");
-        marker.className = `absolute h-6 rounded cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200" : ""} ${isVisible ? "opacity-95" : "opacity-20"}`;
+        const isPrimer = app.isPrimerBindingFeature(feature);
+        const isForward = app.normalizedStrandValue(feature.strand) !== -1;
+        const lane = app.assignOverlapLane(primerMiscLaneEnds, visibleStart, visibleEnd);
+        const color = isPrimer
+          ? (isForward ? "rgba(37, 99, 235, 0.92)" : "rgba(220, 38, 38, 0.92)")
+          : "rgba(16, 185, 129, 0.86)";
+        const shape = isPrimer ? (isForward ? "arrow-forward" : "arrow-reverse") : "pill";
+        const marker = buildMarker(feature, index, color, shape);
+        marker.className = `cursor-pointer ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-base-200 rounded" : ""} ${isVisible ? "opacity-100" : "opacity-30"}`;
         marker.style.left = `${left}%`;
-        marker.style.width = `${Math.min(width, 100 - left)}%`;
-        marker.style.top = `${lane * 22 + 2}px`;
-        marker.style.backgroundColor = colors[index % colors.length];
-        marker.style.border = "1px solid rgba(15, 23, 42, 0.22)";
-        marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
-        marker.addEventListener("mousedown", (event) => handleFeatureMouseDown(event, index, feature));
-        els.featureTrack.appendChild(marker);
+        marker.style.width = `${Math.max(0.1, Math.min(width, 100 - left))}%`;
+        marker.style.minWidth = isPrimer ? "12px" : "10px";
+        marker.style.top = `${lane * (laneHeight + laneGap) + 2}px`;
+        marker.style.height = `${laneHeight}px`;
+        els.primerMiscFeatureTrack.appendChild(marker);
+        primerMiscCount += 1;
       });
 
-      els.featureTrackContainer.style.height = `${Math.max(44, Math.max(1, nonPrimerLanes.length) * 22 + 6)}px`;
-      els.primerCountSummary.textContent = `Primers in map range: forward ${forwardPrimerCount.toLocaleString()} | reverse ${reversePrimerCount.toLocaleString()}`;
+      const cdsLaneCount = Math.max(1, cdsLaneEnds.length);
+      const primerMiscLaneCount = Math.max(1, primerMiscLaneEnds.length);
+      els.cdsFeatureTrackContainer.style.height = `${cdsLaneCount * (laneHeight + laneGap) + 6}px`;
+      els.featureTrackContainer.style.height = `${primerMiscLaneCount * (laneHeight + laneGap) + 6}px`;
+      els.primerCountSummary.textContent = `Map lanes: CDS ${cdsCount.toLocaleString()} across ${cdsLaneCount} lane(s) | primer_bind/misc_feature ${primerMiscCount.toLocaleString()} across ${primerMiscLaneCount} lane(s)`;
     };
 
     app.renderWindowFeatureOverlay = function renderWindowFeatureOverlay(record, start, end) {
@@ -581,7 +600,7 @@
         .map((feature, index) => ({ feature, index }))
         .filter(({ feature }) => {
           const bounds = app.featureBounds(feature);
-          return !(bounds.end < start || bounds.start > end);
+          return (app.isCdsFeature(feature) || app.isPrimerOrMiscFeature(feature)) && !(bounds.end < start || bounds.start > end);
         })
         .sort((a, b) => {
           const aBounds = app.featureBounds(a.feature);
@@ -598,30 +617,35 @@
         els.windowFeatureOverlay.style.height = "2rem";
         const emptyState = document.createElement("div");
         emptyState.className = "absolute inset-0 flex items-center justify-center text-[11px] opacity-60";
-        emptyState.textContent = "No annotated features overlap the current sequence window.";
+        emptyState.textContent = "No CDS, primer_bind, or misc_feature annotations overlap the current sequence window.";
         els.windowFeatureOverlay.appendChild(emptyState);
         app.setWindowFeatureHoverText(null);
         return;
       }
 
-      const lanes = [];
+      const cdsLaneEnds = [];
+      const primerMiscLaneEnds = [];
+      const overlayLaneHeight = 10;
+      const overlayLaneGap = 4;
+      const primerMiscLaneOffset = 5;
+
       overlappingFeatures.forEach(({ feature, index }) => {
         const bounds = app.featureBounds(feature);
         const visibleStart = Math.max(bounds.start, start);
         const visibleEnd = Math.min(bounds.end, end);
-        let lane = 0;
-        while (lane < lanes.length && visibleStart <= lanes[lane]) {
-          lane += 1;
-        }
-        lanes[lane] = visibleEnd;
+        const isCds = app.isCdsFeature(feature);
+        const laneEnds = isCds ? cdsLaneEnds : primerMiscLaneEnds;
+        const lane = app.assignOverlapLane(laneEnds, visibleStart, visibleEnd);
 
         const left = ((visibleStart - start) / windowLength) * 100;
         const width = ((visibleEnd - visibleStart + 1) / windowLength) * 100;
         const selected = state.selectedFeatureIndex === index;
         const visibleInFilter = visibleFeatureIndexes.has(index);
-        const color = app.isPrimerBindingFeature(feature)
-          ? (app.normalizedStrandValue(feature.strand) === -1 ? "rgba(220, 38, 38, 0.95)" : "rgba(37, 99, 235, 0.95)")
-          : "rgba(15, 118, 110, 0.92)";
+        const color = isCds
+          ? "rgba(14, 165, 233, 0.92)"
+          : (app.isPrimerBindingFeature(feature)
+            ? (app.normalizedStrandValue(feature.strand) === -1 ? "rgba(220, 38, 38, 0.95)" : "rgba(37, 99, 235, 0.95)")
+            : "rgba(16, 185, 129, 0.92)");
 
         const marker = document.createElement("button");
         marker.type = "button";
@@ -629,8 +653,8 @@
         marker.style.left = `${left}%`;
         marker.style.width = `${Math.max(0.6, Math.min(width, 100 - left))}%`;
         marker.style.minWidth = "6px";
-        marker.style.top = `${lane * 10 + 8}px`;
-        marker.style.height = "4px";
+        marker.style.top = `${(isCds ? 8 : primerMiscLaneOffset + 8 + (Math.max(1, cdsLaneEnds.length) * (overlayLaneHeight + overlayLaneGap))) + lane * (overlayLaneHeight + overlayLaneGap)}px`;
+        marker.style.height = `${overlayLaneHeight}px`;
         marker.style.backgroundColor = color;
         marker.style.border = "none";
         marker.style.padding = "0";
@@ -658,7 +682,12 @@
         els.windowFeatureOverlay.appendChild(marker);
       });
 
-      els.windowFeatureOverlay.style.height = `${Math.max(32, lanes.length * 10 + 16)}px`;
+      const overlayHeight =
+        16 +
+        (Math.max(1, cdsLaneEnds.length) * (overlayLaneHeight + overlayLaneGap)) +
+        primerMiscLaneOffset +
+        (Math.max(1, primerMiscLaneEnds.length) * (overlayLaneHeight + overlayLaneGap));
+      els.windowFeatureOverlay.style.height = `${overlayHeight}px`;
       const selectedFeature = state.selectedFeatureIndex !== null
         ? record.features[state.selectedFeatureIndex]
         : null;

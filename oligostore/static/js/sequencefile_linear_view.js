@@ -64,10 +64,11 @@
         windowLabel: getElement("windowLabel"),
         windowSizeHint: getElement("windowSizeHint"),
         viewportBox: getElement("viewportBox"),
+        cdsFeatureTrackContainer: getElement("cdsFeatureTrackContainer"),
         featureTrackContainer: getElement("featureTrackContainer"),
-        featureTrack: getElement("featureTrack"),
-        forwardPrimerTrack: getElement("forwardPrimerTrack"),
-        reversePrimerTrack: getElement("reversePrimerTrack"),
+        featureTrack: getElement("primerMiscFeatureTrack"),
+        cdsFeatureTrack: getElement("cdsFeatureTrack"),
+        primerMiscFeatureTrack: getElement("primerMiscFeatureTrack"),
         featureLegend: getElement("featureLegend"),
         featureSearchInput: getElement("featureSearchInput"),
         featureCount: getElement("featureCount"),
@@ -259,11 +260,9 @@
     };
     app.formatFeatures = function formatFeatures(features) {
       if (!features.length) return "No annotated features in this record.";
-      const byType = {};
-      features.forEach((feature) => {
-        byType[feature.type] = (byType[feature.type] || 0) + 1;
-      });
-      return Object.entries(byType).sort((a, b) => a[0].localeCompare(b[0])).map(([type, count]) => `${type}: ${count}`).join(" | ");
+      const cdsCount = features.filter((feature) => app.isCdsFeature && app.isCdsFeature(feature)).length;
+      const primerMiscCount = features.filter((feature) => app.isPrimerOrMiscFeature && app.isPrimerOrMiscFeature(feature)).length;
+      return `Displayed lanes: CDS ${cdsCount.toLocaleString()} | primer_bind/misc_feature ${primerMiscCount.toLocaleString()}`;
     };
     app.baseSpan = function baseSpan(base, highlightRestriction = false, position = null, strand = "forward") {
       const value = String(base || "").toUpperCase();
@@ -403,8 +402,8 @@
       els.restrictionEnzymePrevPageBtn.disabled = true;
       els.restrictionEnzymeNextPageBtn.disabled = true;
       els.featureTrack.innerHTML = "";
-      els.forwardPrimerTrack.innerHTML = "";
-      els.reversePrimerTrack.innerHTML = "";
+      els.cdsFeatureTrack.innerHTML = "";
+      els.primerMiscFeatureTrack.innerHTML = "";
       els.mapTickTrack.innerHTML = "";
       els.mapSelectionSummary.textContent = "No feature selected on map.";
       els.mapSelectionActions.classList.add("hidden");

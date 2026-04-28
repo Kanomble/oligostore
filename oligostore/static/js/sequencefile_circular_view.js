@@ -35,13 +35,13 @@
   }
 
   function featureColor(feature) {
-    if (feature.source === "user") {
-      return "#10b981";
-    }
-    if (normalize(feature.type).includes("primer")) {
+    if (isCdsFeature(feature)) {
       return "#0ea5e9";
     }
-    return "#0284c7";
+    if (isPrimerBindingFeature(feature)) {
+      return "#2563eb";
+    }
+    return "#10b981";
   }
 
   function clampPosition(value, length) {
@@ -52,35 +52,32 @@
     return Math.min(Math.max(1, position), length);
   }
 
-  function assignFeatureTracks(features, length, trackCount) {
-    const sorted = features
-      .map((feature, index) => {
-        const start = clampPosition(feature.start, length);
-        const end = clampPosition(feature.end, length);
-        return {
-          index,
-          startAngle: ((start - 1) / length) * 360,
-          endAngle: (end / length) * 360,
-        };
-      })
-      .sort((left, right) => {
-        const startDelta = left.startAngle - right.startAngle;
-        if (startDelta !== 0) {
-          return startDelta;
-        }
-        return right.endAngle - left.endAngle;
-      });
-    const trackEnds = Array(trackCount).fill(-Infinity);
-    const assignments = new Map();
-    sorted.forEach((item) => {
-      let targetTrack = trackEnds.findIndex((endAngle) => item.startAngle > endAngle + 3);
-      if (targetTrack < 0) {
-        targetTrack = trackEnds.indexOf(Math.min(...trackEnds));
-      }
-      assignments.set(item.index, targetTrack);
-      trackEnds[targetTrack] = Math.max(trackEnds[targetTrack], item.endAngle);
-    });
-    return assignments;
+  function isPrimerBindingFeature(feature) {
+    const typeValue = normalize(feature.type);
+    const labelValue = normalize(feature.label);
+    const noteValue = normalize(feature.note);
+    return (
+      typeValue.includes("primer") ||
+      typeValue.includes("primer_bind") ||
+      labelValue.includes("primer") ||
+      noteValue.includes("primer") ||
+      labelValue.includes("_fw") ||
+      labelValue.includes("_rv") ||
+      labelValue.includes("_rev")
+    );
+  }
+
+  function isCdsFeature(feature) {
+    return normalize(feature.type) === "cds";
+  }
+
+  function isPrimerOrMiscFeature(feature) {
+    const typeValue = normalize(feature.type);
+    return isPrimerBindingFeature(feature) || typeValue === "misc_feature" || typeValue === "misc_features" || typeValue === "misc features" || typeValue === "misc";
+  }
+
+  function circularFeatureRadius(feature, baseRadius) {
+    return isCdsFeature(feature) ? baseRadius : baseRadius - 22;
   }
 
   function formatCutSite(site, cutOffset) {
@@ -394,13 +391,13 @@
     const zoomOffset = (zoomScale - 1) * 42;
     const axisRadius = 255 + zoomOffset;
     const featureBaseRadius = 230 + zoomOffset;
-    const featureTrackSpacing = 15;
     const restrictionInner = 268 + zoomOffset;
     const restrictionOuter = 288 + zoomOffset;
     const length = Math.max(1, Number(record.length) || 1);
     const selectedFeature = app.state.selectedFeatureIndex === null ? null : record.features[app.state.selectedFeatureIndex];
-    const featureTrackCount = Math.min(5, Math.max(2, Math.ceil(record.features.length / 12)));
-    const featureTracks = assignFeatureTracks(record.features, length, featureTrackCount);
+    const displayFeatures = record.features
+      .map((feature, index) => ({ feature, index }))
+      .filter(({ feature }) => isCdsFeature(feature) || isPrimerOrMiscFeature(feature));
 
     app.els.axisTicks.innerHTML = "";
     app.els.featureArcs.innerHTML = "";
@@ -433,13 +430,12 @@
       app.els.axisTicks.appendChild(label);
     }
 
-    record.features.forEach((feature, index) => {
+    displayFeatures.forEach(({ feature, index }) => {
       const start = clampPosition(feature.start, length);
       const end = clampPosition(feature.end, length);
       const startAngle = ((start - 1) / length) * 360;
       const endAngle = (end / length) * 360;
-      const track = featureTracks.get(index) || 0;
-      const radius = featureBaseRadius - (track * featureTrackSpacing);
+      const radius = circularFeatureRadius(feature, featureBaseRadius);
       const isSelected = selectedFeature === feature;
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", describeArc(cx, cy, radius, startAngle, endAngle));
@@ -483,7 +479,7 @@
     const hasSelection = app.state.selectedRestrictionEnzymes.size > 0;
     const sitesToRender = hasSelection
       ? record.restriction_sites.filter((site) => app.state.selectedRestrictionEnzymes.has(site.enzyme))
-      : record.restriction_sites;
+      : [];
     sitesToRender.forEach((site) => {
       const angle = ((Number(site.start) - 1) / length) * 360;
       const inner = polarToCartesian(cx, cy, restrictionInner, angle);
@@ -535,7 +531,8 @@
 
     app.els.featureTotal.textContent = `${record.features.length.toLocaleString()} total`;
     app.els.restrictionCount.textContent = `${record.restriction_sites.length.toLocaleString()} total`;
-    app.els.mapStatus.textContent = `${record.features.length.toLocaleString()} feature(s) | ${record.restriction_sites.length.toLocaleString()} restriction site(s)`;
+    const displayedFeatureCount = record.features.filter((feature) => isCdsFeature(feature) || isPrimerOrMiscFeature(feature)).length;
+    app.els.mapStatus.textContent = `${displayedFeatureCount.toLocaleString()} displayed feature(s): CDS and primer_bind/misc_feature lanes | ${record.restriction_sites.length.toLocaleString()} restriction site(s) available`;
     renderCircularMap(app, record);
     renderFeatureTable(app, record);
     renderRestrictionTable(app, record);
