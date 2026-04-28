@@ -1,0 +1,75 @@
+{% extends "core/base.html" %}
+{% block title %}{{ product.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-8">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">{{ product.name }}</h1>
+      <p class="opacity-70 mt-2">{{ product.sequence_file.name }} / {{ product.record_id }}</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a href="{% url 'sequencefile_linear_view' product.sequence_file_id %}?pcr_product={{ product.id }}" class="btn btn-outline">Open Linear</a>
+      <a href="{% url 'pcrproduct_list' %}" class="btn btn-ghost">Back</a>
+      {% if can_delete %}
+        <form method="POST" action="{% url 'pcrproduct_delete' product.id %}" onsubmit="return confirm('Delete PCR product {{ product.name|escapejs }}?');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-error btn-outline">Delete</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid gap-4 md:grid-cols-3">
+    <div class="card bg-base-100 shadow">
+      <div class="card-body">
+        <div class="text-sm opacity-60">Length</div>
+        <div class="font-semibold">{{ product.length }} bp</div>
+      </div>
+    </div>
+    <div class="card bg-base-100 shadow">
+      <div class="card-body">
+        <div class="text-sm opacity-60">Amplicon</div>
+        <div class="font-semibold font-mono">{{ product.start }}-{{ product.end }}</div>
+      </div>
+    </div>
+    <div class="card bg-base-100 shadow">
+      <div class="card-body">
+        <div class="text-sm opacity-60">Created</div>
+        <div class="font-semibold">{{ product.created_at|date:"Y-m-d H:i" }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid gap-4 md:grid-cols-2">
+    <div class="card bg-base-100 shadow">
+      <div class="card-body">
+        <div class="text-sm opacity-60">Forward Primer</div>
+        <div class="font-semibold">{{ product.forward_primer_label|default:"-" }}</div>
+        {% if product.forward_primer %}
+          <div class="text-sm opacity-70">{{ product.forward_primer.primer_name }}</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card bg-base-100 shadow">
+      <div class="card-body">
+        <div class="text-sm opacity-60">Reverse Primer</div>
+        <div class="font-semibold">{{ product.reverse_primer_label|default:"-" }}</div>
+        {% if product.reverse_primer %}
+          <div class="text-sm opacity-70">{{ product.reverse_primer.primer_name }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card bg-base-100 shadow">
+    <div class="card-body">
+      <div class="flex justify-between items-center">
+        <h2 class="card-title">PCR Product Sequence</h2>
+        <span class="text-sm opacity-60">{{ product.length }} bp</span>
+      </div>
+      <pre class="mt-4 whitespace-pre-wrap break-all font-mono text-sm">{{ product.sequence }}</pre>
+    </div>
+  </div>
+</div>
+{% endblock %}
