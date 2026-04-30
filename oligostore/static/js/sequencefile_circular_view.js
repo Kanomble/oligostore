@@ -81,6 +81,14 @@
     return typeValue === "misc_feature" || typeValue === "misc_features" || typeValue === "misc features" || typeValue === "misc";
   }
 
+  function complementBase(base) {
+    return { A: "T", T: "A", C: "G", G: "C" }[String(base || "").toUpperCase()] || "N";
+  }
+
+  function reverseComplementSequence(sequence) {
+    return String(sequence || "").toUpperCase().split("").reverse().map(complementBase).join("");
+  }
+
   function shouldDisplayFeature(app, feature) {
     if (isCdsFeature(feature)) {
       return app.state.showCdsFeatures;
@@ -148,6 +156,8 @@
         restrictionCount: getElement("circularRestrictionCount"),
         clearSelectionBtn: getElement("circularClearSelectionBtn"),
         featureDetails: getElement("circularFeatureDetails"),
+        copySelectedSequenceBtn: getElement("circularCopySelectedSequenceBtn"),
+        sequenceCopyStatus: getElement("circularSequenceCopyStatus"),
         selectionSummary: getElement("circularSelectionSummary"),
         featureSearchInput: getElement("circularFeatureSearchInput"),
         featureCount: getElement("circularFeatureCount"),
@@ -182,6 +192,65 @@
 
   function getRecord(app) {
     return app.recordDetails.get(app.state.recordIndex) || null;
+  }
+
+  async function copyTextToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  }
+
+  function getSequenceSlice(record, start, end) {
+    const regionStart = Number(record.region_start);
+    const regionEnd = Number(record.region_end);
+    if (!Number.isFinite(regionStart) || !Number.isFinite(regionEnd)) {
+      return null;
+    }
+    if (start < regionStart || end > regionEnd) {
+      return null;
+    }
+    return String(record.sequence || "").slice(start - regionStart, end - regionStart + 1).toUpperCase();
+  }
+
+  function setSequenceCopyStatus(app, message, isError = false) {
+    app.els.sequenceCopyStatus.textContent = message;
+    app.els.sequenceCopyStatus.classList.toggle("text-error", Boolean(isError));
+  }
+
+  async function copySelectedFeatureSequence(app) {
+    const record = getRecord(app);
+    const feature = record && app.state.selectedFeatureIndex !== null ? record.features[app.state.selectedFeatureIndex] : null;
+    if (!record || !feature) {
+      setSequenceCopyStatus(app, "No feature selected.", true);
+      return;
+    }
+    const start = clampPosition(feature.start, record.length);
+    const end = Math.max(start, clampPosition(feature.end, record.length));
+    const sequence = getSequenceSlice(record, start, end);
+    if (!sequence) {
+      setSequenceCopyStatus(app, "Selected bases are not loaded.", true);
+      return;
+    }
+    const sequenceToCopy = Number(feature.strand) === -1
+      ? reverseComplementSequence(sequence)
+      : sequence;
+    try {
+      await copyTextToClipboard(sequenceToCopy);
+      const orientation = Number(feature.strand) === -1 ? "reverse-complemented " : "";
+      setSequenceCopyStatus(app, `Copied ${start.toLocaleString()}-${end.toLocaleString()} (${orientation}${sequenceToCopy.length.toLocaleString()} bp).`);
+    } catch (error) {
+      setSequenceCopyStatus(app, `Copy failed: ${error.message}`, true);
+    }
   }
 
   async function ensureRecordLoaded(app) {
@@ -242,6 +311,7 @@
     if (!feature) {
       app.els.featureDetails.innerHTML = "No feature selected.";
       app.els.selectionSummary.textContent = "No feature selected on map.";
+      app.els.copySelectedSequenceBtn.disabled = true;
       return;
     }
 
@@ -259,6 +329,7 @@
       </div>
     `;
     app.els.selectionSummary.textContent = `${escapeHtml(feature.label || feature.type || "Feature")} selected at ${Number(feature.start).toLocaleString()}-${Number(feature.end).toLocaleString()}.`;
+    app.els.copySelectedSequenceBtn.disabled = false;
   }
 
   function renderFeatureTable(app, record) {
@@ -289,6 +360,7 @@
     app.els.featureTableBody.querySelectorAll("[data-feature-index]").forEach((row) => {
       row.addEventListener("click", () => {
         app.state.selectedFeatureIndex = Number(row.dataset.featureIndex);
+        setSequenceCopyStatus(app, "");
         render(app);
       });
     });
@@ -453,6 +525,7 @@
       path.style.cursor = "pointer";
       path.addEventListener("click", () => {
         app.state.selectedFeatureIndex = index;
+        setSequenceCopyStatus(app, "");
         render(app);
       });
 
@@ -629,7 +702,11 @@
     });
     app.els.clearSelectionBtn.addEventListener("click", () => {
       app.state.selectedFeatureIndex = null;
+      setSequenceCopyStatus(app, "");
       render(app);
+    });
+    app.els.copySelectedSequenceBtn.addEventListener("click", () => {
+      void copySelectedFeatureSequence(app);
     });
     app.els.featureSearchInput.addEventListener("input", () => {
       app.state.featureQuery = app.els.featureSearchInput.value;

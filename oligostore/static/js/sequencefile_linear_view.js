@@ -52,6 +52,9 @@
         toggleMiscFeaturesBtn: getElement("toggleMiscFeaturesBtn"),
         primerCountSummary: getElement("primerCountSummary"),
         mapSelectionSummary: getElement("mapSelectionSummary"),
+        copySelectedFeatureSequenceBtn: getElement("copySelectedFeatureSequenceBtn"),
+        copyVisibleWindowSequenceBtn: getElement("copyVisibleWindowSequenceBtn"),
+        mapSequenceCopyStatus: getElement("mapSequenceCopyStatus"),
         mapSelectionActions: getElement("mapSelectionActions"),
         removePrimerFeatureBtn: getElement("removePrimerFeatureBtn"),
         deletePrimerEverywhereBtn: getElement("deletePrimerEverywhereBtn"),
@@ -319,6 +322,21 @@
     app.reverseComplementSequence = function reverseComplementSequence(sequence) {
       return String(sequence || "").toUpperCase().split("").reverse().map((base) => app.complementBase(base)).join("");
     };
+    app.copyTextToClipboard = async function copyTextToClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    };
 
     return app;
   }
@@ -367,6 +385,8 @@
     els.mapZoomInBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.mapWindowSize = Math.max(50, Math.floor(state.mapWindowSize / 2)); app.render(); });
     els.mapZoomOutBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.mapWindowSize = Math.min(app.getCurrentRecordLength(), state.mapWindowSize * 2); app.render(); });
     els.mapZoomResetBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.mapWindowSize = app.defaultMapWindowSize(app.getCurrentRecordLength()); state.mapStart = 1; app.render(); });
+    els.copySelectedFeatureSequenceBtn.addEventListener("click", () => app.copySelectedFeatureSequence());
+    els.copyVisibleWindowSequenceBtn.addEventListener("click", () => app.copyVisibleWindowSequence());
     els.featureSearchInput.addEventListener("input", () => { state.featureQuery = els.featureSearchInput.value; state.selectedFeatureIndex = null; state.tablePage = 1; app.render(); });
     els.featurePageSizeSelect.addEventListener("change", () => { state.tablePageSize = Number(els.featurePageSizeSelect.value); state.tablePage = 1; app.render(); });
     els.featurePrevPageBtn.addEventListener("click", () => { state.tablePage = Math.max(1, state.tablePage - 1); app.render(); });
@@ -458,6 +478,9 @@
       els.primerMiscFeatureTrack.innerHTML = "";
       els.mapTickTrack.innerHTML = "";
       els.mapSelectionSummary.textContent = "No feature selected on map.";
+      els.copySelectedFeatureSequenceBtn.classList.add("hidden");
+      els.copyVisibleWindowSequenceBtn.disabled = true;
+      els.mapSequenceCopyStatus.textContent = "";
       els.mapSelectionActions.classList.add("hidden");
       els.primerCountSummary.textContent = "";
       els.pcrProductSummary.textContent = "";
@@ -480,6 +503,7 @@
       app.closePrimerSelectionMenu();
       return;
     }
+    els.copyVisibleWindowSequenceBtn.disabled = false;
 
     const needed = app.getActiveRegionBounds();
     if (!app.isRangeCovered(record, needed.regionStart, needed.regionEnd)) {

@@ -111,6 +111,11 @@
           </div>
           <div id="primerCountSummary" class="mt-1 text-[11px] opacity-70"></div>
           <div id="mapSelectionSummary" class="mt-2 text-xs opacity-70"></div>
+          <div id="mapSequenceCopyActions" class="mt-2 flex flex-wrap items-center gap-2">
+            <button id="copySelectedFeatureSequenceBtn" type="button" class="btn btn-outline btn-xs hidden">Copy selected feature bases</button>
+            <button id="copyVisibleWindowSequenceBtn" type="button" class="btn btn-outline btn-xs">Copy visible window bases</button>
+            <span id="mapSequenceCopyStatus" class="text-xs opacity-70"></span>
+          </div>
           <div id="mapSelectionActions" class="mt-2 flex flex-wrap gap-2 hidden">
             <button id="removePrimerFeatureBtn" type="button" class="btn btn-outline btn-xs">Remove from sequence file</button>
             <button id="deletePrimerEverywhereBtn" type="button" class="btn btn-error btn-xs">Delete from oligostore too</button>

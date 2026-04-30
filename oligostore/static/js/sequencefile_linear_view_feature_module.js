@@ -288,6 +288,7 @@
       state.selectedFeatureIndex = index;
       state.hoveredMapFeatureIndex = null;
       state.mapWindowAnchorPosition = null;
+      app.setMapSequenceCopyStatus("");
       if (isShift) {
         state.mapSelectedFeatureIndexes.add(index);
       } else {
@@ -336,8 +337,82 @@
       state.mapWindowDragStartPosition = null;
       state.mapWindowDragCurrentPosition = null;
       state.mapWindowDragStartX = null;
+      app.setMapSequenceCopyStatus("");
       app.closePrimerSelectionMenu();
       app.render();
+    };
+
+    app.setMapSequenceCopyStatus = function setMapSequenceCopyStatus(message, isError = false) {
+      els.mapSequenceCopyStatus.textContent = message;
+      els.mapSequenceCopyStatus.classList.toggle("text-error", Boolean(isError));
+    };
+
+    app.getForwardSequenceForRange = async function getForwardSequenceForRange(record, start, end) {
+      const safeStart = Math.max(1, Math.min(record.length, Math.round(Number(start) || 1)));
+      const safeEnd = Math.max(safeStart, Math.min(record.length, Math.round(Number(end) || safeStart)));
+      if (!app.isRangeCovered(record, safeStart, safeEnd)) {
+        app.setMapSequenceCopyStatus("Loading bases...");
+        await app.ensureRecordRegionLoaded(state.recordIndex, safeStart, safeEnd);
+        record = app.getRecord();
+      }
+      const sequence = app.getSequenceSlice(record, safeStart, safeEnd);
+      if (sequence === null) {
+        throw new Error("Selected bases are not loaded.");
+      }
+      return {
+        sequence: sequence.toUpperCase(),
+        start: safeStart,
+        end: safeEnd,
+      };
+    };
+
+    app.copySequenceRange = async function copySequenceRange(start, end, label) {
+      const record = app.getRecord();
+      if (!record) {
+        app.setMapSequenceCopyStatus("No record loaded.", true);
+        return;
+      }
+      try {
+        const copied = await app.getForwardSequenceForRange(record, start, end);
+        await app.copyTextToClipboard(copied.sequence);
+        app.setMapSequenceCopyStatus(`${label} copied: ${copied.start.toLocaleString()}-${copied.end.toLocaleString()} (${copied.sequence.length.toLocaleString()} bp).`);
+      } catch (error) {
+        app.setMapSequenceCopyStatus(`Copy failed: ${error.message}`, true);
+      }
+    };
+
+    app.copySelectedFeatureSequence = function copySelectedFeatureSequence() {
+      const record = app.getRecord();
+      const feature = record && state.selectedFeatureIndex !== null ? record.features[state.selectedFeatureIndex] : null;
+      if (!feature) {
+        app.setMapSequenceCopyStatus("No feature selected.", true);
+        return;
+      }
+      const bounds = app.featureBounds(feature);
+      void (async () => {
+        try {
+          const copied = await app.getForwardSequenceForRange(record, bounds.start, bounds.end);
+          const sequence = Number(feature.strand) === -1
+            ? app.reverseComplementSequence(copied.sequence)
+            : copied.sequence;
+          await app.copyTextToClipboard(sequence);
+          const orientation = Number(feature.strand) === -1 ? "reverse-complemented " : "";
+          app.setMapSequenceCopyStatus(`Selected feature bases copied: ${copied.start.toLocaleString()}-${copied.end.toLocaleString()} (${orientation}${sequence.length.toLocaleString()} bp).`);
+        } catch (error) {
+          app.setMapSequenceCopyStatus(`Copy failed: ${error.message}`, true);
+        }
+      })();
+    };
+
+    app.copyVisibleWindowSequence = function copyVisibleWindowSequence() {
+      const record = app.getRecord();
+      if (!record) {
+        app.setMapSequenceCopyStatus("No record loaded.", true);
+        return;
+      }
+      const start = state.start;
+      const end = Math.min(record.length, state.start + state.windowSize - 1);
+      void app.copySequenceRange(start, end, "Visible window bases");
     };
 
     app.mapTrackPositionFromEvent = function mapTrackPositionFromEvent(event, trackElement, mapStart, mapLength) {
@@ -903,21 +978,25 @@
     app.renderMapSelectionSummary = function renderMapSelectionSummary(record) {
       if (state.mapWindowAnchorPosition !== null) {
         els.mapSelectionSummary.textContent = `Window anchor: ${state.mapWindowAnchorPosition.toLocaleString()} bp. Click a second map position or drag across the map to set the visible sequence window.`;
+        els.copySelectedFeatureSequenceBtn.classList.add("hidden");
         els.mapSelectionActions.classList.add("hidden");
         return;
       }
       if (state.hoveredMapFeatureIndex !== null && record.features[state.hoveredMapFeatureIndex]) {
         els.mapSelectionSummary.textContent = app.mapFeatureSummaryText("Hover", record.features[state.hoveredMapFeatureIndex]);
+        els.copySelectedFeatureSequenceBtn.classList.add("hidden");
         els.mapSelectionActions.classList.add("hidden");
         return;
       }
       if (state.selectedFeatureIndex === null || !record.features[state.selectedFeatureIndex]) {
         els.mapSelectionSummary.textContent = "No feature selected on map.";
+        els.copySelectedFeatureSequenceBtn.classList.add("hidden");
         els.mapSelectionActions.classList.add("hidden");
         return;
       }
       const feature = record.features[state.selectedFeatureIndex];
       els.mapSelectionSummary.textContent = app.mapFeatureSummaryText("Selected", feature);
+      els.copySelectedFeatureSequenceBtn.classList.remove("hidden");
       const canRemovePrimer = app.isPrimerBindingFeature(feature) && feature.source === "user" && Number(feature.feature_id) > 0;
       if (!canRemovePrimer) {
         els.mapSelectionActions.classList.add("hidden");
