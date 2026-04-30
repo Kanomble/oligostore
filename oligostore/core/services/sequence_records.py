@@ -1,11 +1,33 @@
 import json
 import os
+import re
 from functools import lru_cache
 
 from Bio.Restriction import CommOnly
 from Bio.Seq import Seq
 
 from ..models import SequenceFeature
+
+
+IUPAC_DNA_BASES = {
+    "A": "A",
+    "C": "C",
+    "G": "G",
+    "T": "T",
+    "U": "T",
+    "R": "AG",
+    "Y": "CT",
+    "S": "GC",
+    "W": "AT",
+    "K": "GT",
+    "M": "AC",
+    "B": "CGT",
+    "D": "AGT",
+    "H": "ACT",
+    "V": "ACG",
+    "N": "ACGT",
+}
+IUPAC_COMPLEMENTS = str.maketrans("ACGTURYSWKMBDHVN", "TGCAAYRSWMKVHDBN")
 
 
 @lru_cache(maxsize=8)
@@ -82,30 +104,115 @@ def extract_user_features(sequence_file, record_id):
     ]
 
 
+def reverse_complement_site(site):
+    return str(site).upper().translate(IUPAC_COMPLEMENTS)[::-1]
+
+
+def site_regex(site):
+    parts = []
+    for base in str(site).upper():
+        values = IUPAC_DNA_BASES.get(base)
+        if values is None:
+            parts.append(re.escape(base))
+        elif len(values) == 1:
+            parts.append(values)
+        else:
+            parts.append(f"[{values}]")
+    return re.compile(f"(?=({''.join(parts)}))")
+
+
+def find_recognition_matches(window_sequence, site):
+    site = str(site or "").upper()
+    reverse_site = reverse_complement_site(site)
+    matches = []
+    for strand, motif in ((1, site), (-1, reverse_site)):
+        if not motif:
+            continue
+        if strand == -1 and motif == site:
+            continue
+        pattern = site_regex(motif)
+        matches.extend(
+            {
+                "start": match.start() + 1,
+                "end": match.start() + len(motif),
+                "strand": strand,
+            }
+            for match in pattern.finditer(window_sequence)
+        )
+    return matches
+
+
+def recognition_cut_boundaries(match, site_length, cut_offset, reverse_cut_offset):
+    if match["strand"] == -1:
+        return {
+            "forward": match["start"] - reverse_cut_offset,
+            "reverse": match["start"] - (cut_offset - site_length),
+        }
+    return {
+        "forward": match["start"] + cut_offset,
+        "reverse": match["end"] + reverse_cut_offset + 1,
+    }
+
+
 def extract_restriction_sites_in_range(window_sequence, range_start, range_end, record_length):
     restriction_sites = []
     try:
         restriction_results = CommOnly.search(Seq(window_sequence), linear=True)
         for enzyme, cut_positions in restriction_results.items():
-            site_length = len(getattr(enzyme, "site", "") or "")
+            site = str(getattr(enzyme, "site", "") or "")
+            site_length = len(site)
             if site_length <= 0:
                 continue
             cut_offset = int(getattr(enzyme, "fst5", 0))
+            reverse_cut_offset = int(getattr(enzyme, "fst3", cut_offset))
+            recognition_matches = find_recognition_matches(window_sequence, site)
+            matches_by_forward_cut = {}
+            for match in recognition_matches:
+                boundaries = recognition_cut_boundaries(
+                    match,
+                    site_length,
+                    cut_offset,
+                    reverse_cut_offset,
+                )
+                matches_by_forward_cut.setdefault(boundaries["forward"], []).append(
+                    (match, boundaries)
+                )
             for cut_position in cut_positions:
                 global_cut_position = range_start + int(cut_position) - 1
-                start = global_cut_position - cut_offset
-                end = start + site_length - 1
+                local_cut_position = int(cut_position)
+                matched_sites = matches_by_forward_cut.get(local_cut_position)
+                if matched_sites:
+                    match, boundaries = matched_sites[0]
+                    start = range_start + match["start"] - 1
+                    end = range_start + match["end"] - 1
+                    recognition_strand = match["strand"]
+                    forward_cut_boundary = range_start + boundaries["forward"] - 1
+                    reverse_cut_boundary = range_start + boundaries["reverse"] - 1
+                else:
+                    start = global_cut_position - cut_offset
+                    end = start + site_length - 1
+                    recognition_strand = 1
+                    forward_cut_boundary = global_cut_position
+                    reverse_cut_boundary = end + reverse_cut_offset + 1
                 if start < 1 or end > record_length:
                     continue
-                if end < range_start or start > range_end:
+                site_start = min(start, end, forward_cut_boundary, reverse_cut_boundary)
+                site_end = max(start, end, forward_cut_boundary, reverse_cut_boundary)
+                if site_end < range_start or site_start > range_end:
                     continue
                 restriction_sites.append(
                     {
                         "enzyme": str(enzyme),
-                        "site": str(getattr(enzyme, "site", "")),
+                        "site": site,
                         "cut_offset": cut_offset,
+                        "cut_offset_3": reverse_cut_offset,
                         "start": start,
                         "end": end,
+                        "recognition_start": start,
+                        "recognition_end": end,
+                        "recognition_strand": recognition_strand,
+                        "cut_boundary_forward": forward_cut_boundary,
+                        "cut_boundary_reverse": reverse_cut_boundary,
                     }
                 )
     except Exception:

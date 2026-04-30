@@ -9,8 +9,22 @@
       return String(value || "").toLowerCase();
     };
 
+    app.getRestrictionSiteBounds = function getRestrictionSiteBounds(site) {
+      const siteStart = Number(site.recognition_start ?? site.start);
+      const siteEnd = Number(site.recognition_end ?? site.end);
+      const forwardBoundary = app.getCutBoundary(site, "forward");
+      const reverseBoundary = app.getCutBoundary(site, "reverse");
+      return {
+        start: Math.min(siteStart, siteEnd, forwardBoundary, reverseBoundary),
+        end: Math.max(siteStart, siteEnd, forwardBoundary, reverseBoundary),
+      };
+    };
+
     app.getRestrictionHitsInWindow = function getRestrictionHitsInWindow(record, start, end) {
-      return (record.restriction_sites || []).filter((site) => !(site.end < start || site.start > end));
+      return (record.restriction_sites || []).filter((site) => {
+        const bounds = app.getRestrictionSiteBounds(site);
+        return !(bounds.end < start || bounds.start > end + 1);
+      });
     };
 
     app.getSortedRestrictionEnzymes = function getSortedRestrictionEnzymes(record) {
@@ -28,12 +42,22 @@
       state.selectedRestrictionEnzymes = new Set(
         [...state.selectedRestrictionEnzymes].filter((enzyme) => available.has(enzyme))
       );
+      state.pinnedRestrictionEnzymes = new Set(
+        [...(state.pinnedRestrictionEnzymes || new Set())]
+          .filter((enzyme) => available.has(enzyme) && state.selectedRestrictionEnzymes.has(enzyme))
+      );
       const query = app.normalize(state.restrictionEnzymeQuery).trim();
+      const hasQuery = Boolean(query);
+      const shouldPinSelected = state.pinSelectedRestrictionEnzymes && state.pinnedRestrictionEnzymes.size > 0;
       const selectedItems = sorted.filter((item) => state.selectedRestrictionEnzymes.has(item.enzyme));
-      const unselectedItems = sorted.filter((item) => !state.selectedRestrictionEnzymes.has(item.enzyme));
-      const filteredUnselectedItems = !query
-        ? unselectedItems
-        : unselectedItems.filter(({ enzyme }) => app.normalize(enzyme).includes(query));
+      const pinnedSelectedItems = sorted.filter((item) => state.pinnedRestrictionEnzymes.has(item.enzyme));
+      const unpinnedItems = sorted.filter((item) => !state.pinnedRestrictionEnzymes.has(item.enzyme));
+      const filteredUnselectedItems = hasQuery
+        ? unpinnedItems.filter(({ enzyme }) => app.normalize(enzyme).includes(query))
+        : [];
+      const pageableItems = hasQuery
+        ? filteredUnselectedItems
+        : (shouldPinSelected ? unpinnedItems : sorted);
 
       if (!sorted.length) {
         els.restrictionEnzymeTableBody.innerHTML = '<tr><td colspan="5" class="text-center opacity-70 py-3">No restriction sites in this record.</td></tr>';
@@ -44,7 +68,7 @@
         return;
       }
 
-      if (!selectedItems.length && !filteredUnselectedItems.length) {
+      if (hasQuery && !pinnedSelectedItems.length && !filteredUnselectedItems.length) {
         els.restrictionEnzymeTableBody.innerHTML = '<tr><td colspan="5" class="text-center opacity-70 py-3">No enzymes match this search.</td></tr>';
         els.restrictionSelectionCount.textContent = `${state.selectedRestrictionEnzymes.size.toLocaleString()} selected | 0 matching`;
         els.restrictionEnzymePageInfo.textContent = "Page 0 of 0";
@@ -53,12 +77,12 @@
         return;
       }
 
-      const totalPages = Math.max(1, Math.ceil(filteredUnselectedItems.length / state.restrictionTablePageSize));
+      const totalPages = Math.max(1, Math.ceil(pageableItems.length / state.restrictionTablePageSize));
       state.restrictionTablePage = Math.min(Math.max(1, state.restrictionTablePage), totalPages);
       const pageStart = (state.restrictionTablePage - 1) * state.restrictionTablePageSize;
       const pageEnd = pageStart + state.restrictionTablePageSize;
-      const pageItems = filteredUnselectedItems.slice(pageStart, pageEnd);
-      const rowsToRender = [...selectedItems, ...pageItems];
+      const pageItems = pageableItems.slice(pageStart, pageEnd);
+      const rowsToRender = shouldPinSelected ? [...pinnedSelectedItems, ...pageItems] : pageItems;
 
       els.restrictionEnzymeTableBody.innerHTML = "";
       rowsToRender.forEach(({ enzyme, count, site, cutOffset }) => {
@@ -100,7 +124,7 @@
         els.restrictionEnzymeTableBody.appendChild(row);
       });
 
-      const matchingTotal = selectedItems.length + filteredUnselectedItems.length;
+      const matchingTotal = hasQuery ? selectedItems.length + filteredUnselectedItems.length : sorted.length;
       els.restrictionSelectionCount.textContent = `${state.selectedRestrictionEnzymes.size.toLocaleString()} selected | ${matchingTotal.toLocaleString()} matching`;
       els.restrictionEnzymePageInfo.textContent = `Page ${state.restrictionTablePage.toLocaleString()} of ${totalPages.toLocaleString()}`;
       els.restrictionEnzymePrevPageBtn.disabled = state.restrictionTablePage <= 1;
@@ -262,6 +286,8 @@
 
     app.applyFeatureSelection = function applyFeatureSelection(record, index, feature, isShift) {
       state.selectedFeatureIndex = index;
+      state.hoveredMapFeatureIndex = null;
+      state.mapWindowAnchorPosition = null;
       if (isShift) {
         state.mapSelectedFeatureIndexes.add(index);
       } else {
@@ -290,6 +316,64 @@
       app.render();
     };
 
+    app.mapFeatureSummaryText = function mapFeatureSummaryText(prefix, feature) {
+      return `${prefix}: ${feature.label} (${feature.type}) ${feature.start.toLocaleString()}-${feature.end.toLocaleString()} | ${app.featureLength(feature).toLocaleString()} bp | ${app.strandLabel(feature.strand)}`;
+    };
+
+    app.applySequenceWindowRange = function applySequenceWindowRange(record, firstPosition, secondPosition) {
+      const rawStart = Math.min(Number(firstPosition), Number(secondPosition));
+      const rawEnd = Math.max(Number(firstPosition), Number(secondPosition));
+      const selectionStart = Math.max(1, Math.min(record.length, Math.round(rawStart)));
+      const selectionEnd = Math.max(selectionStart, Math.min(record.length, Math.round(rawEnd)));
+      const maxWindow = Math.min(5000, Math.max(app.constants.MIN_WINDOW_BP, record.length));
+      const selectedWindowSize = Math.min(maxWindow, Math.max(app.constants.MIN_WINDOW_BP, selectionEnd - selectionStart + 1));
+      const maxStart = Math.max(1, record.length - selectedWindowSize + 1);
+
+      state.windowSize = selectedWindowSize;
+      state.start = app.clampPosition(selectionStart, maxStart);
+      state.hoveredMapFeatureIndex = null;
+      state.mapWindowAnchorPosition = null;
+      state.mapWindowDragStartPosition = null;
+      state.mapWindowDragCurrentPosition = null;
+      state.mapWindowDragStartX = null;
+      app.closePrimerSelectionMenu();
+      app.render();
+    };
+
+    app.mapTrackPositionFromEvent = function mapTrackPositionFromEvent(event, trackElement, mapStart, mapLength) {
+      const rect = trackElement.getBoundingClientRect();
+      if (!rect.width) {
+        return mapStart;
+      }
+      const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      return Math.round(mapStart + ratio * (mapLength - 1));
+    };
+
+    app.setMapWindowSelectionPreview = function setMapWindowSelectionPreview(mapStart, mapLength, firstPosition, secondPosition = firstPosition) {
+      const boxes = [els.cdsWindowSelectionBox, els.mapWindowSelectionBox].filter(Boolean);
+      if (!boxes.length || firstPosition === null || firstPosition === undefined) {
+        boxes.forEach((box) => box.classList.add("hidden"));
+        return;
+      }
+
+      const leftPosition = Math.min(Number(firstPosition), Number(secondPosition));
+      const rightPosition = Math.max(Number(firstPosition), Number(secondPosition));
+      const visibleLeft = Math.max(mapStart, leftPosition);
+      const visibleRight = Math.min(mapStart + mapLength - 1, rightPosition);
+      if (!Number.isFinite(visibleLeft) || !Number.isFinite(visibleRight) || visibleRight < mapStart || visibleLeft > mapStart + mapLength - 1) {
+        boxes.forEach((box) => box.classList.add("hidden"));
+        return;
+      }
+
+      const left = ((visibleLeft - mapStart) / mapLength) * 100;
+      const width = Math.max(((visibleRight - visibleLeft + 1) / mapLength) * 100, 0.7);
+      boxes.forEach((box) => {
+        box.style.left = `${Math.min(100, Math.max(0, left))}%`;
+        box.style.width = `${Math.min(width, 100 - Math.min(100, Math.max(0, left)))}%`;
+        box.classList.remove("hidden");
+      });
+    };
+
     app.setWindowFeatureHoverText = function setWindowFeatureHoverText(feature) {
       if (!feature) {
         els.windowFeatureHoverDescription.textContent = "Hover a feature line to inspect its description.";
@@ -300,11 +384,33 @@
         `${app.featureLength(feature).toLocaleString()} bp | ${app.strandLabel(feature.strand)} | ${app.featureDescription(feature)}`;
     };
 
-    app.getHighlightedRestrictionPositions = function getHighlightedRestrictionPositions(windowRestrictionHits, start, end) {
+    app.getCutBoundary = function getCutBoundary(site, strand) {
+      const explicitBoundary = strand === "reverse"
+        ? Number(site.cut_boundary_reverse)
+        : Number(site.cut_boundary_forward);
+      if (Number.isFinite(explicitBoundary)) {
+        return explicitBoundary;
+      }
+      const siteStart = Number(site.recognition_start ?? site.start);
+      const siteEnd = Number(site.recognition_end ?? site.end);
+      const siteLength = siteEnd - siteStart + 1;
+      const rawOffset = strand === "reverse" && Number.isFinite(Number(site.cut_offset_3))
+        ? Number(site.cut_offset_3)
+        : Number(site.cut_offset);
+      const offset = Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : 0;
+      if (strand === "reverse") {
+        return siteEnd + offset + 1;
+      }
+      return offset < 0
+        ? siteStart + siteLength + offset
+        : siteStart + offset;
+    };
+
+    app.getHighlightedRestrictionPositions = function getHighlightedRestrictionPositions(windowRestrictionHits, start, end, strand) {
       const highlightedPositions = new Map();
       windowRestrictionHits.forEach((site) => {
-        const siteStart = Math.max(start, site.start);
-        const siteEnd = Math.min(end, site.end);
+        const siteStart = Math.max(start, Number(site.recognition_start ?? site.start));
+        const siteEnd = Math.min(end, Number(site.recognition_end ?? site.end));
         for (let position = siteStart; position <= siteEnd; position += 1) {
           if (!highlightedPositions.has(position)) {
             highlightedPositions.set(position, []);
@@ -315,14 +421,47 @@
       return highlightedPositions;
     };
 
-    app.renderStrandChunks = function renderStrandChunks(lineSegment, lineStart, highlightedPositions, strand, baseTransform = (base) => base) {
+    app.getRestrictionCutMap = function getRestrictionCutMap(windowRestrictionHits, lineStart, lineEnd, strand) {
+      const cutMap = new Map();
+      windowRestrictionHits
+        .filter((site) => {
+          const boundary = app.getCutBoundary(site, strand);
+          const spanStart = Math.min(Number(site.start), boundary);
+          const spanEnd = Math.max(Number(site.end), boundary);
+          return !(spanEnd < lineStart || spanStart > lineEnd + 1);
+        })
+        .forEach((site) => {
+          const boundary = app.getCutBoundary(site, strand);
+          if (boundary < lineStart || boundary > lineEnd + 1) {
+            return;
+          }
+          const position = boundary <= lineEnd ? boundary : lineEnd;
+          if (!cutMap.has(position)) {
+            cutMap.set(position, { before: [], after: [] });
+          }
+          if (boundary <= lineEnd) {
+            cutMap.get(position).before.push(site);
+          } else {
+            cutMap.get(position).after.push(site);
+          }
+        });
+      return cutMap;
+    };
+
+    app.renderStrandChunks = function renderStrandChunks(lineSegment, lineStart, highlightedPositions, cutMap, strand, baseTransform = (base) => base) {
       const chunks = [];
       for (let offset = 0; offset < lineSegment.length; offset += app.constants.SEQUENCE_WINDOW_CHUNK_SIZE) {
         const chunk = lineSegment.slice(offset, offset + app.constants.SEQUENCE_WINDOW_CHUNK_SIZE);
         const chunkBaseIndex = lineStart + offset;
         const renderedChunk = chunk.split("").map((base, chunkOffset) => {
           const position = chunkBaseIndex + chunkOffset;
-          return app.baseSpan(baseTransform(base), highlightedPositions.get(position) || [], position, strand);
+          return app.baseSpan(
+            baseTransform(base),
+            highlightedPositions.get(position) || [],
+            cutMap.get(position) || null,
+            position,
+            strand
+          );
         }).join("");
         chunks.push(renderedChunk);
       }
@@ -333,60 +472,6 @@
       return windowRestrictionHits
         .filter((site) => !(site.end < lineStart || site.start > lineEnd))
         .map((site) => `<span class="restriction-line-chip" style="--restriction-color: ${restriction.getEnzymeColor(site.enzyme)};">${app.escapeHtml(site.enzyme)} ${site.start.toLocaleString()}-${site.end.toLocaleString()}</span>`);
-    };
-
-    app.sequenceOffsetToDisplayOffset = function sequenceOffsetToDisplayOffset(offset) {
-      return offset + Math.floor(offset / app.constants.SEQUENCE_WINDOW_CHUNK_SIZE);
-    };
-
-    app.sequenceDisplayLength = function sequenceDisplayLength(lineLength) {
-      if (lineLength <= 0) {
-        return 0;
-      }
-      return lineLength + Math.floor((lineLength - 1) / app.constants.SEQUENCE_WINDOW_CHUNK_SIZE);
-    };
-
-    app.buildRestrictionAnnotationRows = function buildRestrictionAnnotationRows(windowRestrictionHits, lineStart, lineEnd) {
-      const lineLength = lineEnd - lineStart + 1;
-      const displayLength = app.sequenceDisplayLength(lineLength);
-      if (displayLength <= 0) {
-        return null;
-      }
-
-      const markerChars = Array(displayLength).fill(" ");
-      const labelChars = Array(displayLength).fill(" ");
-      const lineSites = windowRestrictionHits.filter((site) => !(site.end < lineStart || site.start > lineEnd));
-
-      lineSites.forEach((site) => {
-        const startOffset = Math.max(0, site.start - lineStart);
-        const cutOffset = Number.isFinite(Number(site.cut_offset)) ? Math.trunc(Number(site.cut_offset)) : 0;
-        const cutPosition = site.start + cutOffset;
-        const cutOffsetClamped = Math.max(lineStart, Math.min(lineEnd, cutPosition)) - lineStart;
-        const markerIndex = app.sequenceOffsetToDisplayOffset(cutOffsetClamped);
-        markerChars[markerIndex] = "v";
-
-        const label = String(site.enzyme || "").trim();
-        if (!label) {
-          return;
-        }
-        const labelStart = app.sequenceOffsetToDisplayOffset(startOffset);
-        for (let i = 0; i < label.length; i += 1) {
-          const idx = labelStart + i;
-          if (idx >= labelChars.length) {
-            break;
-          }
-          if (labelChars[idx] === " ") {
-            labelChars[idx] = label[i];
-          }
-        }
-      });
-
-      const markerText = markerChars.join("");
-      const labelText = labelChars.join("");
-      if (!markerText.trim() && !labelText.trim()) {
-        return null;
-      }
-      return { markerText, labelText };
     };
 
     app.getLineNumberLayout = function getLineNumberLayout(end) {
@@ -422,27 +507,27 @@
       const hasRestrictionSelection = state.selectedRestrictionEnzymes.size > 0;
       const windowRestrictionHits = app.getRestrictionHitsInWindow(record, start, end)
         .filter((site) => state.selectedRestrictionEnzymes.has(site.enzyme));
-      const highlightedPositions = hasRestrictionSelection
-        ? app.getHighlightedRestrictionPositions(windowRestrictionHits, start, end)
-        : new Map();
       const lineNumberLayout = app.getLineNumberLayout(end);
 
       for (let i = 0; i < visible.length; i += app.constants.SEQUENCE_WINDOW_LINE_SIZE) {
         const lineStart = start + i;
         const lineEnd = Math.min(end, lineStart + app.constants.SEQUENCE_WINDOW_LINE_SIZE - 1);
         const lineSegment = visible.slice(i, i + app.constants.SEQUENCE_WINDOW_LINE_SIZE);
-        const forwardLine = app.renderStrandChunks(lineSegment, lineStart, highlightedPositions, "forward");
-        const reverseLine = app.renderStrandChunks(lineSegment, lineStart, highlightedPositions, "reverse", app.complementBase);
+        const forwardHighlightedPositions = hasRestrictionSelection
+          ? app.getHighlightedRestrictionPositions(windowRestrictionHits, lineStart, lineEnd, "forward")
+          : new Map();
+        const reverseHighlightedPositions = hasRestrictionSelection
+          ? app.getHighlightedRestrictionPositions(windowRestrictionHits, lineStart, lineEnd, "reverse")
+          : new Map();
+        const forwardCutMap = app.getRestrictionCutMap(windowRestrictionHits, lineStart, lineEnd, "forward");
+        const reverseCutMap = app.getRestrictionCutMap(windowRestrictionHits, lineStart, lineEnd, "reverse");
+        const forwardLine = app.renderStrandChunks(lineSegment, lineStart, forwardHighlightedPositions, forwardCutMap, "forward");
+        const reverseLine = app.renderStrandChunks(lineSegment, lineStart, reverseHighlightedPositions, reverseCutMap, "reverse", app.complementBase);
         const lineNumber = lineStart.toLocaleString().padStart(lineNumberLayout.width, " ");
 
         lines.push(`${lineNumber}  5' ${forwardLine} 3'`);
         lines.push(`${lineNumberLayout.prefix}<span class="bottom-strand-row">3' ${reverseLine} 5'</span>`);
         if (hasRestrictionSelection) {
-          const annotationRows = app.buildRestrictionAnnotationRows(windowRestrictionHits, lineStart, lineEnd);
-          if (annotationRows) {
-            lines.push(`${lineNumberLayout.prefix}   <span class="restriction-marker-row"><span class="restriction-cut-marker">${annotationRows.markerText}</span></span>`);
-            lines.push(`${lineNumberLayout.prefix}   <span class="restriction-marker-row">${app.escapeHtml(annotationRows.labelText)}</span>`);
-          }
           const lineSites = app.renderLineRestrictionSites(windowRestrictionHits, lineStart, lineEnd);
           if (lineSites.length) {
             lines.push(`${lineNumberLayout.prefix}<span class="restriction-row">RE: ${lineSites.join(" | ")}</span>`);
@@ -485,16 +570,119 @@
           marker.style.clipPath = "polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 50%)";
         }
         marker.title = `${feature.label} (${feature.type}) ${feature.start}-${feature.end}`;
-        marker.addEventListener("mousedown", (event) => handleFeatureMouseDown(event, index, feature));
+        marker.tabIndex = 0;
+        marker.setAttribute("role", "button");
+        marker.setAttribute("aria-label", `Select ${feature.label} on map`);
+        marker.addEventListener("pointerdown", (event) => event.stopPropagation());
+        marker.addEventListener("pointerup", (event) => event.stopPropagation());
+        marker.addEventListener("click", (event) => handleFeatureClick(event, index, feature));
+        marker.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            handleFeatureClick(event, index, feature);
+          }
+        });
+        marker.addEventListener("mouseenter", () => {
+          state.hoveredMapFeatureIndex = index;
+          app.renderMapSelectionSummary(record);
+        });
+        marker.addEventListener("focus", () => {
+          state.hoveredMapFeatureIndex = index;
+          app.renderMapSelectionSummary(record);
+        });
+        marker.addEventListener("mouseleave", () => {
+          if (state.hoveredMapFeatureIndex === index) {
+            state.hoveredMapFeatureIndex = null;
+            app.renderMapSelectionSummary(record);
+          }
+        });
+        marker.addEventListener("blur", () => {
+          if (state.hoveredMapFeatureIndex === index) {
+            state.hoveredMapFeatureIndex = null;
+            app.renderMapSelectionSummary(record);
+          }
+        });
         return marker;
       }
 
-      function handleFeatureMouseDown(event, index, feature) {
+      function handleFeatureClick(event, index, feature) {
+        event.preventDefault();
+        event.stopPropagation();
+        app.applyFeatureSelection(record, index, feature, event.shiftKey);
+      }
+
+      function handleTrackPointerDown(event) {
         if (event.button !== 0) {
           return;
         }
-        event.preventDefault();
-        app.applyFeatureSelection(record, index, feature, event.shiftKey);
+        event.stopPropagation();
+        state.mapWindowDragStartPosition = app.mapTrackPositionFromEvent(event, event.currentTarget, mapStart, mapLength);
+        state.mapWindowDragCurrentPosition = state.mapWindowDragStartPosition;
+        state.mapWindowDragStartX = event.clientX;
+        app.setMapWindowSelectionPreview(mapStart, mapLength, state.mapWindowDragStartPosition);
+        if (event.currentTarget.setPointerCapture) {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+      }
+
+      function handleTrackPointerMove(event) {
+        if (state.mapWindowDragStartPosition === null) {
+          return;
+        }
+        event.stopPropagation();
+        state.mapWindowDragCurrentPosition = app.mapTrackPositionFromEvent(event, event.currentTarget, mapStart, mapLength);
+        app.setMapWindowSelectionPreview(mapStart, mapLength, state.mapWindowDragStartPosition, state.mapWindowDragCurrentPosition);
+      }
+
+      function handleTrackPointerUp(event) {
+        if (event.button !== 0 || state.mapWindowDragStartPosition === null) {
+          return;
+        }
+        event.stopPropagation();
+        if (event.currentTarget.releasePointerCapture) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        const releasePosition = app.mapTrackPositionFromEvent(event, event.currentTarget, mapStart, mapLength);
+        const dragDistance = Math.abs(Number(event.clientX) - Number(state.mapWindowDragStartX || 0));
+        const startPosition = state.mapWindowDragStartPosition;
+        state.mapWindowDragStartPosition = null;
+        state.mapWindowDragCurrentPosition = null;
+        state.mapWindowDragStartX = null;
+
+        if (dragDistance > 3 && releasePosition !== startPosition) {
+          app.applySequenceWindowRange(record, startPosition, releasePosition);
+          return;
+        }
+
+        if (state.mapWindowAnchorPosition === null) {
+          state.mapWindowAnchorPosition = releasePosition;
+          state.hoveredMapFeatureIndex = null;
+          app.setMapWindowSelectionPreview(mapStart, mapLength, state.mapWindowAnchorPosition);
+          app.renderMapSelectionSummary(record);
+          return;
+        }
+
+        app.applySequenceWindowRange(record, state.mapWindowAnchorPosition, releasePosition);
+      }
+
+      els.cdsFeatureTrackContainer.onpointerdown = handleTrackPointerDown;
+      els.cdsFeatureTrackContainer.onpointermove = handleTrackPointerMove;
+      els.cdsFeatureTrackContainer.onpointerup = handleTrackPointerUp;
+      els.cdsFeatureTrack.onpointerdown = handleTrackPointerDown;
+      els.cdsFeatureTrack.onpointermove = handleTrackPointerMove;
+      els.cdsFeatureTrack.onpointerup = handleTrackPointerUp;
+      els.featureTrackContainer.onpointerdown = handleTrackPointerDown;
+      els.featureTrackContainer.onpointermove = handleTrackPointerMove;
+      els.featureTrackContainer.onpointerup = handleTrackPointerUp;
+      els.primerMiscFeatureTrack.onpointerdown = handleTrackPointerDown;
+      els.primerMiscFeatureTrack.onpointermove = handleTrackPointerMove;
+      els.primerMiscFeatureTrack.onpointerup = handleTrackPointerUp;
+
+      if (state.mapWindowDragStartPosition !== null && state.mapWindowDragCurrentPosition !== null) {
+        app.setMapWindowSelectionPreview(mapStart, mapLength, state.mapWindowDragStartPosition, state.mapWindowDragCurrentPosition);
+      } else if (state.mapWindowAnchorPosition !== null) {
+        app.setMapWindowSelectionPreview(mapStart, mapLength, state.mapWindowAnchorPosition);
+      } else {
+        app.setMapWindowSelectionPreview(mapStart, mapLength, null);
       }
 
       const visibleFeatures = record.features
@@ -713,13 +901,23 @@
     };
 
     app.renderMapSelectionSummary = function renderMapSelectionSummary(record) {
+      if (state.mapWindowAnchorPosition !== null) {
+        els.mapSelectionSummary.textContent = `Window anchor: ${state.mapWindowAnchorPosition.toLocaleString()} bp. Click a second map position or drag across the map to set the visible sequence window.`;
+        els.mapSelectionActions.classList.add("hidden");
+        return;
+      }
+      if (state.hoveredMapFeatureIndex !== null && record.features[state.hoveredMapFeatureIndex]) {
+        els.mapSelectionSummary.textContent = app.mapFeatureSummaryText("Hover", record.features[state.hoveredMapFeatureIndex]);
+        els.mapSelectionActions.classList.add("hidden");
+        return;
+      }
       if (state.selectedFeatureIndex === null || !record.features[state.selectedFeatureIndex]) {
         els.mapSelectionSummary.textContent = "No feature selected on map.";
         els.mapSelectionActions.classList.add("hidden");
         return;
       }
       const feature = record.features[state.selectedFeatureIndex];
-      els.mapSelectionSummary.textContent = `Selected: ${feature.label} (${feature.type}) ${feature.start.toLocaleString()}-${feature.end.toLocaleString()} | ${app.featureLength(feature).toLocaleString()} bp | ${app.strandLabel(feature.strand)}`;
+      els.mapSelectionSummary.textContent = app.mapFeatureSummaryText("Selected", feature);
       const canRemovePrimer = app.isPrimerBindingFeature(feature) && feature.source === "user" && Number(feature.feature_id) > 0;
       if (!canRemovePrimer) {
         els.mapSelectionActions.classList.add("hidden");

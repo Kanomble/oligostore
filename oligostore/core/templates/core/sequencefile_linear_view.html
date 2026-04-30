@@ -8,7 +8,7 @@
     <div>
       <h1 class="text-3xl font-bold">Linear Sequence Viewer</h1>
       <p class="opacity-70 mt-2">
-        {{ sequence_file.name }} ({{ sequence_file.get_file_type_display }}) - zoom and pan along the sequence.
+        {{ sequence_file.name }} ({{ sequence_file.get_file_type_display }}) - inspect and select regions along the sequence.
       </p>
     </div>
     <div class="flex gap-2">
@@ -35,22 +35,11 @@
 
     <div class="card bg-base-100 shadow-xl border border-base-300 rounded-2xl mt-8">
       <div class="card-body gap-5">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4">
           <div class="form-control">
             <label class="label"><span class="label-text font-semibold">Record</span></label>
             <select id="recordSelect" class="select select-bordered w-full"></select>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button id="zoomInBtn" class="btn btn-outline mt-8">Zoom in</button>
-            <button id="zoomOutBtn" class="btn btn-outline mt-8">Zoom out</button>
-            <button id="resetBtn" class="btn btn-ghost mt-8">Reset</button>
-          </div>
-        </div>
-
-        <div>
-          <label class="label"><span class="label-text font-semibold">Visible window size (bp)</span></label>
-          <input id="windowSizeSlider" type="range" class="range range-primary" min="1" max="1000" value="200" />
-          <div class="text-xs opacity-70 mt-1" id="windowSizeHint"></div>
         </div>
 
         <div>
@@ -96,14 +85,16 @@
           <div class="space-y-1">
             <div class="flex items-center gap-2">
               <div class="text-[11px] opacity-70 w-24">CDS</div>
-              <div id="cdsFeatureTrackContainer" class="rounded-xl bg-base-300/60 relative overflow-hidden flex-1 map-track-grid" style="height: 28px;">
-                <div id="cdsFeatureTrack" class="absolute inset-0"></div>
+              <div id="cdsFeatureTrackContainer" class="rounded-xl bg-base-300/60 relative overflow-hidden flex-1 map-track-grid map-window-selector" style="height: 28px;">
+                <div id="cdsWindowSelectionBox" class="map-window-selection-box hidden"></div>
+                <div id="cdsFeatureTrack" class="absolute inset-0 z-10"></div>
               </div>
             </div>
             <div class="flex items-center gap-2">
               <div class="text-[11px] opacity-70 w-24">Primers / misc</div>
-              <div id="featureTrackContainer" class="h-10 rounded-xl bg-base-300 relative overflow-hidden map-track-grid flex-1">
+              <div id="featureTrackContainer" class="h-10 rounded-xl bg-base-300 relative overflow-hidden map-track-grid map-window-selector flex-1">
                 <div id="viewportBox" class="absolute top-0 h-full border-x-2 border-primary/70 bg-primary/10 pointer-events-none z-0"></div>
+                <div id="mapWindowSelectionBox" class="map-window-selection-box hidden"></div>
                 <div id="primerMiscFeatureTrack" class="absolute inset-0 z-10"></div>
               </div>
             </div>
@@ -327,21 +318,34 @@
     box-shadow: inset 0 -2px 0 var(--restriction-color);
     border-radius: 0.125rem;
   }
+  .restriction-cut-before,
+  .restriction-cut-after {
+    position: relative;
+  }
+  .restriction-cut-before::before,
+  .restriction-cut-after::after {
+    content: "";
+    position: absolute;
+    top: -0.18rem;
+    bottom: -0.18rem;
+    width: 0.16rem;
+    background: var(--restriction-color);
+    border-radius: 9999px;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+    pointer-events: none;
+  }
+  .restriction-cut-before::before {
+    left: -0.08rem;
+  }
+  .restriction-cut-after::after {
+    right: -0.08rem;
+  }
   .restriction-row {
     color: #92400e;
     font-size: 0.75rem;
     display: inline-flex;
     flex-wrap: wrap;
     gap: 0.25rem;
-  }
-  .restriction-marker-row {
-    color: #92400e;
-    font-size: 0.75rem;
-    line-height: 1.1;
-  }
-  .restriction-cut-marker {
-    color: #7c2d12;
-    font-weight: 700;
   }
   .restriction-line-chip {
     --restriction-color: #d97706;
@@ -375,6 +379,20 @@
       transparent 1px,
       transparent 10%
     );
+  }
+  .map-window-selector {
+    cursor: crosshair;
+  }
+  .map-window-selection-box {
+    position: absolute;
+    top: 0.125rem;
+    bottom: 0.125rem;
+    border: 2px solid rgba(217, 119, 6, 0.95);
+    background: rgba(251, 191, 36, 0.2);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 0 9999px rgba(15, 23, 42, 0.04);
+    border-radius: 0.5rem;
+    pointer-events: none;
+    z-index: 30;
   }
   .window-feature-overlay-grid {
     background-image: repeating-linear-gradient(

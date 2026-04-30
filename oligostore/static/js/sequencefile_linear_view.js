@@ -35,13 +35,9 @@
       },
       els: {
         recordSelect: getElement("recordSelect"),
-        windowSizeSlider: getElement("windowSizeSlider"),
         startSlider: getElement("startSlider"),
         startInput: getElement("startInput"),
         startHint: getElement("startHint"),
-        zoomInBtn: getElement("zoomInBtn"),
-        zoomOutBtn: getElement("zoomOutBtn"),
-        resetBtn: getElement("resetBtn"),
         mapZoomInBtn: getElement("mapZoomInBtn"),
         mapZoomOutBtn: getElement("mapZoomOutBtn"),
         mapZoomResetBtn: getElement("mapZoomResetBtn"),
@@ -65,8 +61,9 @@
         savePcrProductBtn: getElement("savePcrProductBtn"),
         pcrProductSaveStatus: getElement("pcrProductSaveStatus"),
         windowLabel: getElement("windowLabel"),
-        windowSizeHint: getElement("windowSizeHint"),
         viewportBox: getElement("viewportBox"),
+        cdsWindowSelectionBox: getElement("cdsWindowSelectionBox"),
+        mapWindowSelectionBox: getElement("mapWindowSelectionBox"),
         cdsFeatureTrackContainer: getElement("cdsFeatureTrackContainer"),
         featureTrackContainer: getElement("featureTrackContainer"),
         featureTrack: getElement("primerMiscFeatureTrack"),
@@ -128,6 +125,11 @@
         mapWindowSize: 1000,
         mapStart: 1,
         selectedFeatureIndex: null,
+        hoveredMapFeatureIndex: null,
+        mapWindowAnchorPosition: null,
+        mapWindowDragStartPosition: null,
+        mapWindowDragCurrentPosition: null,
+        mapWindowDragStartX: null,
         featureQuery: "",
         tablePage: 1,
         tablePageSize: 10,
@@ -137,7 +139,10 @@
         selectedForwardPrimerIndex: null,
         selectedReversePrimerIndex: null,
         selectedRestrictionEnzymes: new Set(),
+        pinnedRestrictionEnzymes: new Set(),
         restrictionEnzymeQuery: "",
+        lastPinnedRestrictionEnzymeQuery: "",
+        pinSelectedRestrictionEnzymes: false,
         restrictionTablePage: 1,
         restrictionTablePageSize: 10,
         primerSubmitting: false,
@@ -270,20 +275,36 @@
       const primerMiscCount = features.filter((feature) => app.isPrimerOrMiscFeature && app.isPrimerOrMiscFeature(feature)).length;
       return `Displayed lanes: CDS ${cdsCount.toLocaleString()} | primer_bind/misc_feature ${primerMiscCount.toLocaleString()}`;
     };
-    app.baseSpan = function baseSpan(base, restrictionSites = [], position = null, strand = "forward") {
+    app.baseSpan = function baseSpan(base, restrictionSites = [], cutInfo = null, position = null, strand = "forward") {
       const value = String(base || "").toUpperCase();
       const sites = Array.isArray(restrictionSites) ? restrictionSites : [];
-      const restrictionClass = sites.length ? " restriction-hit" : "";
-      const restrictionStyle = sites.length
-        ? ` style="--restriction-color: ${window.SequenceRestriction.getEnzymeColor(sites[0].enzyme)};"`
+      const cutsBefore = cutInfo && Array.isArray(cutInfo.before) ? cutInfo.before : [];
+      const cutsAfter = cutInfo && Array.isArray(cutInfo.after) ? cutInfo.after : [];
+      const markerSites = cutsBefore.length ? cutsBefore : (cutsAfter.length ? cutsAfter : sites);
+      const restrictionClass = [
+        sites.length ? "restriction-hit" : "",
+        cutsBefore.length ? "restriction-cut-before" : "",
+        cutsAfter.length ? "restriction-cut-after" : "",
+      ].filter(Boolean).join(" ");
+      const restrictionStyle = markerSites.length
+        ? ` style="--restriction-color: ${window.SequenceRestriction.getEnzymeColor(markerSites[0].enzyme)};"`
         : "";
-      const restrictionTitle = sites.length
-        ? ` title="${app.escapeHtml(sites.map((site) => window.SequenceRestriction.siteTitle(site)).join(" | "))}"`
+      const titleParts = [];
+      if (cutsBefore.length || cutsAfter.length) {
+        [...cutsBefore, ...cutsAfter].forEach((site) => {
+          titleParts.push(`${strand === "reverse" ? "3' strand" : "5' strand"} cut: ${window.SequenceRestriction.siteTitle(site)}`);
+        });
+      }
+      if (sites.length) {
+        titleParts.push(...sites.map((site) => window.SequenceRestriction.siteTitle(site)));
+      }
+      const restrictionTitle = titleParts.length
+        ? ` title="${app.escapeHtml(titleParts.join(" | "))}"`
         : "";
       const metadata = Number.isFinite(position) ? ` data-sequence-base="1" data-position="${position}" data-strand="${strand}"` : "";
       const classPrefix = Number.isFinite(position) ? "sequence-base " : "";
       const className = value === "A" ? "base-a" : value === "C" ? "base-c" : value === "G" ? "base-g" : value === "T" ? "base-t" : "base-n";
-      return `<span${metadata}${restrictionTitle}${restrictionStyle} class="${classPrefix}${className}${restrictionClass}">${value}</span>`;
+      return `<span${metadata}${restrictionTitle}${restrictionStyle} class="${classPrefix}${className}${restrictionClass ? ` ${restrictionClass}` : ""}">${value}</span>`;
     };
     app.complementBase = function complementBase(base) {
       return app.constants.COMPLEMENT_BY_BASE[String(base || "").toUpperCase()] || "N";
@@ -311,12 +332,20 @@
       state.mapWindowSize = app.defaultMapWindowSize(app.getCurrentRecordLength());
       state.mapStart = 1;
       state.selectedFeatureIndex = null;
+      state.hoveredMapFeatureIndex = null;
+      state.mapWindowAnchorPosition = null;
+      state.mapWindowDragStartPosition = null;
+      state.mapWindowDragCurrentPosition = null;
+      state.mapWindowDragStartX = null;
       state.tablePage = 1;
       state.showMapSelectedOnly = false;
       state.mapSelectedFeatureIndexes = new Set();
       state.selectedForwardPrimerIndex = null;
       state.selectedReversePrimerIndex = null;
       state.restrictionEnzymeQuery = "";
+      state.lastPinnedRestrictionEnzymeQuery = "";
+      state.pinSelectedRestrictionEnzymes = false;
+      state.pinnedRestrictionEnzymes = new Set();
       state.restrictionTablePage = 1;
       state.selectedRestrictionEnzymes = new Set();
       state.loadError = "";
@@ -331,17 +360,13 @@
       void app.ensureRecordRegionLoaded(state.recordIndex, needed.regionStart, needed.regionEnd);
     });
 
-    els.windowSizeSlider.addEventListener("input", () => { app.closePrimerSelectionMenu(); state.windowSize = Number(els.windowSizeSlider.value); app.render(); });
-    els.startSlider.addEventListener("input", () => { app.closePrimerSelectionMenu(); state.start = app.getPositionFromPanSlider(els.startSlider.value, Math.max(1, app.getCurrentRecordLength() - state.windowSize + 1)); app.render(); });
-    els.startInput.addEventListener("change", () => { app.closePrimerSelectionMenu(); state.start = app.clampPosition(els.startInput.value, Math.max(1, app.getCurrentRecordLength() - state.windowSize + 1)); app.render(); });
-    els.zoomInBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.windowSize = Math.max(app.constants.MIN_WINDOW_BP, Math.floor(state.windowSize / 2)); app.render(); });
-    els.zoomOutBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.windowSize = Math.min(Math.min(5000, app.getCurrentRecordLength()), state.windowSize * 2); app.render(); });
-    els.resetBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.windowSize = Math.min(200, app.getCurrentRecordLength()); state.start = 1; app.render(); });
-    els.mapStartSlider.addEventListener("input", () => { app.closePrimerSelectionMenu(); state.mapStart = app.getPositionFromPanSlider(els.mapStartSlider.value, Math.max(1, app.getCurrentRecordLength() - state.mapWindowSize + 1)); app.render(); });
-    els.mapStartInput.addEventListener("change", () => { app.closePrimerSelectionMenu(); state.mapStart = app.clampPosition(els.mapStartInput.value, Math.max(1, app.getCurrentRecordLength() - state.mapWindowSize + 1)); app.render(); });
-    els.mapZoomInBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowSize = Math.max(50, Math.floor(state.mapWindowSize / 2)); app.render(); });
-    els.mapZoomOutBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowSize = Math.min(app.getCurrentRecordLength(), state.mapWindowSize * 2); app.render(); });
-    els.mapZoomResetBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowSize = app.defaultMapWindowSize(app.getCurrentRecordLength()); state.mapStart = 1; app.render(); });
+    els.startSlider.addEventListener("input", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.start = app.getPositionFromPanSlider(els.startSlider.value, Math.max(1, app.getCurrentRecordLength() - state.windowSize + 1)); app.render(); });
+    els.startInput.addEventListener("change", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.start = app.clampPosition(els.startInput.value, Math.max(1, app.getCurrentRecordLength() - state.windowSize + 1)); app.render(); });
+    els.mapStartSlider.addEventListener("input", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.mapStart = app.getPositionFromPanSlider(els.mapStartSlider.value, Math.max(1, app.getCurrentRecordLength() - state.mapWindowSize + 1)); app.render(); });
+    els.mapStartInput.addEventListener("change", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.mapStart = app.clampPosition(els.mapStartInput.value, Math.max(1, app.getCurrentRecordLength() - state.mapWindowSize + 1)); app.render(); });
+    els.mapZoomInBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.mapWindowSize = Math.max(50, Math.floor(state.mapWindowSize / 2)); app.render(); });
+    els.mapZoomOutBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.mapWindowSize = Math.min(app.getCurrentRecordLength(), state.mapWindowSize * 2); app.render(); });
+    els.mapZoomResetBtn.addEventListener("click", () => { app.closePrimerSelectionMenu(); state.mapWindowAnchorPosition = null; state.mapWindowSize = app.defaultMapWindowSize(app.getCurrentRecordLength()); state.mapStart = 1; app.render(); });
     els.featureSearchInput.addEventListener("input", () => { state.featureQuery = els.featureSearchInput.value; state.selectedFeatureIndex = null; state.tablePage = 1; app.render(); });
     els.featurePageSizeSelect.addEventListener("change", () => { state.tablePageSize = Number(els.featurePageSizeSelect.value); state.tablePage = 1; app.render(); });
     els.featurePrevPageBtn.addEventListener("click", () => { state.tablePage = Math.max(1, state.tablePage - 1); app.render(); });
@@ -351,6 +376,11 @@
     els.clearMapSelectionBtn.addEventListener("click", () => {
       state.mapSelectedFeatureIndexes = new Set();
       state.selectedFeatureIndex = null;
+      state.hoveredMapFeatureIndex = null;
+      state.mapWindowAnchorPosition = null;
+      state.mapWindowDragStartPosition = null;
+      state.mapWindowDragCurrentPosition = null;
+      state.mapWindowDragStartX = null;
       state.pendingFocusFeatureIndex = null;
       state.showMapSelectedOnly = false;
       state.selectedForwardPrimerIndex = null;
@@ -366,8 +396,18 @@
     els.togglePrimerFeaturesBtn.addEventListener("click", () => { state.showPrimerFeatures = !state.showPrimerFeatures; app.render(); });
     els.toggleMiscFeaturesBtn.addEventListener("click", () => { state.showMiscFeatures = !state.showMiscFeatures; app.render(); });
     els.selectTopRestrictionEnzymesBtn.addEventListener("click", () => { const record = app.getRecord(); if (record) { app.applyTopRestrictionSelection(record); state.restrictionTablePage = 1; app.render(); } });
-    els.clearRestrictionSelectionBtn.addEventListener("click", () => { state.selectedRestrictionEnzymes = new Set(); state.restrictionTablePage = 1; app.render(); });
-    els.restrictionEnzymeSearchInput.addEventListener("input", () => { state.restrictionEnzymeQuery = els.restrictionEnzymeSearchInput.value; state.restrictionTablePage = 1; app.render(); });
+    els.clearRestrictionSelectionBtn.addEventListener("click", () => { state.selectedRestrictionEnzymes = new Set(); state.pinnedRestrictionEnzymes = new Set(); state.lastPinnedRestrictionEnzymeQuery = ""; state.pinSelectedRestrictionEnzymes = false; state.restrictionTablePage = 1; app.render(); });
+    els.restrictionEnzymeSearchInput.addEventListener("input", () => {
+      state.restrictionEnzymeQuery = els.restrictionEnzymeSearchInput.value;
+      const normalizedQuery = state.restrictionEnzymeQuery.trim();
+      if (normalizedQuery && normalizedQuery !== state.lastPinnedRestrictionEnzymeQuery) {
+        state.pinSelectedRestrictionEnzymes = true;
+        state.pinnedRestrictionEnzymes = new Set(state.selectedRestrictionEnzymes);
+        state.lastPinnedRestrictionEnzymeQuery = normalizedQuery;
+      }
+      state.restrictionTablePage = 1;
+      app.render();
+    });
     els.restrictionEnzymePrevPageBtn.addEventListener("click", () => { state.restrictionTablePage = Math.max(1, state.restrictionTablePage - 1); app.render(); });
     els.restrictionEnzymeNextPageBtn.addEventListener("click", () => { state.restrictionTablePage += 1; app.render(); });
   }
@@ -380,9 +420,6 @@
     app.clampMapToRecord();
     const recordLength = app.getCurrentRecordLength();
 
-    els.windowSizeSlider.min = "1";
-    els.windowSizeSlider.max = String(Math.min(5000, Math.max(1, recordLength)));
-    els.windowSizeSlider.value = String(state.windowSize);
     const maxStart = Math.max(1, recordLength - state.windowSize + 1);
     app.configurePanControl(els.startSlider, els.startInput, state.start, maxStart);
 
@@ -405,10 +442,9 @@
 
     const recordLabel = summary ? summary.id : `Record ${state.recordIndex + 1}`;
     els.windowLabel.textContent = `${recordLabel} | ${state.start.toLocaleString()}-${end.toLocaleString()} / ${recordLength.toLocaleString()} bp`;
-    els.windowSizeHint.textContent = `${state.windowSize.toLocaleString()} bp visible`;
     els.startHint.textContent = maxStart > app.constants.PAN_SLIDER_STEPS
-      ? `Start ${state.start.toLocaleString()} of ${maxStart.toLocaleString()} possible positions | slider is scaled for long sequences`
-      : `Start ${state.start.toLocaleString()} of ${maxStart.toLocaleString()} possible positions`;
+      ? `${state.windowSize.toLocaleString()} bp visible | start ${state.start.toLocaleString()} of ${maxStart.toLocaleString()} possible positions | click two map positions or drag across the map to set window size | slider is scaled for long sequences`
+      : `${state.windowSize.toLocaleString()} bp visible | start ${state.start.toLocaleString()} of ${maxStart.toLocaleString()} possible positions | click two map positions or drag across the map to set window size`;
 
     if (!record) {
       els.featureLegend.textContent = state.loadingRecord ? "Loading record details..." : (state.loadError || "Record details are not available.");
