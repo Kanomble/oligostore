@@ -51,6 +51,9 @@
         mapTickTrack: getElement("mapTickTrack"),
         mapLeftLabel: getElement("mapLeftLabel"),
         mapRightLabel: getElement("mapRightLabel"),
+        toggleCdsFeaturesBtn: getElement("toggleCdsFeaturesBtn"),
+        togglePrimerFeaturesBtn: getElement("togglePrimerFeaturesBtn"),
+        toggleMiscFeaturesBtn: getElement("toggleMiscFeaturesBtn"),
         primerCountSummary: getElement("primerCountSummary"),
         mapSelectionSummary: getElement("mapSelectionSummary"),
         mapSelectionActions: getElement("mapSelectionActions"),
@@ -145,6 +148,9 @@
         primerAnalysisLoading: false,
         primerDeleteSubmitting: false,
         showWindowFeatureOverlay: true,
+        showCdsFeatures: true,
+        showPrimerFeatures: true,
+        showMiscFeatures: true,
         pcrProductSubmitting: false,
         lastPCRProductAutoName: "",
       },
@@ -356,6 +362,9 @@
       app.render();
     });
     els.toggleWindowFeatureOverlayBtn.addEventListener("click", () => { state.showWindowFeatureOverlay = !state.showWindowFeatureOverlay; app.render(); });
+    els.toggleCdsFeaturesBtn.addEventListener("click", () => { state.showCdsFeatures = !state.showCdsFeatures; app.render(); });
+    els.togglePrimerFeaturesBtn.addEventListener("click", () => { state.showPrimerFeatures = !state.showPrimerFeatures; app.render(); });
+    els.toggleMiscFeaturesBtn.addEventListener("click", () => { state.showMiscFeatures = !state.showMiscFeatures; app.render(); });
     els.selectTopRestrictionEnzymesBtn.addEventListener("click", () => { const record = app.getRecord(); if (record) { app.applyTopRestrictionSelection(record); state.restrictionTablePage = 1; app.render(); } });
     els.clearRestrictionSelectionBtn.addEventListener("click", () => { state.selectedRestrictionEnzymes = new Set(); state.restrictionTablePage = 1; app.render(); });
     els.restrictionEnzymeSearchInput.addEventListener("input", () => { state.restrictionEnzymeQuery = els.restrictionEnzymeSearchInput.value; state.restrictionTablePage = 1; app.render(); });
