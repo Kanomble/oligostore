@@ -1,5 +1,6 @@
 (function () {
   const ns = window.SequenceLinearView = window.SequenceLinearView || {};
+  const restriction = window.SequenceRestriction;
 
   ns.registerFeatureModule = function registerFeatureModule(app) {
     const { state, els } = app;
@@ -12,70 +13,13 @@
       return (record.restriction_sites || []).filter((site) => !(site.end < start || site.start > end));
     };
 
-    app.getRestrictionEnzymeStats = function getRestrictionEnzymeStats(record) {
-      const stats = {};
-      (record.restriction_sites || []).forEach((site) => {
-        if (!stats[site.enzyme]) {
-          stats[site.enzyme] = {
-            enzyme: site.enzyme,
-            count: 0,
-            site: site.site || "",
-            cutOffset: Number(site.cut_offset),
-          };
-        }
-        stats[site.enzyme].count += 1;
-        if (!stats[site.enzyme].site && site.site) {
-          stats[site.enzyme].site = site.site;
-        }
-        if (!Number.isFinite(stats[site.enzyme].cutOffset) && Number.isFinite(Number(site.cut_offset))) {
-          stats[site.enzyme].cutOffset = Number(site.cut_offset);
-        }
-      });
-      return stats;
-    };
-
-    app.formatNRun = function formatNRun(count) {
-      if (count <= 0) {
-        return "";
-      }
-      if (count <= 8) {
-        return "N".repeat(count);
-      }
-      return `N(${count})`;
-    };
-
-    app.formatCutSite = function formatCutSite(site, cutOffset) {
-      const motif = String(site || "").toUpperCase();
-      if (!motif) {
-        return "-";
-      }
-      if (!Number.isFinite(cutOffset)) {
-        return motif;
-      }
-      const offset = Math.trunc(cutOffset);
-      if (offset >= 0 && offset <= motif.length) {
-        return `${motif.slice(0, offset)}/${motif.slice(offset)}`;
-      }
-      if (offset < 0) {
-        return `${app.formatNRun(Math.abs(offset))}/${motif}`;
-      }
-      return `${motif}/${app.formatNRun(offset - motif.length)}`;
-    };
-
     app.getSortedRestrictionEnzymes = function getSortedRestrictionEnzymes(record) {
-      return Object.values(app.getRestrictionEnzymeStats(record))
-        .sort((a, b) => {
-          const countDelta = b.count - a.count;
-          if (countDelta !== 0) {
-            return countDelta;
-          }
-          return a.enzyme.localeCompare(b.enzyme);
-        });
+      return restriction.getSortedEnzymes(record);
     };
 
     app.applyTopRestrictionSelection = function applyTopRestrictionSelection(record, limit = 5) {
-      const sorted = app.getSortedRestrictionEnzymes(record);
-      state.selectedRestrictionEnzymes = new Set(sorted.slice(0, limit).map((item) => item.enzyme));
+      state.selectedRestrictionEnzymes = new Set();
+      restriction.applyTopSelection(record, state.selectedRestrictionEnzymes, limit);
     };
 
     app.renderRestrictionEnzymeTable = function renderRestrictionEnzymeTable(record) {
@@ -92,7 +36,7 @@
         : unselectedItems.filter(({ enzyme }) => app.normalize(enzyme).includes(query));
 
       if (!sorted.length) {
-        els.restrictionEnzymeTableBody.innerHTML = '<tr><td colspan="4" class="text-center opacity-70 py-3">No restriction sites in this record.</td></tr>';
+        els.restrictionEnzymeTableBody.innerHTML = '<tr><td colspan="5" class="text-center opacity-70 py-3">No restriction sites in this record.</td></tr>';
         els.restrictionSelectionCount.textContent = "0 selected";
         els.restrictionEnzymePageInfo.textContent = "Page 0 of 0";
         els.restrictionEnzymePrevPageBtn.disabled = true;
@@ -101,7 +45,7 @@
       }
 
       if (!selectedItems.length && !filteredUnselectedItems.length) {
-        els.restrictionEnzymeTableBody.innerHTML = '<tr><td colspan="4" class="text-center opacity-70 py-3">No enzymes match this search.</td></tr>';
+        els.restrictionEnzymeTableBody.innerHTML = '<tr><td colspan="5" class="text-center opacity-70 py-3">No enzymes match this search.</td></tr>';
         els.restrictionSelectionCount.textContent = `${state.selectedRestrictionEnzymes.size.toLocaleString()} selected | 0 matching`;
         els.restrictionEnzymePageInfo.textContent = "Page 0 of 0";
         els.restrictionEnzymePrevPageBtn.disabled = true;
@@ -136,17 +80,20 @@
 
         const selectCell = document.createElement("td");
         selectCell.appendChild(input);
+        const markerCell = document.createElement("td");
+        markerCell.appendChild(restriction.createColorSwatch(enzyme));
         const enzymeCell = document.createElement("td");
         enzymeCell.className = "font-mono";
         enzymeCell.textContent = enzyme;
         const siteCell = document.createElement("td");
         siteCell.className = "font-mono";
-        siteCell.textContent = app.formatCutSite(site, cutOffset);
+        siteCell.textContent = restriction.formatCutSite(site, cutOffset);
         siteCell.title = `${site || "-"} | cut offset: ${Number.isFinite(cutOffset) ? cutOffset : "n/a"}`;
         const countCell = document.createElement("td");
         countCell.textContent = count.toLocaleString();
 
         row.appendChild(selectCell);
+        row.appendChild(markerCell);
         row.appendChild(enzymeCell);
         row.appendChild(siteCell);
         row.appendChild(countCell);
@@ -321,12 +268,15 @@
     };
 
     app.getHighlightedRestrictionPositions = function getHighlightedRestrictionPositions(windowRestrictionHits, start, end) {
-      const highlightedPositions = new Set();
+      const highlightedPositions = new Map();
       windowRestrictionHits.forEach((site) => {
         const siteStart = Math.max(start, site.start);
         const siteEnd = Math.min(end, site.end);
         for (let position = siteStart; position <= siteEnd; position += 1) {
-          highlightedPositions.add(position);
+          if (!highlightedPositions.has(position)) {
+            highlightedPositions.set(position, []);
+          }
+          highlightedPositions.get(position).push(site);
         }
       });
       return highlightedPositions;
@@ -339,7 +289,7 @@
         const chunkBaseIndex = lineStart + offset;
         const renderedChunk = chunk.split("").map((base, chunkOffset) => {
           const position = chunkBaseIndex + chunkOffset;
-          return app.baseSpan(baseTransform(base), highlightedPositions.has(position), position, strand);
+          return app.baseSpan(baseTransform(base), highlightedPositions.get(position) || [], position, strand);
         }).join("");
         chunks.push(renderedChunk);
       }
@@ -349,7 +299,7 @@
     app.renderLineRestrictionSites = function renderLineRestrictionSites(windowRestrictionHits, lineStart, lineEnd) {
       return windowRestrictionHits
         .filter((site) => !(site.end < lineStart || site.start > lineEnd))
-        .map((site) => `${app.escapeHtml(site.enzyme)} ${site.start.toLocaleString()}-${site.end.toLocaleString()}`);
+        .map((site) => `<span class="restriction-line-chip" style="--restriction-color: ${restriction.getEnzymeColor(site.enzyme)};">${app.escapeHtml(site.enzyme)} ${site.start.toLocaleString()}-${site.end.toLocaleString()}</span>`);
     };
 
     app.sequenceOffsetToDisplayOffset = function sequenceOffsetToDisplayOffset(offset) {
@@ -380,7 +330,7 @@
         const cutPosition = site.start + cutOffset;
         const cutOffsetClamped = Math.max(lineStart, Math.min(lineEnd, cutPosition)) - lineStart;
         const markerIndex = app.sequenceOffsetToDisplayOffset(cutOffsetClamped);
-        markerChars[markerIndex] = "|";
+        markerChars[markerIndex] = "v";
 
         const label = String(site.enzyme || "").trim();
         if (!label) {
@@ -441,7 +391,7 @@
         .filter((site) => state.selectedRestrictionEnzymes.has(site.enzyme));
       const highlightedPositions = hasRestrictionSelection
         ? app.getHighlightedRestrictionPositions(windowRestrictionHits, start, end)
-        : new Set();
+        : new Map();
       const lineNumberLayout = app.getLineNumberLayout(end);
 
       for (let i = 0; i < visible.length; i += app.constants.SEQUENCE_WINDOW_LINE_SIZE) {

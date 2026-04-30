@@ -1,4 +1,6 @@
 (function () {
+  const restriction = window.SequenceRestriction;
+
   function getElement(id) {
     return document.getElementById(id);
   }
@@ -12,9 +14,7 @@
       .replace(/'/g, "&#39;");
   }
 
-  function normalize(value) {
-    return String(value || "").trim().toLowerCase();
-  }
+  const normalize = restriction.normalize;
 
   function polarToCartesian(cx, cy, radius, angleInDegrees) {
     const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
@@ -78,18 +78,6 @@
 
   function circularFeatureRadius(feature, baseRadius) {
     return isCdsFeature(feature) ? baseRadius : baseRadius - 22;
-  }
-
-  function formatCutSite(site, cutOffset) {
-    const motif = String(site || "").toUpperCase();
-    const offset = Number(cutOffset);
-    if (!motif) {
-      return "-";
-    }
-    if (!Number.isFinite(offset) || offset < 0 || offset > motif.length) {
-      return motif;
-    }
-    return `${motif.slice(0, offset)}/${motif.slice(offset)}`;
   }
 
   function createApp(raw, config) {
@@ -202,39 +190,13 @@
       });
   }
 
-  function getRestrictionEnzymeStats(record) {
-    const stats = {};
-    (record.restriction_sites || []).forEach((site) => {
-      const enzyme = String(site.enzyme || "");
-      if (!enzyme) {
-        return;
-      }
-      if (!stats[enzyme]) {
-        stats[enzyme] = {
-          enzyme,
-          site: String(site.site || ""),
-          cutOffset: Number(site.cut_offset),
-          count: 0,
-        };
-      }
-      stats[enzyme].count += 1;
-    });
-    return stats;
-  }
-
   function getSortedRestrictionEnzymes(record) {
-    return Object.values(getRestrictionEnzymeStats(record)).sort((left, right) => {
-      const countDelta = right.count - left.count;
-      if (countDelta !== 0) {
-        return countDelta;
-      }
-      return left.enzyme.localeCompare(right.enzyme);
-    });
+    return restriction.getSortedEnzymes(record);
   }
 
   function applyTopRestrictionSelection(app, record, limit = 5) {
-    const sorted = getSortedRestrictionEnzymes(record);
-    app.state.selectedRestrictionEnzymes = new Set(sorted.slice(0, limit).map((item) => item.enzyme));
+    app.state.selectedRestrictionEnzymes = new Set();
+    restriction.applyTopSelection(record, app.state.selectedRestrictionEnzymes, limit);
   }
 
   function renderFeatureDetails(app, feature) {
@@ -308,7 +270,7 @@
       : unselectedItems.filter(({ enzyme }) => normalize(enzyme).includes(query));
 
     if (!sorted.length) {
-      app.els.restrictionTableBody.innerHTML = '<tr><td colspan="4" class="text-center opacity-70 py-3">No restriction sites in this record.</td></tr>';
+      app.els.restrictionTableBody.innerHTML = '<tr><td colspan="5" class="text-center opacity-70 py-3">No restriction sites in this record.</td></tr>';
       app.els.restrictionSelectionCount.textContent = "0 selected";
       app.els.restrictionPageInfo.textContent = "Page 0 of 0";
       app.els.restrictionPrevPageBtn.disabled = true;
@@ -318,7 +280,7 @@
     }
 
     if (!selectedItems.length && !filteredUnselectedItems.length) {
-      app.els.restrictionTableBody.innerHTML = '<tr><td colspan="4" class="text-center opacity-70 py-3">No enzymes match this search.</td></tr>';
+      app.els.restrictionTableBody.innerHTML = '<tr><td colspan="5" class="text-center opacity-70 py-3">No enzymes match this search.</td></tr>';
       app.els.restrictionSelectionCount.textContent = `${app.state.selectedRestrictionEnzymes.size.toLocaleString()} selected | 0 matching`;
       app.els.restrictionPageInfo.textContent = "Page 0 of 0";
       app.els.restrictionPrevPageBtn.disabled = true;
@@ -355,19 +317,23 @@
       const selectCell = document.createElement("td");
       selectCell.appendChild(input);
 
+      const markerCell = document.createElement("td");
+      markerCell.appendChild(restriction.createColorSwatch(enzyme));
+
       const enzymeCell = document.createElement("td");
       enzymeCell.className = "font-mono";
       enzymeCell.textContent = enzyme;
 
       const siteCell = document.createElement("td");
       siteCell.className = "font-mono";
-      siteCell.textContent = formatCutSite(site, cutOffset);
+      siteCell.textContent = restriction.formatCutSite(site, cutOffset);
       siteCell.title = `${site || "-"} | cut offset: ${Number.isFinite(cutOffset) ? cutOffset : "n/a"}`;
 
       const countCell = document.createElement("td");
       countCell.textContent = count.toLocaleString();
 
       row.appendChild(selectCell);
+      row.appendChild(markerCell);
       row.appendChild(enzymeCell);
       row.appendChild(siteCell);
       row.appendChild(countCell);
@@ -480,24 +446,46 @@
     const sitesToRender = hasSelection
       ? record.restriction_sites.filter((site) => app.state.selectedRestrictionEnzymes.has(site.enzyme))
       : [];
+    const selectedEnzymes = [...app.state.selectedRestrictionEnzymes];
     sitesToRender.forEach((site) => {
       const angle = ((Number(site.start) - 1) / length) * 360;
-      const inner = polarToCartesian(cx, cy, restrictionInner, angle);
-      const outer = polarToCartesian(cx, cy, restrictionOuter, angle);
+      const enzymeLane = Math.max(0, selectedEnzymes.indexOf(site.enzyme));
+      const laneOffset = Math.min(enzymeLane, 4) * 5;
+      const inner = polarToCartesian(cx, cy, restrictionInner + laneOffset, angle);
+      const outer = polarToCartesian(cx, cy, restrictionOuter + laneOffset, angle);
+      const color = restriction.getEnzymeColor(site.enzyme);
       const mark = document.createElementNS("http://www.w3.org/2000/svg", "line");
       mark.setAttribute("x1", inner.x);
       mark.setAttribute("y1", inner.y);
       mark.setAttribute("x2", outer.x);
       mark.setAttribute("y2", outer.y);
-      mark.setAttribute("stroke", "#f59e0b");
+      mark.setAttribute("stroke", color);
       mark.setAttribute("stroke-width", hasSelection ? "3.5" : "2.5");
       mark.setAttribute("stroke-linecap", "round");
       mark.setAttribute("opacity", hasSelection ? "0.95" : "0.55");
 
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      title.textContent = `${site.enzyme} ${site.start}-${site.end}`;
+      title.textContent = restriction.siteTitle(site);
       mark.appendChild(title);
       app.els.restrictionMarks.appendChild(mark);
+
+      if (sitesToRender.length <= 40) {
+        const labelPoint = polarToCartesian(cx, cy, restrictionOuter + laneOffset + 18, angle);
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", labelPoint.x);
+        label.setAttribute("y", labelPoint.y);
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("dominant-baseline", "middle");
+        label.setAttribute("fill", color);
+        label.setAttribute("font-size", "10");
+        label.setAttribute("font-weight", "700");
+        label.setAttribute("paint-order", "stroke");
+        label.setAttribute("stroke", "#ffffff");
+        label.setAttribute("stroke-width", "3");
+        label.setAttribute("pointer-events", "none");
+        label.textContent = String(site.enzyme || "").slice(0, 8);
+        app.els.restrictionMarks.appendChild(label);
+      }
     });
   }
 
@@ -518,7 +506,7 @@
       app.els.restrictionCount.textContent = "-";
       app.els.featureTableBody.innerHTML = '<tr><td colspan="6" class="text-center opacity-70 py-3">No feature data loaded.</td></tr>';
       app.els.featureCount.textContent = "";
-      app.els.restrictionTableBody.innerHTML = '<tr><td colspan="4" class="text-center opacity-70 py-3">No restriction data loaded.</td></tr>';
+      app.els.restrictionTableBody.innerHTML = '<tr><td colspan="5" class="text-center opacity-70 py-3">No restriction data loaded.</td></tr>';
       app.els.restrictionSelectionCount.textContent = "0 selected";
       app.els.restrictionPageInfo.textContent = "Page 0 of 0";
       app.els.restrictionSummary.textContent = app.state.loading ? "Loading restriction sites..." : "Restriction data not loaded.";

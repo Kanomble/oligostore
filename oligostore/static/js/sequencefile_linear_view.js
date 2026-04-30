@@ -264,13 +264,20 @@
       const primerMiscCount = features.filter((feature) => app.isPrimerOrMiscFeature && app.isPrimerOrMiscFeature(feature)).length;
       return `Displayed lanes: CDS ${cdsCount.toLocaleString()} | primer_bind/misc_feature ${primerMiscCount.toLocaleString()}`;
     };
-    app.baseSpan = function baseSpan(base, highlightRestriction = false, position = null, strand = "forward") {
+    app.baseSpan = function baseSpan(base, restrictionSites = [], position = null, strand = "forward") {
       const value = String(base || "").toUpperCase();
-      const restrictionClass = highlightRestriction ? " restriction-hit" : "";
+      const sites = Array.isArray(restrictionSites) ? restrictionSites : [];
+      const restrictionClass = sites.length ? " restriction-hit" : "";
+      const restrictionStyle = sites.length
+        ? ` style="--restriction-color: ${window.SequenceRestriction.getEnzymeColor(sites[0].enzyme)};"`
+        : "";
+      const restrictionTitle = sites.length
+        ? ` title="${app.escapeHtml(sites.map((site) => window.SequenceRestriction.siteTitle(site)).join(" | "))}"`
+        : "";
       const metadata = Number.isFinite(position) ? ` data-sequence-base="1" data-position="${position}" data-strand="${strand}"` : "";
       const classPrefix = Number.isFinite(position) ? "sequence-base " : "";
       const className = value === "A" ? "base-a" : value === "C" ? "base-c" : value === "G" ? "base-g" : value === "T" ? "base-t" : "base-n";
-      return `<span${metadata} class="${classPrefix}${className}${restrictionClass}">${value}</span>`;
+      return `<span${metadata}${restrictionTitle}${restrictionStyle} class="${classPrefix}${className}${restrictionClass}">${value}</span>`;
     };
     app.complementBase = function complementBase(base) {
       return app.constants.COMPLEMENT_BY_BASE[String(base || "").toUpperCase()] || "N";
@@ -397,7 +404,7 @@
     if (!record) {
       els.featureLegend.textContent = state.loadingRecord ? "Loading record details..." : (state.loadError || "Record details are not available.");
       els.restrictionSelectionCount.textContent = "0 selected";
-      els.restrictionEnzymeTableBody.innerHTML = `<tr><td colspan="4" class="text-center opacity-70 py-3">${state.loadingRecord ? "Loading..." : "No data loaded."}</td></tr>`;
+      els.restrictionEnzymeTableBody.innerHTML = `<tr><td colspan="5" class="text-center opacity-70 py-3">${state.loadingRecord ? "Loading..." : "No data loaded."}</td></tr>`;
       els.restrictionEnzymePageInfo.textContent = "Page 0 of 0";
       els.restrictionEnzymePrevPageBtn.disabled = true;
       els.restrictionEnzymeNextPageBtn.disabled = true;
