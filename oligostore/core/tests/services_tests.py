@@ -453,11 +453,116 @@ class CloningServiceTests(SimpleTestCase):
         self.assertEqual(sequence_choice.encoded_value, "sequence_file:7:plasmidA")
         self.assertEqual(product_choice.encoded_value, "pcr_product:12")
 
+    def test_template_asset_choices_support_bbsi_fragment_selection(self):
+        template_choices = cloning.get_template_asset_choices()
+        lvl25_choice = None
+        tprom_choice = None
+        vector_asset = None
+        insert_asset = None
+        vector_fragments = []
+        insert_fragments = []
+
+        for value, _ in template_choices:
+            if lvl25_choice is None and value.startswith("template:LvL25_without_J23100.gb:"):
+                candidate = cloning.resolve_asset_choice(user=None, choice=value)
+                candidate_fragments = cloning.build_digest_fragment_choices(
+                    sequence=candidate.sequence,
+                    enzyme_name="BbsI",
+                )
+                if candidate_fragments:
+                    lvl25_choice = value
+                    vector_asset = candidate
+                    vector_fragments = candidate_fragments
+            if tprom_choice is None and value.startswith("template:tProm_leader_sequence_CRISPR_1.gb:"):
+                candidate = cloning.resolve_asset_choice(user=None, choice=value)
+                candidate_fragments = cloning.build_digest_fragment_choices(
+                    sequence=candidate.sequence,
+                    enzyme_name="BbsI",
+                )
+                if candidate_fragments:
+                    tprom_choice = value
+                    insert_asset = candidate
+                    insert_fragments = candidate_fragments
+            if lvl25_choice and tprom_choice:
+                break
+
+        self.assertIsNotNone(lvl25_choice)
+        self.assertIsNotNone(tprom_choice)
+        self.assertIsNotNone(vector_asset)
+        self.assertIsNotNone(insert_asset)
+
+        self.assertTrue(vector_fragments)
+        self.assertTrue(insert_fragments)
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="BbsI",
+            right_enzyme="BbsI",
+            vector_fragment_index=vector_fragments[-1][0],
+            insert_fragment_index=insert_fragments[-1][0],
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertLess(preview_data.assembled_length, 312)
+
+    def test_preview_cloning_construct_supports_fragment_selection_for_other_same_enzyme(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGAATTCTTTT",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="TTTTGAATTCAAAA",
+        )
+
+        enzyme = cloning._get_enzyme_by_name("EcoRI")
+        self.assertIsNotNone(enzyme)
+        vector_fragments = cloning._digest_sequence_fragments(vector_asset.sequence, enzyme)
+        insert_fragments = cloning._digest_sequence_fragments(insert_asset.sequence, enzyme)
+        self.assertGreater(len(vector_fragments), 1)
+        self.assertGreater(len(insert_fragments), 1)
+
+        selected_vector_fragment = vector_fragments[-1]
+        selected_insert_fragment = insert_fragments[-1]
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="EcoRI",
+            vector_fragment_index=selected_vector_fragment.index,
+            insert_fragment_index=selected_insert_fragment.index,
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertEqual(preview_data.vector_fragment_index, selected_vector_fragment.index)
+        self.assertEqual(preview_data.insert_fragment_index, selected_insert_fragment.index)
+        self.assertEqual(preview_data.vector_fragment_start, selected_vector_fragment.start)
+        self.assertEqual(preview_data.insert_fragment_start, selected_insert_fragment.start)
+        self.assertEqual(
+            preview_data.assembled_sequence,
+            selected_vector_fragment.sequence + selected_insert_fragment.sequence,
+        )
+
     def test_resolve_cloning_assets_returns_vector_and_insert_assets(self):
         vector_asset = cloning.ResolvedCloningAsset(
             source_type="sequence_file",
             sequence_file=None,
             pcr_product=None,
+            template_name=None,
             record_id="vec1",
             name="Vector",
             sequence="GAATTC",
@@ -466,6 +571,7 @@ class CloningServiceTests(SimpleTestCase):
             source_type="pcr_product",
             sequence_file=None,
             pcr_product=None,
+            template_name=None,
             record_id="ins1",
             name="Insert",
             sequence="ATGC",
@@ -487,6 +593,7 @@ class CloningServiceTests(SimpleTestCase):
             source_type="sequence_file",
             sequence_file="vector-file",
             pcr_product=None,
+            template_name=None,
             record_id="vec1",
             name="Vector",
             sequence="GAATTCACCCCGGATCC",
@@ -495,6 +602,7 @@ class CloningServiceTests(SimpleTestCase):
             source_type="pcr_product",
             sequence_file=None,
             pcr_product="insert-product",
+            template_name=None,
             record_id="ins1",
             name="Insert",
             sequence="ATGCATGC",
@@ -522,7 +630,14 @@ class CloningServiceTests(SimpleTestCase):
         self.assertEqual(preview_data.assembled_sequence, "assembled-seq")
         self.assertTrue(preview_data.is_valid)
         self.assertEqual(preview_data.validation_messages, ("ok",))
-        validate_mock.assert_called_once_with("GAATTCACCCCGGATCC", "ATGCATGC", "EcoRI", "BamHI")
+        validate_mock.assert_called_once_with(
+            "GAATTCACCCCGGATCC",
+            "ATGCATGC",
+            "EcoRI",
+            "BamHI",
+            vector_fragment_index=None,
+            insert_fragment_index=None,
+        )
 
     def test_build_cloning_construct_detail_display_returns_read_model(self):
         construct = SimpleNamespace(
@@ -543,6 +658,7 @@ class CloningServiceTests(SimpleTestCase):
             source_type="sequence_file",
             sequence_file="vector-file",
             pcr_product=None,
+            template_name=None,
             record_id="vec1",
             name="Vector",
             sequence="GAATTCACCCCGGATCC",
@@ -551,6 +667,7 @@ class CloningServiceTests(SimpleTestCase):
             source_type="pcr_product",
             sequence_file=None,
             pcr_product="insert-product",
+            template_name=None,
             record_id="ins1",
             name="Insert",
             sequence="ATGCATGC",
@@ -610,6 +727,7 @@ class CloningServiceTests(SimpleTestCase):
                 source_type="pcr_product",
                 sequence_file=None,
                 pcr_product="insert-product",
+                template_name=None,
                 record_id="ins1",
                 name="Insert",
                 sequence="ATGCATGC",

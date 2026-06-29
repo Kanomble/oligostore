@@ -254,6 +254,35 @@ class PrimerAndProjectModelTests(TestCase):
         self.assertEqual(construct.vector_asset_label, "Vector A / vecA")
         self.assertEqual(construct.insert_asset_label, "Insert Source / insA")
 
+    def test_cloning_construct_formats_template_asset_labels_with_fragment_selection(self):
+        construct = CloningConstruct.objects.create(
+            name="Template Construct",
+            vector_source_type=CloningConstruct.SOURCE_TEMPLATE,
+            vector_template_name="LvL25_without_J23100.gb",
+            vector_record_id="template-rec-1",
+            vector_fragment_index=2,
+            insert_source_type=CloningConstruct.SOURCE_TEMPLATE,
+            insert_template_name="tProm_leader_sequence_CRISPR_1.gb",
+            insert_record_id="template-rec-2",
+            insert_fragment_index=1,
+            left_enzyme="BbsI",
+            right_enzyme="BbsI",
+            assembled_sequence="ATGC",
+            creator=self.creator,
+        )
+        construct.users.add(self.creator)
+
+        self.assertEqual(construct.vector_name, "LvL25_without_J23100")
+        self.assertEqual(construct.insert_name, "tProm_leader_sequence_CRISPR_1")
+        self.assertEqual(
+            construct.vector_asset_label,
+            "LvL25_without_J23100 / template-rec-1 / fragment 2",
+        )
+        self.assertEqual(
+            construct.insert_asset_label,
+            "tProm_leader_sequence_CRISPR_1 / template-rec-2 / fragment 1",
+        )
+
 
 class PrimerBindingResultModelTests(TestCase):
     @classmethod

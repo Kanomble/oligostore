@@ -15,6 +15,8 @@ from .views.cloning import (
     cloning_construct_detail,
     cloning_construct_download_genbank,
     cloning_construct_list,
+    cloning_construct_linear_view,
+    cloning_construct_save_sequence_file,
 )
 from .views.home import home
 from .views.primerpairs import (
@@ -104,6 +106,12 @@ urlpatterns = [
     path("cloning/constructs/", cloning_construct_list, name="cloning_construct_list"),
     path("cloning/constructs/create/", cloning_construct_create, name="cloning_construct_create"),
     path("cloning/constructs/<int:construct_id>/", cloning_construct_detail, name="cloning_construct_detail"),
+    path("cloning/constructs/<int:construct_id>/linear-view/", cloning_construct_linear_view, name="cloning_construct_linear_view"),
+    path(
+        "cloning/constructs/<int:construct_id>/save/sequence-file/",
+        cloning_construct_save_sequence_file,
+        name="cloning_construct_save_sequence_file",
+    ),
     path("cloning/constructs/<int:construct_id>/delete/", cloning_construct_delete, name="cloning_construct_delete"),
     path(
         "cloning/constructs/<int:construct_id>/download/genbank/",

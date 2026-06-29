@@ -6,9 +6,10 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqFeature import CompoundLocation, FeatureLocation, SeqFeature
 from Bio.SeqRecord import SeqRecord
+from django.core.files.base import ContentFile
 
-from ..models import CloningConstruct, PCRProduct, SequenceFeature
-from .cloning import _resolve_construct_asset, _validate_restriction_ligation
+from ..models import CloningConstruct, PCRProduct, SequenceFeature, SequenceFile
+from .cloning import _load_template_records, _resolve_construct_asset, _validate_restriction_ligation
 from .sequence_loader import load_sequences
 from .sequence_records import get_sequence_records
 
@@ -18,6 +19,12 @@ def _build_genbank_locus_name(value, fallback="construct"):
     normalized = re.sub(r"[^A-Za-z0-9_.-]", "_", normalized)
     normalized = normalized.strip("._-") or fallback
     return normalized[:16]
+
+
+def _build_sequence_file_name(value, fallback="construct"):
+    normalized = re.sub(r"\s+", "_", str(value or "").strip())
+    normalized = re.sub(r"[^A-Za-z0-9_.-]", "_", normalized)
+    return normalized.strip("._-") or fallback
 
 
 def _map_location_parts(parts, segments):
@@ -215,11 +222,27 @@ def _build_pcr_product_asset_bundle(asset):
     }
 
 
+def _build_template_asset_bundle(asset):
+    _, template_records = _load_template_records(asset.template_name)
+    source_record = next((record for record in template_records if str(record.id) == str(asset.record_id)), None)
+    if source_record is None:
+        raise ValueError(
+            f"Record '{asset.record_id}' is not available in template '{asset.template_name}'."
+        )
+    return {
+        "sequence": asset.sequence,
+        "features": list(getattr(source_record, "features", [])),
+        "annotations": dict(getattr(source_record, "annotations", {}) or {}),
+    }
+
+
 def _build_asset_bundle(asset):
     if asset.source_type == CloningConstruct.SOURCE_SEQUENCE_FILE:
         return _build_sequence_file_asset_bundle(asset)
     if asset.source_type == CloningConstruct.SOURCE_PCR_PRODUCT:
         return _build_pcr_product_asset_bundle(asset)
+    if asset.source_type == CloningConstruct.SOURCE_TEMPLATE:
+        return _build_template_asset_bundle(asset)
     raise ValueError("Unknown cloning asset type.")
 
 
@@ -236,6 +259,7 @@ def build_cloning_construct_record(construct):
         source_type=construct.vector_source_type,
         sequence_file=construct.vector_sequence_file,
         pcr_product=construct.vector_pcr_product,
+        template_name=construct.vector_template_name,
         record_id=construct.vector_record_id,
         label="Vector",
     )
@@ -243,6 +267,7 @@ def build_cloning_construct_record(construct):
         source_type=construct.insert_source_type,
         sequence_file=construct.insert_sequence_file,
         pcr_product=construct.insert_pcr_product,
+        template_name=construct.insert_template_name,
         record_id=construct.insert_record_id,
         label="Insert",
     )
@@ -251,6 +276,8 @@ def build_cloning_construct_record(construct):
         insert_asset.sequence,
         construct.left_enzyme,
         construct.right_enzyme,
+        vector_fragment_index=construct.vector_fragment_index,
+        insert_fragment_index=construct.insert_fragment_index,
     )
     if not validation_result.is_valid or validation_result.assembled_sequence != construct.assembled_sequence:
         raise ValueError("Construct cannot be exported because the assembled sequence could not be reproduced.")
@@ -283,43 +310,72 @@ def build_cloning_construct_record(construct):
         enzyme = _get_enzyme_by_name(construct.left_enzyme)
         if enzyme is None:
             raise ValueError("Construct cannot be exported because the selected enzyme is not available.")
-        source_vector_cuts = sorted(_find_cut_positions(vector_asset.sequence, enzyme))
-        source_insert_cuts = sorted(_find_cut_positions(insert_asset.sequence, enzyme))
-
-        if len(source_vector_cuts) == 1 and len(source_insert_cuts) == 0:
-            left_cut = source_vector_cuts[0]
+        fragment_positions = (
+            validation_result.vector_fragment_start,
+            validation_result.vector_fragment_end,
+            validation_result.insert_fragment_start,
+            validation_result.insert_fragment_end,
+        )
+        if all(position is not None for position in fragment_positions):
+            vector_fragment_length = validation_result.vector_fragment_end - validation_result.vector_fragment_start
             _append_features(
                 record,
                 vector_features,
                 [
-                    (0, left_cut, 0),
-                    (left_cut, len(vector_asset.sequence), left_cut + len(insert_asset.sequence)),
+                    (validation_result.vector_fragment_start, validation_result.vector_fragment_end, 0),
                 ],
             )
             _append_features(
                 record,
                 insert_features,
-                [(0, len(insert_asset.sequence), left_cut)],
-            )
-        elif len(source_vector_cuts) == 2 and len(source_insert_cuts) == 2:
-            vector_left_cut, vector_right_cut = source_vector_cuts
-            insert_left_cut, insert_right_cut = source_insert_cuts
-            insert_fragment_length = insert_right_cut - insert_left_cut
-            _append_features(
-                record,
-                vector_features,
                 [
-                    (0, vector_left_cut, 0),
-                    (vector_right_cut, len(vector_asset.sequence), vector_left_cut + insert_fragment_length),
+                    (
+                        validation_result.insert_fragment_start,
+                        validation_result.insert_fragment_end,
+                        vector_fragment_length,
+                    )
                 ],
             )
-            _append_features(
-                record,
-                insert_features,
-                [(insert_left_cut, insert_right_cut, vector_left_cut)],
-            )
+        elif any(position is not None for position in fragment_positions):
+            raise ValueError("Construct cannot be exported because the selected same-enzyme fragments could not be reproduced.")
         else:
-            raise ValueError("Construct cannot be exported because the same-enzyme topology is not supported.")
+            source_vector_cuts = sorted(_find_cut_positions(vector_asset.sequence, enzyme))
+            source_insert_cuts = sorted(_find_cut_positions(insert_asset.sequence, enzyme))
+
+            if len(source_vector_cuts) == 1 and len(source_insert_cuts) == 0:
+                left_cut = source_vector_cuts[0]
+                _append_features(
+                    record,
+                    vector_features,
+                    [
+                        (0, left_cut, 0),
+                        (left_cut, len(vector_asset.sequence), left_cut + len(insert_asset.sequence)),
+                    ],
+                )
+                _append_features(
+                    record,
+                    insert_features,
+                    [(0, len(insert_asset.sequence), left_cut)],
+                )
+            elif len(source_vector_cuts) == 2 and len(source_insert_cuts) == 2:
+                vector_left_cut, vector_right_cut = source_vector_cuts
+                insert_left_cut, insert_right_cut = source_insert_cuts
+                insert_fragment_length = insert_right_cut - insert_left_cut
+                _append_features(
+                    record,
+                    vector_features,
+                    [
+                        (0, vector_left_cut, 0),
+                        (vector_right_cut, len(vector_asset.sequence), vector_left_cut + insert_fragment_length),
+                    ],
+                )
+                _append_features(
+                    record,
+                    insert_features,
+                    [(insert_left_cut, insert_right_cut, vector_left_cut)],
+                )
+            else:
+                raise ValueError("Construct cannot be exported because the same-enzyme topology is not supported.")
     else:
         from .cloning import _find_cut_positions, _get_enzyme_by_name
 
@@ -358,6 +414,33 @@ def build_cloning_construct_record(construct):
 
 
 def export_cloning_construct_genbank(construct):
+    return export_cloning_construct_sequence(construct, SequenceFile.FILE_GENBANK)
+
+
+def export_cloning_construct_sequence(construct, file_type):
+    file_type = str(file_type or "").strip().lower()
+    if file_type not in {SequenceFile.FILE_FASTA, SequenceFile.FILE_GENBANK}:
+        raise ValueError("Unsupported sequence file type.")
+
     handle = StringIO()
-    SeqIO.write(build_cloning_construct_record(construct), handle, "genbank")
+    SeqIO.write(build_cloning_construct_record(construct), handle, file_type)
     return handle.getvalue()
+
+
+def save_cloning_construct_sequence_file(*, construct, user, name, description="", file_type=SequenceFile.FILE_GENBANK):
+    file_type = str(file_type or "").strip().lower()
+    if file_type not in {SequenceFile.FILE_FASTA, SequenceFile.FILE_GENBANK}:
+        raise ValueError("Unsupported sequence file type.")
+
+    content = export_cloning_construct_sequence(construct, file_type)
+    extension = ".gb" if file_type == SequenceFile.FILE_GENBANK else ".fasta"
+    file_name = f"{_build_sequence_file_name(name or construct.name)}{extension}"
+    sequence_file = SequenceFile.objects.create(
+        name=str(name or construct.name).strip() or construct.name,
+        file=ContentFile(content.encode("utf-8"), name=file_name),
+        file_type=file_type,
+        uploaded_by=user,
+        description=str(description or ""),
+    )
+    sequence_file.users.add(user)
+    return sequence_file

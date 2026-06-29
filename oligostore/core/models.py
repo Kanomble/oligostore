@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.db import models
 from django.contrib.auth.models import User
 from functools import lru_cache
@@ -392,9 +394,11 @@ class CloningConstruct(AccessControllModel):
     ]
     SOURCE_SEQUENCE_FILE = "sequence_file"
     SOURCE_PCR_PRODUCT = "pcr_product"
+    SOURCE_TEMPLATE = "template"
     SOURCE_CHOICES = [
         (SOURCE_SEQUENCE_FILE, "Sequence file"),
         (SOURCE_PCR_PRODUCT, "PCR product"),
+        (SOURCE_TEMPLATE, "Template"),
     ]
 
     name = models.CharField(max_length=255)
@@ -407,6 +411,7 @@ class CloningConstruct(AccessControllModel):
         null=True,
         blank=True,
     )
+    vector_template_name = models.CharField(max_length=255, blank=True, default="")
     vector_pcr_product = models.ForeignKey(
         "PCRProduct",
         on_delete=models.CASCADE,
@@ -415,6 +420,7 @@ class CloningConstruct(AccessControllModel):
         blank=True,
     )
     vector_record_id = models.CharField(max_length=255, blank=True, default="")
+    vector_fragment_index = models.IntegerField(blank=True, null=True)
     insert_source_type = models.CharField(max_length=20, choices=SOURCE_CHOICES)
     insert_sequence_file = models.ForeignKey(
         SequenceFile,
@@ -423,6 +429,7 @@ class CloningConstruct(AccessControllModel):
         null=True,
         blank=True,
     )
+    insert_template_name = models.CharField(max_length=255, blank=True, default="")
     insert_pcr_product = models.ForeignKey(
         "PCRProduct",
         on_delete=models.CASCADE,
@@ -431,6 +438,7 @@ class CloningConstruct(AccessControllModel):
         blank=True,
     )
     insert_record_id = models.CharField(max_length=255, blank=True, default="")
+    insert_fragment_index = models.IntegerField(blank=True, null=True)
     assembly_strategy = models.CharField(
         max_length=50,
         choices=STRATEGY_CHOICES,
@@ -458,6 +466,8 @@ class CloningConstruct(AccessControllModel):
 
     @property
     def vector_name(self):
+        if self.vector_template_name:
+            return Path(self.vector_template_name).stem
         if self.vector_sequence_file_id:
             return self.vector_sequence_file.name
         if self.vector_pcr_product_id:
@@ -466,6 +476,8 @@ class CloningConstruct(AccessControllModel):
 
     @property
     def insert_name(self):
+        if self.insert_template_name:
+            return Path(self.insert_template_name).stem
         if self.insert_sequence_file_id:
             return self.insert_sequence_file.name
         if self.insert_pcr_product_id:
@@ -474,20 +486,46 @@ class CloningConstruct(AccessControllModel):
 
     @property
     def vector_asset_label(self):
-        if self.vector_sequence_file_id:
+        if self.vector_template_name:
+            parts = [Path(self.vector_template_name).stem]
             if self.vector_record_id:
-                return f"{self.vector_sequence_file.name} / {self.vector_record_id}"
-            return self.vector_sequence_file.name
+                parts.append(self.vector_record_id)
+            if self.vector_fragment_index is not None:
+                parts.append(f"fragment {self.vector_fragment_index}")
+            return " / ".join(parts)
+        if self.vector_sequence_file_id:
+            parts = [self.vector_sequence_file.name]
+            if self.vector_record_id:
+                parts.append(self.vector_record_id)
+            if self.vector_fragment_index is not None:
+                parts.append(f"fragment {self.vector_fragment_index}")
+            return " / ".join(parts)
         if self.vector_pcr_product_id:
-            return self.vector_pcr_product.name
+            parts = [self.vector_pcr_product.name]
+            if self.vector_fragment_index is not None:
+                parts.append(f"fragment {self.vector_fragment_index}")
+            return " / ".join(parts)
         return "Unknown vector"
 
     @property
     def insert_asset_label(self):
-        if self.insert_sequence_file_id:
+        if self.insert_template_name:
+            parts = [Path(self.insert_template_name).stem]
             if self.insert_record_id:
-                return f"{self.insert_sequence_file.name} / {self.insert_record_id}"
-            return self.insert_sequence_file.name
+                parts.append(self.insert_record_id)
+            if self.insert_fragment_index is not None:
+                parts.append(f"fragment {self.insert_fragment_index}")
+            return " / ".join(parts)
+        if self.insert_sequence_file_id:
+            parts = [self.insert_sequence_file.name]
+            if self.insert_record_id:
+                parts.append(self.insert_record_id)
+            if self.insert_fragment_index is not None:
+                parts.append(f"fragment {self.insert_fragment_index}")
+            return " / ".join(parts)
         if self.insert_pcr_product_id:
-            return self.insert_pcr_product.name
+            parts = [self.insert_pcr_product.name]
+            if self.insert_fragment_index is not None:
+                parts.append(f"fragment {self.insert_fragment_index}")
+            return " / ".join(parts)
         return "Unknown insert"

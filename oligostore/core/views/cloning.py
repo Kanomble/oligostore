@@ -9,7 +9,11 @@ from ..access import (
     accessible_sequence_files,
     editable_cloning_constructs,
 )
-from ..forms import CloningConstructAssetForm, CloningConstructAssemblyForm
+from ..forms import (
+    CloningConstructAssetForm,
+    CloningConstructAssemblyForm,
+    CloningConstructSequenceFileForm,
+)
 from ..services.cloning import (
     build_pcr_product_asset_choice,
     build_cloning_construct_detail_display,
@@ -18,8 +22,13 @@ from ..services.cloning import (
     resolve_cloning_assets,
     save_cloning_construct,
 )
-from ..services.cloning_exports import export_cloning_construct_genbank
+from ..services.cloning_exports import (
+    build_cloning_construct_record,
+    export_cloning_construct_genbank,
+    save_cloning_construct_sequence_file,
+)
 from ..services.listing import apply_ordering, apply_search
+from ..services.sequence_records import extract_record_features
 from .utils import paginate_queryset
 
 
@@ -29,6 +38,8 @@ def _build_construct_asset_form_values(construct):
             sequence_file_id=construct.vector_sequence_file_id,
             record_id=construct.vector_record_id,
         ).encoded_value
+    elif construct.vector_source_type == construct.SOURCE_TEMPLATE:
+        vector_asset = f"{construct.SOURCE_TEMPLATE}:{construct.vector_template_name}:{construct.vector_record_id}"
     else:
         vector_asset = build_pcr_product_asset_choice(
             pcr_product_id=construct.vector_pcr_product_id,
@@ -39,6 +50,8 @@ def _build_construct_asset_form_values(construct):
             sequence_file_id=construct.insert_sequence_file_id,
             record_id=construct.insert_record_id,
         ).encoded_value
+    elif construct.insert_source_type == construct.SOURCE_TEMPLATE:
+        insert_asset = f"{construct.SOURCE_TEMPLATE}:{construct.insert_template_name}:{construct.insert_record_id}"
     else:
         insert_asset = build_pcr_product_asset_choice(
             pcr_product_id=construct.insert_pcr_product_id,
@@ -52,6 +65,99 @@ def _build_construct_asset_form_values(construct):
         "insert_asset": insert_asset,
         "left_enzyme": construct.left_enzyme,
         "right_enzyme": construct.right_enzyme,
+        "vector_fragment_index": "" if construct.vector_fragment_index is None else str(construct.vector_fragment_index),
+        "insert_fragment_index": "" if construct.insert_fragment_index is None else str(construct.insert_fragment_index),
+    }
+
+
+def _build_construct_sequence_file_form(construct, data=None):
+    if data is None:
+        return CloningConstructSequenceFileForm(construct=construct)
+    return CloningConstructSequenceFileForm(data, construct=construct)
+
+
+def _get_accessible_construct(request, construct_id):
+    return get_object_or_404(
+        accessible_cloning_constructs(request.user).select_related(
+            "vector_sequence_file",
+            "vector_pcr_product",
+            "vector_pcr_product__sequence_file",
+            "insert_sequence_file",
+            "insert_pcr_product",
+            "insert_pcr_product__sequence_file",
+        ),
+        id=construct_id,
+    )
+
+
+def _build_sequence_lines(sequence, *, line_length=60, group_length=10):
+    lines = []
+    normalized_sequence = str(sequence or "").upper()
+    for offset in range(0, len(normalized_sequence), line_length):
+        chunk = normalized_sequence[offset : offset + line_length]
+        groups = [chunk[index : index + group_length] for index in range(0, len(chunk), group_length)]
+        lines.append(
+            {
+                "start": offset + 1,
+                "end": offset + len(chunk),
+                "text": " ".join(groups),
+            }
+        )
+    return lines
+
+
+def _build_construct_linear_context(construct):
+    record = build_cloning_construct_record(construct)
+    feature_rows = []
+    for feature in extract_record_features(record):
+        start = int(feature.get("start", 1))
+        end = int(feature.get("end", start))
+        feature_rows.append(
+            {
+                "label": feature.get("label", ""),
+                "type": feature.get("type", ""),
+                "start": start,
+                "end": end,
+                "length": max(0, end - start + 1),
+                "strand": feature.get("strand"),
+                "description": feature.get("description", ""),
+            }
+        )
+    feature_rows.sort(key=lambda feature: (feature["start"], feature["end"], feature["label"]))
+    sequence = str(record.seq).upper()
+    return {
+        "record": {
+            "id": record.id,
+            "name": record.name,
+            "description": record.description,
+            "sequence": sequence,
+            "length": len(sequence),
+            "features": feature_rows,
+            "annotations": dict(getattr(record, "annotations", {}) or {}),
+        },
+        "sequence_lines": _build_sequence_lines(sequence),
+    }
+
+
+def _build_construct_detail_context(request, construct, *, save_sequence_file_form=None):
+    return {
+        "construct": construct,
+        "detail_display": build_cloning_construct_detail_display(construct),
+        "can_delete": construct.creator_id == request.user.id,
+        "save_sequence_file_form": save_sequence_file_form or _build_construct_sequence_file_form(construct),
+    }
+
+
+def _build_construct_linear_page_context(request, construct, *, save_sequence_file_form=None):
+    detail_display = build_cloning_construct_detail_display(construct)
+    linear_context = _build_construct_linear_context(construct)
+    return {
+        "construct": construct,
+        "detail_display": detail_display,
+        "construct_record": linear_context["record"],
+        "sequence_lines": linear_context["sequence_lines"],
+        "can_delete": construct.creator_id == request.user.id,
+        "save_sequence_file_form": save_sequence_file_form or _build_construct_sequence_file_form(construct),
     }
 
 
@@ -92,8 +198,10 @@ def cloning_construct_list(request):
             "name",
             "description",
             "vector_sequence_file__name",
+            "vector_template_name",
             "vector_pcr_product__name",
             "insert_sequence_file__name",
+            "insert_template_name",
             "insert_pcr_product__name",
             "left_enzyme",
             "right_enzyme",
@@ -187,6 +295,8 @@ def cloning_construct_create(request):
                             assembly_strategy=assembly_form.cleaned_data["assembly_strategy"],
                             left_enzyme=assembly_form.cleaned_data["left_enzyme"],
                             right_enzyme=assembly_form.cleaned_data["right_enzyme"],
+                            vector_fragment_index=assembly_form.cleaned_data.get("vector_fragment_index"),
+                            insert_fragment_index=assembly_form.cleaned_data.get("insert_fragment_index"),
                         )
                     except ValueError as exc:
                         assembly_form.add_error(None, str(exc))
@@ -211,6 +321,10 @@ def cloning_construct_create(request):
                         "assembly_strategy": assembly_form.data.get("assembly_strategy", ""),
                         "vector_asset": assembly_form.data.get("vector_asset", ""),
                         "insert_asset": assembly_form.data.get("insert_asset", ""),
+                        "left_enzyme": assembly_form.data.get("left_enzyme", ""),
+                        "right_enzyme": assembly_form.data.get("right_enzyme", ""),
+                        "vector_fragment_index": assembly_form.data.get("vector_fragment_index", ""),
+                        "insert_fragment_index": assembly_form.data.get("insert_fragment_index", ""),
                     },
                     user=request.user,
                 )
@@ -230,24 +344,91 @@ def cloning_construct_create(request):
 
 @login_required
 def cloning_construct_detail(request, construct_id):
-    construct = get_object_or_404(
-        accessible_cloning_constructs(request.user).select_related(
-            "vector_sequence_file",
-            "vector_pcr_product",
-            "insert_sequence_file",
-            "insert_pcr_product",
-        ),
-        id=construct_id,
-    )
-    detail_display = build_cloning_construct_detail_display(construct)
+    construct = _get_accessible_construct(request, construct_id)
     return render(
         request,
         "core/cloning_construct_detail.html",
-        {
-            "construct": construct,
-            "detail_display": detail_display,
-            "can_delete": construct.creator_id == request.user.id,
-        },
+        _build_construct_detail_context(request, construct),
+    )
+
+
+@login_required
+def cloning_construct_linear_view(request, construct_id):
+    construct = _get_accessible_construct(request, construct_id)
+    try:
+        context = _build_construct_linear_page_context(request, construct)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("cloning_construct_detail", construct_id=construct.id)
+
+    return render(
+        request,
+        "core/cloning_construct_linear_view.html",
+        context,
+    )
+
+
+@login_required
+def cloning_construct_save_sequence_file(request, construct_id):
+    if request.method != "POST":
+        return HttpResponse("POST only", status=405)
+
+    construct = _get_accessible_construct(request, construct_id)
+    save_sequence_file_form = _build_construct_sequence_file_form(construct, request.POST)
+    return_to = str(request.POST.get("return_to", "detail")).strip().lower()
+
+    if save_sequence_file_form.is_valid():
+        try:
+            sequence_file = save_cloning_construct_sequence_file(
+                construct=construct,
+                user=request.user,
+                name=save_sequence_file_form.cleaned_data["name"],
+                description=save_sequence_file_form.cleaned_data["description"],
+                file_type=save_sequence_file_form.cleaned_data["file_type"],
+            )
+        except ValueError as exc:
+            save_sequence_file_form.add_error(None, str(exc))
+        else:
+            messages.success(request, f"Saved construct as sequence file {sequence_file.name}.")
+            return redirect("sequencefile_linear_view", sequencefile_id=sequence_file.id)
+
+    if return_to == "linear":
+        try:
+            context = _build_construct_linear_page_context(
+                request,
+                construct,
+                save_sequence_file_form=save_sequence_file_form,
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            context = _build_construct_detail_context(
+                request,
+                construct,
+                save_sequence_file_form=save_sequence_file_form,
+            )
+            return render(
+                request,
+                "core/cloning_construct_detail.html",
+                context,
+                status=400,
+            )
+        return render(
+            request,
+            "core/cloning_construct_linear_view.html",
+            context,
+            status=400,
+        )
+
+    context = _build_construct_detail_context(
+        request,
+        construct,
+        save_sequence_file_form=save_sequence_file_form,
+    )
+    return render(
+        request,
+        "core/cloning_construct_detail.html",
+        context,
+        status=400,
     )
 
 
@@ -265,17 +446,7 @@ def cloning_construct_delete(request, construct_id):
 
 @login_required
 def cloning_construct_download_genbank(request, construct_id):
-    construct = get_object_or_404(
-        accessible_cloning_constructs(request.user).select_related(
-            "vector_sequence_file",
-            "vector_pcr_product",
-            "insert_sequence_file",
-            "insert_pcr_product",
-            "insert_pcr_product__sequence_file",
-            "vector_pcr_product__sequence_file",
-        ),
-        id=construct_id,
-    )
+    construct = _get_accessible_construct(request, construct_id)
     try:
         exported_genbank = export_cloning_construct_genbank(construct)
     except ValueError as exc:

@@ -16,7 +16,7 @@
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
             <div class="alert alert-info text-sm mb-4">
-                Choose a specific sequence-file record or PCR product for each asset. Sequence files must parse successfully, multi-record files require explicit record selection, and restriction-ligation supports either two different vector cut sites or the same enzyme twice. Same-enzyme cloning supports vector 1 cut / insert 0 cuts for direct insertion, or vector 2 cuts / insert 2 cuts for fragment replacement.
+                Choose a specific sequence-file record, template record, or PCR product for each asset. Sequence files and templates must parse successfully, multi-record files require explicit record selection, and restriction-ligation supports either two different vector cut sites or the same enzyme twice. When the same enzyme is used on both assets, fragment selectors appear so you can choose which digest fragments to keep.
             </div>
             {% if review_construct %}
             <div class="alert alert-warning text-sm mb-4">
@@ -132,6 +132,15 @@
                 </div>
             </div>
 
+            {% if preview_data.vector_fragment_index or preview_data.insert_fragment_index %}
+            <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 mt-6">
+                <div class="text-sm opacity-60">Selected Fragments</div>
+                <div class="font-semibold mt-1">
+                    Vector fragment {{ preview_data.vector_fragment_index|default:"n/a" }} / Insert fragment {{ preview_data.insert_fragment_index|default:"n/a" }}
+                </div>
+            </div>
+            {% endif %}
+
             <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 mt-6">
                 <div class="flex flex-col gap-1 mb-4">
                     <h2 class="text-lg font-semibold">Cut Site Preview</h2>
@@ -186,6 +195,8 @@
                 {% endfor %}
                 <input type="hidden" name="left_enzyme" value="{{ assembly_form.left_enzyme.value|default:'' }}">
                 <input type="hidden" name="right_enzyme" value="{{ assembly_form.right_enzyme.value|default:'' }}">
+                <input type="hidden" name="vector_fragment_index" value="{{ assembly_form.vector_fragment_index.value|default:'' }}">
+                <input type="hidden" name="insert_fragment_index" value="{{ assembly_form.insert_fragment_index.value|default:'' }}">
                 <button type="submit" class="btn btn-primary">Save Construct</button>
             </form>
             {% endif %}

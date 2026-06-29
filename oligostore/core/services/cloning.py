@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from Bio.Restriction import CommOnly
 from Bio.Seq import Seq
+from django.conf import settings
 from django.db import transaction
 
 from ..access import accessible_pcr_products, accessible_sequence_files
@@ -15,7 +17,7 @@ from .sequence_loader import load_sequences
 @dataclass(frozen=True)
 class CloningAssetChoice:
     source_type: str
-    object_id: int
+    object_id: int | str
     record_id: Optional[str] = None
 
     @property
@@ -30,6 +32,7 @@ class ResolvedCloningAsset:
     source_type: str
     sequence_file: Optional[object]
     pcr_product: Optional[object]
+    template_name: Optional[str]
     record_id: str
     name: str
     sequence: str
@@ -49,6 +52,10 @@ class CloningValidationResult:
     assembled_sequence: str = ""
     insertion_start: Optional[int] = None
     inserted_length: int = 0
+    vector_fragment_start: Optional[int] = None
+    vector_fragment_end: Optional[int] = None
+    insert_fragment_start: Optional[int] = None
+    insert_fragment_end: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,8 @@ class CloningConstructPreview:
     is_valid: bool
     validation_messages: tuple[str, ...] = field(default_factory=tuple)
     cut_site_previews: tuple[CloningCutSitePreview, ...] = field(default_factory=tuple)
+    vector_fragment_index: Optional[int] = None
+    insert_fragment_index: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +99,12 @@ class CloningConstructDetailDisplay:
     cut_site_previews: tuple[CloningCutSitePreview, ...] = field(default_factory=tuple)
     junction_contexts: tuple[CloningJunctionContext, ...] = field(default_factory=tuple)
     source_errors: tuple[str, ...] = field(default_factory=tuple)
+
+
+TEMPLATE_SEQUENCE_FILENAMES = (
+    "LvL25_without_J23100.gb",
+    "tProm_leader_sequence_CRISPR_1.gb",
+)
 
 
 def build_sequence_file_asset_choice(*, sequence_file_id: int, record_id: str) -> CloningAssetChoice:
@@ -105,6 +120,81 @@ def build_pcr_product_asset_choice(*, pcr_product_id: int) -> CloningAssetChoice
         source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
         object_id=pcr_product_id,
     )
+
+
+def build_template_asset_choice(*, template_name: str, record_id: str) -> CloningAssetChoice:
+    return CloningAssetChoice(
+        source_type=CloningConstruct.SOURCE_TEMPLATE,
+        object_id=str(template_name),
+        record_id=str(record_id),
+    )
+
+
+def _template_directory() -> Path:
+    return Path(settings.MEDIA_ROOT) / "sequence_files"
+
+
+def _resolve_template_path(template_name: str) -> Path:
+    normalized_template_name = str(template_name or "").strip()
+    if not normalized_template_name:
+        raise ValueError("A template file name is required.")
+
+    template_directory = _template_directory()
+    if not template_directory.exists():
+        raise ValueError("The template media directory is not available.")
+
+    for candidate in template_directory.iterdir():
+        if not candidate.is_file():
+            continue
+        if candidate.name.lower() == normalized_template_name.lower() or candidate.stem.lower() == normalized_template_name.lower():
+            return candidate
+
+    raise ValueError(f"Template '{normalized_template_name}' is not available.")
+
+
+def _load_template_records(template_name: str):
+    template_path = _resolve_template_path(template_name)
+    try:
+        template_format = {
+            ".gb": "genbank",
+            ".gbk": "genbank",
+            ".gbff": "genbank",
+            ".fasta": "fasta",
+            ".fa": "fasta",
+            ".dna": "snapgene",
+        }.get(template_path.suffix.lower())
+        if template_format is None:
+            raise ValueError(f"Template '{template_path.name}' uses an unsupported file type.")
+        records = list(load_sequences(str(template_path), template_format))
+    except Exception as exc:
+        raise ValueError(f"Template '{template_name}' could not be parsed for cloning.") from exc
+    if not records:
+        raise ValueError(f"Template '{template_name}' does not contain any records.")
+    return template_path, records
+
+
+def get_template_asset_choices():
+    choices = []
+    for template_name in TEMPLATE_SEQUENCE_FILENAMES:
+        try:
+            template_path, records = _load_template_records(template_name)
+        except ValueError:
+            continue
+        for record in records:
+            asset_choice = build_template_asset_choice(
+                template_name=template_path.name,
+                record_id=str(record.id),
+            )
+            choices.append(
+                (
+                    asset_choice.encoded_value,
+                    (
+                        f"Template | {template_path.stem} | "
+                        f"record {record.id} | {len(record.seq)} bp | template file"
+                    ),
+                )
+            )
+    return choices
 
 
 def get_detected_enzyme_choices(*, user, selected_asset_choice=None):
@@ -175,6 +265,93 @@ def _find_cut_positions(sequence: str, enzyme):
     return [int(position) - 1 for position in results.get(enzyme, [])]
 
 
+@dataclass(frozen=True)
+class DigestedFragment:
+    index: int
+    start: int
+    end: int
+    sequence: str
+
+    @property
+    def length(self) -> int:
+        return len(self.sequence)
+
+
+def _digest_sequence_fragments(sequence: str, enzyme) -> tuple[DigestedFragment, ...]:
+    cut_positions = sorted(
+        set(position for position in _find_cut_positions(sequence, enzyme) if 0 < position < len(sequence))
+    )
+    boundaries = [0, *cut_positions, len(sequence)]
+    fragments = []
+    for index, (start, end) in enumerate(zip(boundaries, boundaries[1:]), start=1):
+        if end <= start:
+            continue
+        fragments.append(
+            DigestedFragment(
+                index=index,
+                start=start,
+                end=end,
+                sequence=sequence[start:end],
+            )
+        )
+    return tuple(fragments)
+
+
+def _select_digest_fragment(
+    *,
+    sequence: str,
+    enzyme,
+    fragment_index: Optional[int],
+    minimum_length: int = 1,
+    label: str,
+) -> DigestedFragment:
+    fragments = _digest_sequence_fragments(sequence, enzyme)
+    if not fragments:
+        raise ValueError(f"{label} does not yield any fragments after digestion.")
+
+    eligible_fragments = [fragment for fragment in fragments if fragment.length >= minimum_length]
+    if fragment_index is not None:
+        selected_fragment = next((fragment for fragment in eligible_fragments if fragment.index == fragment_index), None)
+        if selected_fragment is None:
+            raise ValueError(f"Selected {label.lower()} fragment is not available after digestion.")
+        return selected_fragment
+
+    if len(eligible_fragments) == 1:
+        return eligible_fragments[0]
+    if not eligible_fragments:
+        raise ValueError(f"{label} does not produce any fragments with the selected enzyme.")
+    raise ValueError(
+        f"Select which {label.lower()} fragment to use after digestion; {len(eligible_fragments)} fragments are available."
+    )
+
+
+def build_digest_fragment_choices(*, sequence: str, enzyme_name: str, minimum_length: int = 1):
+    enzyme = _get_enzyme_by_name(enzyme_name)
+    if enzyme is None:
+        return []
+    fragments = _digest_sequence_fragments(sequence, enzyme)
+    eligible_fragments = sorted(
+        (fragment for fragment in fragments if fragment.length >= minimum_length),
+        key=lambda fragment: (-fragment.length, fragment.start, fragment.index),
+    )
+    return [
+        (
+            str(fragment.index),
+            f"Fragment {fragment.index} | {fragment.length} bp | bases {fragment.start + 1}-{fragment.end}",
+        )
+        for fragment in eligible_fragments
+    ]
+
+
+def _normalize_fragment_index(value) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid fragment selection.") from exc
+
+
 def _load_sequence_file_records(sequence_file):
     try:
         records = list(get_sequence_records(sequence_file, load_sequences))
@@ -198,6 +375,7 @@ def _resolve_sequence_file_asset(sequence_file):
         source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
         sequence_file=sequence_file,
         pcr_product=None,
+        template_name=None,
         record_id=str(record.id),
         name=sequence_file.name,
         sequence=str(record.seq).upper(),
@@ -218,6 +396,7 @@ def _resolve_sequence_file_record_asset(sequence_file, record_id: str):
         source_type=CloningConstruct.SOURCE_SEQUENCE_FILE,
         sequence_file=sequence_file,
         pcr_product=None,
+        template_name=None,
         record_id=str(record.id),
         name=sequence_file.name,
         sequence=str(record.seq).upper(),
@@ -229,13 +408,41 @@ def _resolve_pcr_product_asset(pcr_product):
         source_type=CloningConstruct.SOURCE_PCR_PRODUCT,
         sequence_file=None,
         pcr_product=pcr_product,
+        template_name=None,
         record_id=pcr_product.record_id,
         name=pcr_product.name,
         sequence=pcr_product.sequence,
     )
 
 
-def _resolve_construct_asset(*, source_type, sequence_file, pcr_product, record_id, label) -> ResolvedCloningAsset:
+def _resolve_template_asset(template_name, record_id: Optional[str] = None):
+    template_path, records = _load_template_records(template_name)
+    normalized_record_id = str(record_id or "").strip()
+    if normalized_record_id:
+        record = next((record for record in records if str(record.id) == normalized_record_id), None)
+        if record is None:
+            raise ValueError(
+                f"Record '{normalized_record_id}' is not available in template '{template_path.name}'."
+            )
+    elif len(records) == 1:
+        record = records[0]
+    else:
+        raise ValueError(
+            f"Template '{template_path.name}' contains multiple records. Select a specific record for cloning."
+        )
+
+    return ResolvedCloningAsset(
+        source_type=CloningConstruct.SOURCE_TEMPLATE,
+        sequence_file=None,
+        pcr_product=None,
+        template_name=template_path.name,
+        record_id=str(record.id),
+        name=template_path.name,
+        sequence=str(record.seq).upper(),
+    )
+
+
+def _resolve_construct_asset(*, source_type, sequence_file, pcr_product, template_name, record_id, label) -> ResolvedCloningAsset:
     if source_type == CloningConstruct.SOURCE_PCR_PRODUCT:
         if pcr_product is None:
             raise ValueError(f"{label} PCR product is no longer available.")
@@ -246,6 +453,10 @@ def _resolve_construct_asset(*, source_type, sequence_file, pcr_product, record_
         if record_id:
             return _resolve_sequence_file_record_asset(sequence_file, record_id)
         return _resolve_sequence_file_asset(sequence_file)
+    if source_type == CloningConstruct.SOURCE_TEMPLATE:
+        if not template_name:
+            raise ValueError(f"{label} template is no longer available.")
+        return _resolve_template_asset(template_name, record_id)
     raise ValueError(f"Unknown {label.lower()} source type.")
 
 
@@ -256,6 +467,12 @@ def parse_asset_choice(choice: str):
     source_type, object_id = parts[:2]
     record_id = parts[2] if len(parts) == 3 else None
     try:
+        if source_type == CloningConstruct.SOURCE_TEMPLATE:
+            return CloningAssetChoice(
+                source_type=source_type,
+                object_id=object_id,
+                record_id=record_id,
+            )
         return CloningAssetChoice(
             source_type=source_type,
             object_id=int(object_id),
@@ -279,6 +496,8 @@ def resolve_asset_choice(*, user, choice: str) -> ResolvedCloningAsset:
         if pcr_product is None:
             raise ValueError("Selected PCR product is not available.")
         return _resolve_pcr_product_asset(pcr_product)
+    if asset_choice.source_type == CloningConstruct.SOURCE_TEMPLATE:
+        return _resolve_template_asset(asset_choice.object_id, asset_choice.record_id)
     raise ValueError("Unknown cloning asset type.")
 
 
@@ -289,99 +508,133 @@ def resolve_cloning_assets(*, user, vector_asset_choice: str, insert_asset_choic
     )
 
 
-def _validate_restriction_ligation(
+def _invalid_cloning_result(*messages: str) -> CloningValidationResult:
+    return CloningValidationResult(is_valid=False, validation_messages=tuple(messages))
+
+
+def _validate_same_enzyme_fragment_ligation(
+    *,
+    vector_sequence: str,
+    insert_sequence: str,
+    enzyme_name: str,
+    enzyme,
+    vector_fragment_index: Optional[int],
+    insert_fragment_index: Optional[int],
+) -> CloningValidationResult:
+    try:
+        vector_fragment = _select_digest_fragment(
+            sequence=vector_sequence,
+            enzyme=enzyme,
+            fragment_index=vector_fragment_index,
+            label="Vector",
+        )
+        insert_fragment = _select_digest_fragment(
+            sequence=insert_sequence,
+            enzyme=enzyme,
+            fragment_index=insert_fragment_index,
+            label="Insert",
+        )
+    except ValueError as exc:
+        return _invalid_cloning_result(str(exc))
+
+    assembled_sequence = vector_fragment.sequence + insert_fragment.sequence
+    return CloningValidationResult(
+        is_valid=True,
+        validation_messages=(
+            f"Construct assembled successfully using {enzyme_name} fragment selection (vector fragment {vector_fragment.index} and insert fragment {insert_fragment.index}).",
+        ),
+        assembled_sequence=assembled_sequence,
+        insertion_start=len(vector_fragment.sequence),
+        inserted_length=len(insert_fragment.sequence),
+        vector_fragment_start=vector_fragment.start,
+        vector_fragment_end=vector_fragment.end,
+        insert_fragment_start=insert_fragment.start,
+        insert_fragment_end=insert_fragment.end,
+    )
+
+
+def _validate_same_enzyme_ligation(
+    *,
+    vector_sequence: str,
+    insert_sequence: str,
+    enzyme_name: str,
+    enzyme,
+) -> CloningValidationResult:
+    vector_cut_hits = _find_cut_positions(vector_sequence, enzyme)
+    insert_cut_hits = _find_cut_positions(insert_sequence, enzyme)
+
+    if len(vector_cut_hits) == 1 and len(insert_cut_hits) == 0:
+        insertion_point = vector_cut_hits[0]
+        assembled_sequence = (
+            vector_sequence[:insertion_point]
+            + insert_sequence
+            + vector_sequence[insertion_point:]
+        )
+        return CloningValidationResult(
+            is_valid=True,
+            validation_messages=(
+                f"Construct assembled successfully using {enzyme_name} single-cut insertion mode.",
+            ),
+            assembled_sequence=assembled_sequence,
+            insertion_start=insertion_point,
+            inserted_length=len(insert_sequence),
+        )
+
+    if len(vector_cut_hits) == 2 and len(insert_cut_hits) == 2:
+        vector_left_cut, vector_right_cut = sorted(vector_cut_hits)
+        insert_left_cut, insert_right_cut = sorted(insert_cut_hits)
+        messages = []
+        if vector_right_cut <= vector_left_cut:
+            messages.append(f"{enzyme_name} cut positions in the vector are overlapping or out of order.")
+        if insert_right_cut <= insert_left_cut:
+            messages.append(f"{enzyme_name} cut positions in the insert are overlapping or out of order.")
+        if messages:
+            return _invalid_cloning_result(*messages)
+
+        insert_fragment = insert_sequence[insert_left_cut:insert_right_cut]
+        assembled_sequence = (
+            vector_sequence[:vector_left_cut]
+            + insert_fragment
+            + vector_sequence[vector_right_cut:]
+        )
+        return CloningValidationResult(
+            is_valid=True,
+            validation_messages=(
+                f"Construct assembled successfully using {enzyme_name} double-cut fragment replacement mode.",
+            ),
+            assembled_sequence=assembled_sequence,
+            insertion_start=vector_left_cut,
+            inserted_length=len(insert_fragment),
+        )
+
+    messages = []
+    if len(vector_cut_hits) not in {1, 2}:
+        messages.append(
+            f"Vector must contain either 1 cut site (direct insertion) or 2 cut sites (fragment replacement) for same-enzyme cloning with {enzyme_name}; found {len(vector_cut_hits)}."
+        )
+    if len(insert_cut_hits) not in {0, 2}:
+        messages.append(
+            f"Insert must contain either 0 cut sites (insert the full asset) or 2 cut sites (excise the fragment between them) for same-enzyme cloning with {enzyme_name}; found {len(insert_cut_hits)}."
+        )
+    if len(vector_cut_hits) in {1, 2} and len(insert_cut_hits) in {0, 2}:
+        messages.append(
+            f"The selected same-enzyme topology is not supported. Use vector 1 cut / insert 0 cuts for direct insertion, or vector 2 cuts / insert 2 cuts for fragment replacement. Found vector {len(vector_cut_hits)} / insert {len(insert_cut_hits)}."
+        )
+    return _invalid_cloning_result(*messages)
+
+
+def _validate_two_enzyme_ligation(
+    *,
     vector_sequence: str,
     insert_sequence: str,
     left_enzyme_name: str,
     right_enzyme_name: str,
+    left_enzyme,
+    right_enzyme,
 ) -> CloningValidationResult:
     messages = []
-    left_enzyme = _get_enzyme_by_name(left_enzyme_name)
-    right_enzyme = _get_enzyme_by_name(right_enzyme_name)
-
-    if left_enzyme is None:
-        messages.append(f"Unknown left enzyme: {left_enzyme_name}.")
-    if right_enzyme is None:
-        messages.append(f"Unknown right enzyme: {right_enzyme_name}.")
-    if messages:
-        return CloningValidationResult(
-            is_valid=False,
-            validation_messages=tuple(messages),
-        )
-
     left_site = str(getattr(left_enzyme, "site", "") or "")
     right_site = str(getattr(right_enzyme, "site", "") or "")
-    if left_enzyme_name == right_enzyme_name:
-        vector_cut_hits = _find_cut_positions(vector_sequence, left_enzyme)
-        insert_cut_hits = _find_cut_positions(insert_sequence, left_enzyme)
-
-        if len(vector_cut_hits) == 1 and len(insert_cut_hits) == 0:
-            insertion_point = vector_cut_hits[0]
-            assembled_sequence = (
-                vector_sequence[:insertion_point]
-                + insert_sequence
-                + vector_sequence[insertion_point:]
-            )
-            return CloningValidationResult(
-                is_valid=True,
-                validation_messages=(
-                    f"Construct assembled successfully using {left_enzyme_name} single-cut insertion mode.",
-                ),
-                assembled_sequence=assembled_sequence,
-                insertion_start=insertion_point,
-                inserted_length=len(insert_sequence),
-            )
-
-        if len(vector_cut_hits) == 2 and len(insert_cut_hits) == 2:
-            vector_left_cut, vector_right_cut = sorted(vector_cut_hits)
-            insert_left_cut, insert_right_cut = sorted(insert_cut_hits)
-            if vector_right_cut <= vector_left_cut:
-                messages.append(
-                    f"{left_enzyme_name} cut positions in the vector are overlapping or out of order."
-                )
-            if insert_right_cut <= insert_left_cut:
-                messages.append(
-                    f"{left_enzyme_name} cut positions in the insert are overlapping or out of order."
-                )
-            if messages:
-                return CloningValidationResult(
-                    is_valid=False,
-                    validation_messages=tuple(messages),
-                )
-
-            insert_fragment = insert_sequence[insert_left_cut:insert_right_cut]
-            assembled_sequence = (
-                vector_sequence[:vector_left_cut]
-                + insert_fragment
-                + vector_sequence[vector_right_cut:]
-            )
-            return CloningValidationResult(
-                is_valid=True,
-                validation_messages=(
-                    f"Construct assembled successfully using {left_enzyme_name} double-cut fragment replacement mode.",
-                ),
-                assembled_sequence=assembled_sequence,
-                insertion_start=vector_left_cut,
-                inserted_length=len(insert_fragment),
-            )
-
-        if len(vector_cut_hits) not in {1, 2}:
-            messages.append(
-                f"Same-enzyme cloning with {left_enzyme_name} supports vectors with either 1 cut site (direct insertion) or 2 cut sites (fragment replacement); found {len(vector_cut_hits)}."
-            )
-        if len(insert_cut_hits) not in {0, 2}:
-            messages.append(
-                f"Same-enzyme cloning with {left_enzyme_name} supports inserts with either 0 cut sites (insert the full asset) or 2 cut sites (excise the fragment between them); found {len(insert_cut_hits)}."
-            )
-        if len(vector_cut_hits) in {1, 2} and len(insert_cut_hits) in {0, 2}:
-            messages.append(
-                f"The selected same-enzyme topology is not supported. Use vector 1 cut / insert 0 cuts for direct insertion, or vector 2 cuts / insert 2 cuts for fragment replacement. Found vector {len(vector_cut_hits)} / insert {len(insert_cut_hits)}."
-            )
-        return CloningValidationResult(
-            is_valid=False,
-            validation_messages=tuple(messages),
-        )
-
     left_hits = _find_cut_positions(vector_sequence, left_enzyme)
     right_hits = _find_cut_positions(vector_sequence, right_enzyme)
 
@@ -394,19 +647,12 @@ def _validate_restriction_ligation(
     if _find_site_positions(insert_sequence, right_site):
         messages.append(f"Insert contains an internal {right_enzyme_name} site.")
     if messages:
-        return CloningValidationResult(
-            is_valid=False,
-            validation_messages=tuple(messages),
-        )
+        return _invalid_cloning_result(*messages)
 
     left_cut = left_hits[0]
     right_cut = right_hits[0]
     if right_cut <= left_cut:
-        messages.append("Restriction sites are overlapping or out of order in the vector.")
-        return CloningValidationResult(
-            is_valid=False,
-            validation_messages=tuple(messages),
-        )
+        return _invalid_cloning_result("Restriction sites are overlapping or out of order in the vector.")
 
     assembled_sequence = (
         vector_sequence[:left_cut]
@@ -422,6 +668,53 @@ def _validate_restriction_ligation(
     )
 
 
+def _validate_restriction_ligation(
+    vector_sequence: str,
+    insert_sequence: str,
+    left_enzyme_name: str,
+    right_enzyme_name: str,
+    vector_fragment_index: Optional[int] = None,
+    insert_fragment_index: Optional[int] = None,
+) -> CloningValidationResult:
+    left_enzyme = _get_enzyme_by_name(left_enzyme_name)
+    right_enzyme = _get_enzyme_by_name(right_enzyme_name)
+
+    messages = []
+    if left_enzyme is None:
+        messages.append(f"Unknown left enzyme: {left_enzyme_name}.")
+    if right_enzyme is None:
+        messages.append(f"Unknown right enzyme: {right_enzyme_name}.")
+    if messages:
+        return _invalid_cloning_result(*messages)
+
+    if left_enzyme_name == right_enzyme_name:
+        if vector_fragment_index is not None or insert_fragment_index is not None:
+            return _validate_same_enzyme_fragment_ligation(
+                vector_sequence=vector_sequence,
+                insert_sequence=insert_sequence,
+                enzyme_name=left_enzyme_name,
+                enzyme=left_enzyme,
+                vector_fragment_index=vector_fragment_index,
+                insert_fragment_index=insert_fragment_index,
+            )
+        # Preserve the legacy same-enzyme topology for already-saved constructs that do not store fragment indexes.
+        return _validate_same_enzyme_ligation(
+            vector_sequence=vector_sequence,
+            insert_sequence=insert_sequence,
+            enzyme_name=left_enzyme_name,
+            enzyme=left_enzyme,
+        )
+
+    return _validate_two_enzyme_ligation(
+        vector_sequence=vector_sequence,
+        insert_sequence=insert_sequence,
+        left_enzyme_name=left_enzyme_name,
+        right_enzyme_name=right_enzyme_name,
+        left_enzyme=left_enzyme,
+        right_enzyme=right_enzyme,
+    )
+
+
 def preview_cloning_construct(
     *,
     vector_asset: ResolvedCloningAsset,
@@ -429,9 +722,14 @@ def preview_cloning_construct(
     assembly_strategy: str,
     left_enzyme: str,
     right_enzyme: str,
+    vector_fragment_index: Optional[int] = None,
+    insert_fragment_index: Optional[int] = None,
 ) -> CloningConstructPreview:
     if assembly_strategy != CloningConstruct.STRATEGY_RESTRICTION_LIGATION:
         raise ValueError("Only restriction ligation is currently supported.")
+
+    vector_fragment_index = _normalize_fragment_index(vector_fragment_index)
+    insert_fragment_index = _normalize_fragment_index(insert_fragment_index)
 
     validation_messages = []
     if vector_asset.message:
@@ -444,6 +742,8 @@ def preview_cloning_construct(
         insert_asset.sequence,
         left_enzyme,
         right_enzyme,
+        vector_fragment_index=vector_fragment_index,
+        insert_fragment_index=insert_fragment_index,
     )
     validation_messages.extend(validation_result.validation_messages)
     unique_enzyme_names = []
@@ -457,6 +757,8 @@ def preview_cloning_construct(
         assembly_strategy=assembly_strategy,
         left_enzyme=left_enzyme,
         right_enzyme=right_enzyme,
+        vector_fragment_index=vector_fragment_index,
+        insert_fragment_index=insert_fragment_index,
         assembled_sequence=validation_result.assembled_sequence,
         assembled_length=len(validation_result.assembled_sequence or ""),
         is_valid=validation_result.is_valid,
@@ -552,6 +854,8 @@ def _build_detail_display_from_preview(
             preview_data.insert_asset.sequence,
             preview_data.left_enzyme,
             preview_data.right_enzyme,
+            vector_fragment_index=preview_data.vector_fragment_index,
+            insert_fragment_index=preview_data.insert_fragment_index,
         )
         if validation_result.is_valid and validation_result.insertion_start is not None:
             right_boundary = (
@@ -593,6 +897,7 @@ def build_cloning_construct_detail_display(
             source_type=construct.vector_source_type,
             sequence_file=construct.vector_sequence_file,
             pcr_product=construct.vector_pcr_product,
+            template_name=construct.vector_template_name,
             record_id=construct.vector_record_id,
             label="Vector",
         )
@@ -605,6 +910,7 @@ def build_cloning_construct_detail_display(
             source_type=construct.insert_source_type,
             sequence_file=construct.insert_sequence_file,
             pcr_product=construct.insert_pcr_product,
+            template_name=construct.insert_template_name,
             record_id=construct.insert_record_id,
             label="Insert",
         )
@@ -642,6 +948,8 @@ def build_cloning_construct_detail_display(
             insert_asset.sequence,
             construct.left_enzyme,
             construct.right_enzyme,
+            vector_fragment_index=construct.vector_fragment_index,
+            insert_fragment_index=construct.insert_fragment_index,
         )
         if validation_result.is_valid and validation_result.insertion_start is not None:
             right_boundary = (
@@ -679,12 +987,16 @@ def save_cloning_construct(*, name: str, description: str, preview_data: Cloning
         description=description,
         vector_source_type=preview_data.vector_asset.source_type,
         vector_sequence_file=preview_data.vector_asset.sequence_file,
+        vector_template_name=preview_data.vector_asset.template_name or "",
         vector_pcr_product=preview_data.vector_asset.pcr_product,
         vector_record_id=preview_data.vector_asset.record_id,
+        vector_fragment_index=preview_data.vector_fragment_index,
         insert_source_type=preview_data.insert_asset.source_type,
         insert_sequence_file=preview_data.insert_asset.sequence_file,
+        insert_template_name=preview_data.insert_asset.template_name or "",
         insert_pcr_product=preview_data.insert_asset.pcr_product,
         insert_record_id=preview_data.insert_asset.record_id,
+        insert_fragment_index=preview_data.insert_fragment_index,
         assembly_strategy=preview_data.assembly_strategy,
         left_enzyme=preview_data.left_enzyme,
         right_enzyme=preview_data.right_enzyme,
@@ -708,6 +1020,8 @@ def create_cloning_construct(
     assembly_strategy: str,
     left_enzyme: str,
     right_enzyme: str,
+    vector_fragment_index: Optional[int] = None,
+    insert_fragment_index: Optional[int] = None,
     user,
 ) -> CloningConstruct:
     preview_data = preview_cloning_construct(
@@ -716,6 +1030,8 @@ def create_cloning_construct(
         assembly_strategy=assembly_strategy,
         left_enzyme=left_enzyme,
         right_enzyme=right_enzyme,
+        vector_fragment_index=vector_fragment_index,
+        insert_fragment_index=insert_fragment_index,
     )
     return save_cloning_construct(
         name=name,

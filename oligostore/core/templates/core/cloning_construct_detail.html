@@ -12,6 +12,7 @@
             {% if not construct.is_valid %}
             <a href="{% url 'cloning_construct_create' %}?review_construct={{ construct.id }}" class="btn btn-warning btn-outline">Review Setup</a>
             {% endif %}
+            <a href="{% url 'cloning_construct_linear_view' construct.id %}" class="btn btn-outline">Linear View</a>
             <a href="{% url 'cloning_construct_download_genbank' construct.id %}" class="btn btn-outline">Download GenBank</a>
             <a href="{% url 'cloning_construct_list' %}" class="btn btn-ghost">Back</a>
             {% if can_delete %}
@@ -61,6 +62,57 @@
                 <div class="font-semibold">{{ construct.insert_asset_label }}</div>
                 <div class="text-sm opacity-70">{{ construct.insert_source_type|title }}</div>
             </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow">
+        <div class="card-body space-y-4">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="card-title">Save to Sequence File</h2>
+                    <p class="text-sm opacity-70 mt-1">Create a reusable FASTA or GenBank file from this construct.</p>
+                </div>
+            </div>
+            <form method="POST" action="{% url 'cloning_construct_save_sequence_file' construct.id %}" class="grid gap-4 md:grid-cols-2">
+                {% csrf_token %}
+                <input type="hidden" name="return_to" value="detail">
+                {% if save_sequence_file_form.non_field_errors %}
+                <div class="md:col-span-2 text-error text-sm">
+                    {{ save_sequence_file_form.non_field_errors }}
+                </div>
+                {% endif %}
+                <label class="form-control">
+                    <div class="label">
+                        <span class="label-text">Name</span>
+                    </div>
+                    {{ save_sequence_file_form.name }}
+                    {% if save_sequence_file_form.name.errors %}
+                    <div class="text-error text-sm mt-1">{{ save_sequence_file_form.name.errors }}</div>
+                    {% endif %}
+                </label>
+                <label class="form-control">
+                    <div class="label">
+                        <span class="label-text">Format</span>
+                    </div>
+                    {{ save_sequence_file_form.file_type }}
+                    {% if save_sequence_file_form.file_type.errors %}
+                    <div class="text-error text-sm mt-1">{{ save_sequence_file_form.file_type.errors }}</div>
+                    {% endif %}
+                </label>
+                <label class="form-control md:col-span-2">
+                    <div class="label">
+                        <span class="label-text">Description</span>
+                    </div>
+                    {{ save_sequence_file_form.description }}
+                    {% if save_sequence_file_form.description.errors %}
+                    <div class="text-error text-sm mt-1">{{ save_sequence_file_form.description.errors }}</div>
+                    {% endif %}
+                </label>
+                <div class="md:col-span-2 flex items-center justify-between gap-3">
+                    <div class="text-sm opacity-70">GenBank keeps construct annotations; FASTA stores sequence only.</div>
+                    <button type="submit" class="btn btn-primary">Save Sequence File</button>
+                </div>
+            </form>
         </div>
     </div>
 

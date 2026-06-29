@@ -12,9 +12,12 @@ from .access import (
 from .models import CloningConstruct, Primer, PrimerPair, Project, SequenceFile
 import re
 from .services.cloning import (
+    build_digest_fragment_choices,
     build_pcr_product_asset_choice,
     build_sequence_file_asset_choice,
     get_detected_enzyme_choices,
+    get_template_asset_choices,
+    resolve_asset_choice,
 )
 from .services.sequence_loader import load_sequences
 from .services.sequence_records import get_sequence_records
@@ -107,6 +110,7 @@ def _build_cloning_asset_choices(user):
                 ),
             )
         )
+    asset_choices.extend(get_template_asset_choices())
     return asset_choices
 
 
@@ -133,9 +137,19 @@ class CloningConstructAssetForm(BaseCloningConstructForm):
         asset_choices = _build_cloning_asset_choices(user)
         self.fields["vector_asset"].choices = asset_choices
         self.fields["insert_asset"].choices = list(asset_choices)
-        self.fields["vector_asset"].help_text = "Choose an uploaded sequence-file record or saved PCR product to use as the vector."
-        self.fields["insert_asset"].help_text = "Choose an uploaded sequence-file record or saved PCR product to insert into the vector."
+        self.fields["vector_asset"].help_text = "Choose an uploaded sequence-file record, template, or saved PCR product to use as the vector."
+        self.fields["insert_asset"].help_text = "Choose an uploaded sequence-file record, template, or saved PCR product to insert into the vector."
         apply_tailwind_classes(self.fields)
+
+
+def _configure_fragment_choice_field(field, *, choices, enzyme_name: str, asset_role: str):
+    field.widget = forms.Select()
+    if len(choices) > 1:
+        field.choices = [("", f"Select a {asset_role} fragment")] + choices
+    else:
+        field.choices = choices or [("", f"No {enzyme_name} fragments available")]
+    field.required = bool(choices)
+    field.help_text = f"Choose which {enzyme_name} fragment to keep from the {asset_role} asset."
 
 
 class CloningConstructAssemblyForm(BaseCloningConstructForm):
@@ -146,6 +160,8 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
     insert_asset = forms.ChoiceField(choices=(), widget=forms.HiddenInput)
     left_enzyme = forms.ChoiceField(choices=())
     right_enzyme = forms.ChoiceField(choices=())
+    vector_fragment_index = forms.ChoiceField(choices=(), required=False)
+    insert_fragment_index = forms.ChoiceField(choices=(), required=False)
 
     def __init__(self, *args, **kwargs):
         user = kwargs.pop("user", None)
@@ -169,7 +185,80 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
         self.fields["left_enzyme"].choices = enzyme_choices
         self.fields["right_enzyme"].choices = enzyme_choices
         self.fields["left_enzyme"].help_text = "Only enzymes detected in the selected vector are listed."
-        self.fields["right_enzyme"].help_text = "Choose the same enzyme twice for same-enzyme cloning. Supported same-enzyme layouts are vector 1 cut / insert 0 cuts for direct insertion, or vector 2 cuts / insert 2 cuts for fragment replacement."
+        self.fields["right_enzyme"].help_text = "Choose the same enzyme twice for same-enzyme cloning. Fragment selectors appear below when a same-enzyme digest is selected."
+
+        selected_insert_asset = (
+            self.data.get("insert_asset")
+            if self.is_bound
+            else self.initial.get("insert_asset")
+        )
+        selected_left_enzyme = (
+            self.data.get("left_enzyme")
+            if self.is_bound
+            else self.initial.get("left_enzyme")
+        )
+        selected_right_enzyme = (
+            self.data.get("right_enzyme")
+            if self.is_bound
+            else self.initial.get("right_enzyme")
+        )
+        selected_left_enzyme = str(selected_left_enzyme or "").strip()
+        selected_right_enzyme = str(selected_right_enzyme or "").strip()
+        same_enzyme_name = selected_left_enzyme if selected_left_enzyme and selected_left_enzyme == selected_right_enzyme else None
+        if same_enzyme_name and user is not None and selected_vector_asset and selected_insert_asset:
+            try:
+                vector_asset = resolve_asset_choice(user=user, choice=selected_vector_asset)
+                insert_asset = resolve_asset_choice(user=user, choice=selected_insert_asset)
+                vector_choices = build_digest_fragment_choices(
+                    sequence=vector_asset.sequence,
+                    enzyme_name=same_enzyme_name,
+                )
+                insert_choices = build_digest_fragment_choices(
+                    sequence=insert_asset.sequence,
+                    enzyme_name=same_enzyme_name,
+                )
+            except ValueError:
+                vector_choices = []
+                insert_choices = []
+
+            _configure_fragment_choice_field(
+                self.fields["vector_fragment_index"],
+                choices=vector_choices,
+                enzyme_name=same_enzyme_name,
+                asset_role="vector",
+            )
+            _configure_fragment_choice_field(
+                self.fields["insert_fragment_index"],
+                choices=insert_choices,
+                enzyme_name=same_enzyme_name,
+                asset_role="insert",
+            )
+        else:
+            self.fields["vector_fragment_index"].widget = forms.HiddenInput()
+            self.fields["insert_fragment_index"].widget = forms.HiddenInput()
+        apply_tailwind_classes(self.fields)
+
+
+class CloningConstructSequenceFileForm(forms.Form):
+    name = forms.CharField(max_length=255)
+    description = forms.CharField(required=False, widget=forms.Textarea)
+    file_type = forms.ChoiceField(
+        choices=[
+            (SequenceFile.FILE_GENBANK, "GenBank"),
+            (SequenceFile.FILE_FASTA, "FASTA"),
+        ]
+    )
+
+    def __init__(self, *args, **kwargs):
+        construct = kwargs.pop("construct", None)
+        super().__init__(*args, **kwargs)
+        if construct is not None and not self.is_bound:
+            self.fields["name"].initial = construct.name
+            self.fields["description"].initial = construct.description
+        self.fields["file_type"].initial = SequenceFile.FILE_GENBANK
+        self.fields["name"].help_text = "Name for the saved sequence file."
+        self.fields["description"].help_text = "Optional description copied into the new sequence file."
+        self.fields["file_type"].help_text = "GenBank keeps annotations; FASTA stores only the sequence."
         apply_tailwind_classes(self.fields)
 
 class PrimerForm(forms.ModelForm):

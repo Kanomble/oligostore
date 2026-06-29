@@ -6,6 +6,7 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.SeqRecord import SeqRecord
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from io import StringIO
@@ -22,9 +23,23 @@ from core.models import (
     SequenceFile,
 )
 from core.tasks import analyze_primerpair_products_task
+from core.services import cloning
 
 import shutil
 import tempfile
+
+
+def _select_template_asset_with_fragments(choice_pairs, template_name, *, user, enzyme_name):
+    template_prefix = f"template:{template_name}:"
+    for value, _ in choice_pairs:
+        if not value.startswith(template_prefix):
+            continue
+        asset = cloning.resolve_asset_choice(user=user, choice=value)
+        fragments = cloning.build_digest_fragment_choices(sequence=asset.sequence, enzyme_name=enzyme_name)
+        if fragments:
+            return value, asset, fragments
+    raise AssertionError(f"No {enzyme_name} fragments are available for template {template_name}.")
+
 
 class SequenceFileViewTests(TestCase):
     @classmethod
@@ -1612,6 +1627,17 @@ class CloningViewTests(TestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls._temp_media_root = tempfile.mkdtemp(prefix="oligostore-tests-")
+        source_sequence_files = Path(__file__).resolve().parents[3] / "media" / "sequence_files"
+        target_sequence_files = Path(cls._temp_media_root) / "sequence_files"
+        target_sequence_files.mkdir(parents=True, exist_ok=True)
+        for template_filename in (
+            "LvL25_without_J23100.gb",
+            "tProm_leader_sequence_CRISPR_1.gb",
+        ):
+            shutil.copy2(
+                source_sequence_files / template_filename,
+                target_sequence_files / template_filename,
+            )
 
     @classmethod
     def tearDownClass(cls):
@@ -1927,6 +1953,94 @@ class CloningViewTests(TestCase):
         self.assertIn("insert_source_feature", labels)
         self.assertIn("insert_user_feature", labels)
 
+    def test_cloning_construct_can_be_saved_as_sequence_file(self):
+        vector_record = SeqRecord(
+            Seq("TTTTGAATTCACCCCGGATCCAAAA"),
+            id="vec1",
+            name="vec1",
+            description="vector",
+        )
+        vector_record.annotations["molecule_type"] = "DNA"
+        vector_handle = StringIO()
+        SeqIO.write(vector_record, vector_handle, "genbank")
+        vector = SequenceFile.objects.create(
+            name="Save Vector",
+            file=SimpleUploadedFile("save_vector.gb", vector_handle.getvalue().encode("utf-8")),
+            file_type=SequenceFile.FILE_GENBANK,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+
+        insert_record = SeqRecord(
+            Seq("ATGCATGC"),
+            id="ins1",
+            name="ins1",
+            description="insert",
+        )
+        insert_record.annotations["molecule_type"] = "DNA"
+        insert_handle = StringIO()
+        SeqIO.write(insert_record, insert_handle, "genbank")
+        insert_source = SequenceFile.objects.create(
+            name="Save Insert",
+            file=SimpleUploadedFile("save_insert.gb", insert_handle.getvalue().encode("utf-8")),
+            file_type=SequenceFile.FILE_GENBANK,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+
+        response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "name": "Save Sequence Construct",
+                "description": "Construct saved as sequence file",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "BamHI",
+            },
+        )
+
+        construct = CloningConstruct.objects.get(name="Save Sequence Construct")
+        self.assertRedirects(
+            response,
+            reverse("cloning_construct_detail", args=[construct.id]),
+        )
+
+        detail_response = self.client.get(reverse("cloning_construct_detail", args=[construct.id]))
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, reverse("cloning_construct_save_sequence_file", args=[construct.id]))
+        self.assertContains(detail_response, "Save to Sequence File")
+
+        linear_response = self.client.get(reverse("cloning_construct_linear_view", args=[construct.id]))
+        self.assertEqual(linear_response.status_code, 200)
+        self.assertContains(linear_response, reverse("cloning_construct_save_sequence_file", args=[construct.id]))
+        self.assertContains(linear_response, "Save to Sequence File")
+
+        save_response = self.client.post(
+            reverse("cloning_construct_save_sequence_file", args=[construct.id]),
+            {
+                "name": "Saved Construct File",
+                "description": "Construct persisted as GenBank",
+                "file_type": SequenceFile.FILE_GENBANK,
+                "return_to": "detail",
+            },
+        )
+
+        saved_sequence_file = SequenceFile.objects.get(name="Saved Construct File")
+        self.assertRedirects(
+            save_response,
+            reverse("sequencefile_linear_view", args=[saved_sequence_file.id]),
+        )
+        self.assertEqual(saved_sequence_file.file_type, SequenceFile.FILE_GENBANK)
+        self.assertEqual(saved_sequence_file.uploaded_by, self.user)
+        self.assertTrue(saved_sequence_file.users.filter(id=self.user.id).exists())
+        self.assertIn("LOCUS", Path(saved_sequence_file.file.path).read_text(encoding="utf-8"))
+
+        saved_sequence_view = self.client.get(reverse("sequencefile_linear_view", args=[saved_sequence_file.id]))
+        self.assertEqual(saved_sequence_view.status_code, 200)
+        self.assertContains(saved_sequence_view, "Saved Construct File")
+
     def test_cloning_construct_list_shows_genbank_download_action(self):
         construct = CloningConstruct.objects.create(
             name="Downloadable Construct",
@@ -1946,6 +2060,7 @@ class CloningViewTests(TestCase):
             response,
             reverse("cloning_construct_download_genbank", args=[construct.id]),
         )
+        self.assertContains(response, reverse("cloning_construct_linear_view", args=[construct.id]))
         self.assertContains(response, reverse("cloning_construct_delete", args=[construct.id]))
         self.assertContains(response, f'{reverse("cloning_construct_create")}?review_construct={construct.id}')
         self.assertContains(response, "GenBank")
@@ -2306,6 +2421,188 @@ class CloningViewTests(TestCase):
             choice_labels[f"{CloningConstruct.SOURCE_PCR_PRODUCT}:{pcr_product.id}"],
             "PCR product | Insert Product | record vec2 | 6 bp | single record",
         )
+
+    def test_cloning_construct_form_includes_template_assets_and_fragment_controls(self):
+        response = self.client.get(reverse("cloning_construct_create"))
+
+        self.assertEqual(response.status_code, 200)
+        form = response.context["asset_form"]
+        choice_values = list(form.fields["vector_asset"].choices)
+        lvl25_choice = next(
+            value for value, _ in choice_values if value.startswith("template:LvL25_without_J23100.gb:")
+        )
+        tprom_choice = next(
+            value for value, _ in choice_values if value.startswith("template:tProm_leader_sequence_CRISPR_1.gb:")
+        )
+
+        self.assertTrue(lvl25_choice)
+        self.assertTrue(tprom_choice)
+
+        preview_response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "preview",
+                "name": "Template BbsI Construct",
+                "description": "Template fragment picker",
+                "vector_asset": lvl25_choice,
+                "insert_asset": tprom_choice,
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "BbsI",
+                "right_enzyme": "BbsI",
+            },
+        )
+
+        self.assertEqual(preview_response.status_code, 200)
+        assembly_form = preview_response.context["assembly_form"]
+        self.assertEqual(assembly_form.fields["vector_fragment_index"].widget.__class__.__name__, "Select")
+        self.assertEqual(assembly_form.fields["insert_fragment_index"].widget.__class__.__name__, "Select")
+        self.assertIsNone(preview_response.context["preview_data"])
+
+    def test_cloning_construct_save_preserves_bbsi_template_fragment_selection(self):
+        response = self.client.get(reverse("cloning_construct_create"))
+
+        self.assertEqual(response.status_code, 200)
+        form = response.context["asset_form"]
+        choice_pairs = list(form.fields["vector_asset"].choices)
+        lvl25_choice, vector_asset, vector_fragments = _select_template_asset_with_fragments(
+            choice_pairs,
+            "LvL25_without_J23100.gb",
+            user=self.user,
+            enzyme_name="BbsI",
+        )
+        tprom_choice, insert_asset, insert_fragments = _select_template_asset_with_fragments(
+            choice_pairs,
+            "tProm_leader_sequence_CRISPR_1.gb",
+            user=self.user,
+            enzyme_name="BbsI",
+        )
+
+        preview_response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "preview",
+                "name": "Template BbsI Construct",
+                "description": "Template fragment picker",
+                "vector_asset": lvl25_choice,
+                "insert_asset": tprom_choice,
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "BbsI",
+                "right_enzyme": "BbsI",
+                "vector_fragment_index": vector_fragments[-1][0],
+                "insert_fragment_index": insert_fragments[-1][0],
+            },
+        )
+
+        self.assertEqual(preview_response.status_code, 200)
+        preview_data = preview_response.context["preview_data"]
+        self.assertIsNotNone(preview_data)
+        self.assertTrue(preview_data.is_valid)
+        self.assertLess(preview_data.assembled_length, 312)
+        self.assertContains(preview_response, "Selected Fragments")
+        self.assertContains(preview_response, f"Vector fragment {vector_fragments[-1][0]}")
+        self.assertContains(preview_response, f"Insert fragment {insert_fragments[-1][0]}")
+
+        save_response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "save",
+                "name": "Template BbsI Construct",
+                "description": "Template fragment picker",
+                "vector_asset": lvl25_choice,
+                "insert_asset": tprom_choice,
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "BbsI",
+                "right_enzyme": "BbsI",
+                "vector_fragment_index": vector_fragments[-1][0],
+                "insert_fragment_index": insert_fragments[-1][0],
+            },
+        )
+
+        construct = CloningConstruct.objects.get(name="Template BbsI Construct")
+        self.assertRedirects(save_response, reverse("cloning_construct_detail", args=[construct.id]))
+        self.assertTrue(construct.is_valid)
+        self.assertEqual(construct.vector_fragment_index, int(vector_fragments[-1][0]))
+        self.assertEqual(construct.insert_fragment_index, int(insert_fragments[-1][0]))
+        detail_response = self.client.get(reverse("cloning_construct_detail", args=[construct.id]))
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, reverse("cloning_construct_linear_view", args=[construct.id]))
+
+        linear_response = self.client.get(reverse("cloning_construct_linear_view", args=[construct.id]))
+        self.assertEqual(linear_response.status_code, 200)
+        self.assertContains(linear_response, "Linear Sequence")
+        self.assertContains(linear_response, "Annotated Features")
+        self.assertContains(linear_response, "Cut Site Summary")
+        self.assertEqual(linear_response.context["construct_record"]["length"], preview_data.assembled_length)
+
+        download_response = self.client.get(reverse("cloning_construct_download_genbank", args=[construct.id]))
+        self.assertEqual(download_response.status_code, 200)
+        self.assertIn("LOCUS", download_response.content.decode("utf-8"))
+
+    def test_cloning_construct_save_preserves_fragment_selection_for_other_same_enzyme(self):
+        vector = SequenceFile.objects.create(
+            name="EcoRI Vector",
+            file=SimpleUploadedFile("ecori_vector.fasta", b">vec1\nAAAAGAATTCTTTT"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="EcoRI Insert",
+            file=SimpleUploadedFile("ecori_insert.fasta", b">ins1\nTTTTGAATTCAAAA"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+
+        vector_fragments = cloning.build_digest_fragment_choices(sequence="AAAAGAATTCTTTT", enzyme_name="EcoRI")
+        insert_fragments = cloning.build_digest_fragment_choices(sequence="TTTTGAATTCAAAA", enzyme_name="EcoRI")
+
+        preview_response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "preview",
+                "name": "EcoRI Construct",
+                "description": "Fragment picker",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "EcoRI",
+                "vector_fragment_index": vector_fragments[-1][0],
+                "insert_fragment_index": insert_fragments[-1][0],
+            },
+        )
+
+        self.assertEqual(preview_response.status_code, 200)
+        preview_data = preview_response.context["preview_data"]
+        self.assertIsNotNone(preview_data)
+        self.assertTrue(preview_data.is_valid)
+        self.assertContains(preview_response, "Selected Fragments")
+        self.assertContains(preview_response, f"Vector fragment {vector_fragments[-1][0]}")
+        self.assertContains(preview_response, f"Insert fragment {insert_fragments[-1][0]}")
+
+        save_response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "save",
+                "name": "EcoRI Construct",
+                "description": "Fragment picker",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "left_enzyme": "EcoRI",
+                "right_enzyme": "EcoRI",
+                "vector_fragment_index": vector_fragments[-1][0],
+                "insert_fragment_index": insert_fragments[-1][0],
+            },
+        )
+
+        construct = CloningConstruct.objects.get(name="EcoRI Construct")
+        self.assertRedirects(save_response, reverse("cloning_construct_detail", args=[construct.id]))
+        self.assertTrue(construct.is_valid)
+        self.assertEqual(construct.left_enzyme, "EcoRI")
+        self.assertEqual(construct.vector_fragment_index, int(vector_fragments[-1][0]))
+        self.assertEqual(construct.insert_fragment_index, int(insert_fragments[-1][0]))
 
     def test_cloning_construct_form_filters_enzymes_to_selected_vector(self):
         eco_vector = SequenceFile.objects.create(
