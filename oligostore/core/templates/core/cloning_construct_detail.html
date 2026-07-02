@@ -24,7 +24,7 @@
         </div>
     </div>
 
-    <div class="grid gap-4 md:grid-cols-3">
+    <div class="grid gap-4 md:grid-cols-4">
         <div class="card bg-base-100 shadow">
             <div class="card-body">
                 <div class="text-sm opacity-60">Strategy</div>
@@ -44,6 +44,12 @@
                 {% if not construct.is_valid %}
                 <a href="{% url 'cloning_construct_create' %}?review_construct={{ construct.id }}" class="btn btn-warning btn-outline btn-sm mt-3">Step Back</a>
                 {% endif %}
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Topology</div>
+                <div class="font-semibold">{% if construct.is_circular %}Circular{% else %}Linear{% endif %}</div>
             </div>
         </div>
     </div>

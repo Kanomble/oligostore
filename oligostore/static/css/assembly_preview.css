@@ -1,0 +1,274 @@
+.assembly-preview-shell {
+  --assembly-surface: color-mix(in oklab, var(--color-base-200) 72%, transparent);
+  --assembly-panel: var(--color-base-100);
+  --assembly-border: color-mix(in oklab, var(--color-base-content) 18%, transparent);
+  --assembly-panel-border: color-mix(in oklab, var(--color-base-content) 14%, transparent);
+  --assembly-muted: color-mix(in oklab, var(--color-base-content) 66%, transparent);
+  --assembly-backbone: color-mix(in oklab, var(--color-base-content) 18%, transparent);
+  --assembly-region: color-mix(in oklab, var(--color-info) 72%, transparent);
+  --assembly-region-selected: color-mix(in oklab, var(--color-success) 92%, transparent);
+  --assembly-site: var(--color-warning);
+  --assembly-site-soft: color-mix(in oklab, var(--color-warning) 20%, transparent);
+  --assembly-site-line: color-mix(in oklab, var(--color-base-content) 34%, transparent);
+  --assembly-selected-soft: color-mix(in oklab, var(--color-success) 22%, transparent);
+  --assembly-shadow-selected: color-mix(in oklab, var(--color-success) 28%, transparent);
+  border: 1px solid var(--assembly-border);
+  background: var(--assembly-surface);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.assembly-preview-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  align-items: stretch;
+}
+
+.assembly-map-panel {
+  border: 1px solid var(--assembly-panel-border);
+  background: var(--assembly-panel);
+  border-radius: 8px;
+  padding: 1rem;
+  min-width: 0;
+}
+
+.assembly-map-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.assembly-map-status {
+  margin-top: 0.65rem;
+  font-size: 0.82rem;
+  color: var(--assembly-muted);
+}
+
+.assembly-plasmid-wrap {
+  display: flex;
+  justify-content: center;
+  overflow: visible;
+  min-height: 320px;
+}
+
+.assembly-plasmid-map {
+  width: min(100%, 520px);
+  min-width: 300px;
+  height: auto;
+  overflow: visible;
+}
+
+.assembly-plasmid-backbone {
+  fill: none;
+  stroke: var(--assembly-backbone);
+  stroke-width: 7;
+}
+
+.assembly-plasmid-region {
+  fill: none;
+  stroke: var(--assembly-region);
+  stroke-width: 10;
+  stroke-linecap: round;
+  opacity: 0.82;
+  transition: opacity 120ms ease, stroke-width 120ms ease, filter 120ms ease;
+}
+
+.assembly-plasmid-region.is-selected {
+  stroke: var(--assembly-region-selected);
+  stroke-width: 13;
+  opacity: 0.98;
+}
+
+.assembly-plasmid-region.is-selectable {
+  cursor: pointer;
+}
+
+.assembly-plasmid-region.is-selectable:hover {
+  opacity: 1;
+  stroke-width: 14;
+  filter: drop-shadow(0 0 5px var(--assembly-shadow-selected));
+}
+
+.assembly-linear-map {
+  position: relative;
+  min-height: 128px;
+  padding: 3.1rem 0.75rem 2.3rem;
+  overflow-x: auto;
+}
+
+.assembly-linear-track {
+  position: relative;
+  min-width: 420px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--assembly-backbone);
+}
+
+.assembly-linear-region {
+  position: absolute;
+  top: -5px;
+  height: 26px;
+  min-width: 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--assembly-region);
+  cursor: default;
+  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.assembly-linear-region.is-selected {
+  background: var(--assembly-region-selected);
+  box-shadow: 0 0 0 2px var(--assembly-shadow-selected);
+}
+
+.assembly-linear-region.is-selectable {
+  cursor: pointer;
+}
+
+.assembly-linear-region.is-selectable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 14px var(--assembly-shadow-selected);
+}
+
+.assembly-site-marker {
+  cursor: pointer;
+  outline: none;
+}
+
+.assembly-site-marker line {
+  stroke: var(--assembly-site-line);
+  stroke-width: 0.7;
+}
+
+.assembly-site-marker circle {
+  fill: var(--assembly-panel);
+  stroke: var(--assembly-site);
+  stroke-width: 1.8;
+  transition: fill 120ms ease, stroke-width 120ms ease;
+}
+
+.assembly-site-marker text {
+  fill: var(--color-base-content);
+  font-size: 3.3px;
+  font-weight: 700;
+}
+
+.assembly-site-marker:hover circle,
+.assembly-site-marker:focus circle {
+  fill: var(--assembly-site-soft);
+  stroke-width: 2.5;
+}
+
+.assembly-site-marker.is-selected circle {
+  fill: var(--assembly-selected-soft);
+  stroke: var(--assembly-region-selected);
+  stroke-width: 2.5;
+}
+
+.assembly-site-marker.is-fragment-anchor circle {
+  fill: var(--assembly-site);
+  stroke: var(--color-base-content);
+  stroke-width: 2.8;
+}
+
+.assembly-linear-site {
+  position: absolute;
+  top: -2.65rem;
+  transform: translateX(-50%);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.assembly-linear-site::after {
+  content: "";
+  display: block;
+  width: 2px;
+  height: 48px;
+  margin: 0 auto;
+  background: var(--assembly-site-line);
+}
+
+.assembly-linear-site-label {
+  display: inline-flex;
+  max-width: 8rem;
+  border: 1px solid var(--assembly-site);
+  border-radius: 999px;
+  background: var(--assembly-panel);
+  padding: 0.12rem 0.42rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.assembly-linear-site:hover .assembly-linear-site-label,
+.assembly-linear-site:focus .assembly-linear-site-label {
+  background: var(--assembly-site-soft);
+}
+
+.assembly-linear-site.is-selected .assembly-linear-site-label {
+  border-color: var(--assembly-region-selected);
+  background: var(--assembly-selected-soft);
+}
+
+.assembly-linear-site.is-fragment-anchor .assembly-linear-site-label {
+  border-color: var(--color-base-content);
+  background: var(--assembly-site);
+  color: var(--color-base-100);
+}
+
+#cloning-assembly-preview-form.is-loading .assembly-preview-shell {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.assembly-preview-feedback {
+  min-height: 1.25rem;
+}
+
+.assembly-digest-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.assembly-digest-table th,
+.assembly-digest-table td {
+  border-top: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  padding: 0.42rem 0.35rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.assembly-enzyme-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 16%, transparent);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  background: var(--assembly-panel);
+  font-size: 0.78rem;
+}
+
+.assembly-enzyme-chip.is-empty {
+  border-color: var(--assembly-site);
+  background: var(--assembly-site-soft);
+}
+
+@media (max-width: 980px) {
+  .assembly-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .assembly-plasmid-wrap {
+    min-height: 280px;
+  }
+}

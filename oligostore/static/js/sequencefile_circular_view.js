@@ -39,7 +39,7 @@
       return "#0ea5e9";
     }
     if (isPrimerBindingFeature(feature)) {
-      return "#2563eb";
+      return Number(feature.strand) === -1 ? "#dc2626" : "#2563eb";
     }
     return "#10b981";
   }
@@ -132,6 +132,7 @@
       recordDetails: new Map(),
       urls: {
         recordDataUrl: config.dataset.recordDataUrl,
+        savePcrProductUrl: config.dataset.savePcrProductUrl,
       },
       els: {
         recordSelect: getElement("circularRecordSelect"),
@@ -159,6 +160,11 @@
         copySelectedSequenceBtn: getElement("circularCopySelectedSequenceBtn"),
         sequenceCopyStatus: getElement("circularSequenceCopyStatus"),
         selectionSummary: getElement("circularSelectionSummary"),
+        pcrProductSummary: getElement("circularPcrProductSummary"),
+        pcrProductSequence: getElement("circularPcrProductSequence"),
+        pcrProductNameInput: getElement("circularPcrProductNameInput"),
+        savePcrProductBtn: getElement("circularSavePcrProductBtn"),
+        pcrProductSaveStatus: getElement("circularPcrProductSaveStatus"),
         featureSearchInput: getElement("circularFeatureSearchInput"),
         featureCount: getElement("circularFeatureCount"),
         featureTableBody: getElement("circularFeatureTableBody"),
@@ -175,6 +181,8 @@
       state: {
         recordIndex: 0,
         selectedFeatureIndex: null,
+        selectedForwardPrimerIndex: null,
+        selectedReversePrimerIndex: null,
         featureQuery: "",
         loadError: "",
         loading: false,
@@ -186,6 +194,8 @@
         showCdsFeatures: true,
         showPrimerFeatures: true,
         showMiscFeatures: true,
+        pcrProductSubmitting: false,
+        lastPCRProductAutoName: "",
       },
     };
   }
@@ -225,6 +235,132 @@
   function setSequenceCopyStatus(app, message, isError = false) {
     app.els.sequenceCopyStatus.textContent = message;
     app.els.sequenceCopyStatus.classList.toggle("text-error", Boolean(isError));
+  }
+
+  function setPCRProductStatus(app, message, isError = false) {
+    app.els.pcrProductSaveStatus.textContent = message;
+    app.els.pcrProductSaveStatus.classList.toggle("text-error", Boolean(isError));
+  }
+
+  function getCsrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
+  function getCurrentRecordId(app) {
+    const summary = app.recordSummaries[app.state.recordIndex];
+    return summary ? summary.id : "";
+  }
+
+  function getFeatureBounds(feature, recordLength) {
+    const start = clampPosition(feature.start, recordLength);
+    const end = clampPosition(feature.end, recordLength);
+    return {
+      start: Math.min(start, end),
+      end: Math.max(start, end),
+    };
+  }
+
+  function getCircularSequenceSlice(record, start, end, wrapsOrigin) {
+    if (!wrapsOrigin) {
+      return getSequenceSlice(record, start, end);
+    }
+    const first = getSequenceSlice(record, start, record.length);
+    const second = getSequenceSlice(record, 1, end);
+    if (first === null || second === null) {
+      return null;
+    }
+    return `${first}${second}`;
+  }
+
+  function getPCRProductAutoName(app, product) {
+    const safeRecord = String(product.recordId || `record_${app.state.recordIndex + 1}`).replace(/[^A-Za-z0-9_-]/g, "_");
+    const forward = String(product.forwardLabel || "FWD").replace(/\s+/g, "_");
+    const reverse = String(product.reverseLabel || "REV").replace(/\s+/g, "_");
+    return `${safeRecord}_${forward}_${reverse}_${product.start}-${product.end}${product.wrapsOrigin ? "_wrap" : ""}`;
+  }
+
+  function computePCRProduct(app, record) {
+    if (app.state.selectedForwardPrimerIndex === null || app.state.selectedReversePrimerIndex === null) {
+      return null;
+    }
+    const forwardPrimer = record.features[app.state.selectedForwardPrimerIndex];
+    const reversePrimer = record.features[app.state.selectedReversePrimerIndex];
+    if (!forwardPrimer || !reversePrimer) {
+      return null;
+    }
+    const forwardBounds = getFeatureBounds(forwardPrimer, record.length);
+    const reverseBounds = getFeatureBounds(reversePrimer, record.length);
+    const productStart = forwardBounds.start;
+    const productEnd = reverseBounds.end;
+    const wrapsOrigin = productEnd < productStart;
+    const sequence = getCircularSequenceSlice(record, productStart, productEnd, wrapsOrigin);
+    if (sequence === null) {
+      return {
+        valid: false,
+        reason: "PCR product sequence is not loaded.",
+      };
+    }
+    return {
+      valid: true,
+      recordId: getCurrentRecordId(app),
+      start: productStart,
+      end: productEnd,
+      length: sequence.length,
+      sequence,
+      wrapsOrigin,
+      forwardLabel: forwardPrimer.label,
+      reverseLabel: reversePrimer.label,
+      forwardPrimerId: Number.isFinite(Number(forwardPrimer.primer_id)) ? Number(forwardPrimer.primer_id) : null,
+      reversePrimerId: Number.isFinite(Number(reversePrimer.primer_id)) ? Number(reversePrimer.primer_id) : null,
+      forwardFeatureId: Number.isFinite(Number(forwardPrimer.feature_id)) ? Number(forwardPrimer.feature_id) : null,
+      reverseFeatureId: Number.isFinite(Number(reversePrimer.feature_id)) ? Number(reversePrimer.feature_id) : null,
+    };
+  }
+
+  function renderPCRProduct(app, record) {
+    const product = record ? computePCRProduct(app, record) : null;
+    if (!product) {
+      app.els.pcrProductSummary.textContent = "Shift-click one forward and one reverse primer to generate a candidate amplicon.";
+      app.els.pcrProductSequence.textContent = "";
+      app.els.savePcrProductBtn.disabled = true;
+      app.state.lastPCRProductAutoName = "";
+      return;
+    }
+    if (!product.valid) {
+      app.els.pcrProductSummary.textContent = `PCR product unavailable: ${product.reason}`;
+      app.els.pcrProductSequence.textContent = "";
+      app.els.savePcrProductBtn.disabled = true;
+      app.state.lastPCRProductAutoName = "";
+      return;
+    }
+    const autoName = getPCRProductAutoName(app, product);
+    if (!app.els.pcrProductNameInput.value || app.els.pcrProductNameInput.value === app.state.lastPCRProductAutoName) {
+      app.els.pcrProductNameInput.value = autoName;
+    }
+    app.state.lastPCRProductAutoName = autoName;
+    const wrapLabel = product.wrapsOrigin ? " | wraps origin" : "";
+    app.els.pcrProductSummary.textContent = `PCR product: ${product.start.toLocaleString()}-${product.end.toLocaleString()} (${product.length.toLocaleString()} bp)${wrapLabel} | Fwd: ${product.forwardLabel} | Rev: ${product.reverseLabel}`;
+    app.els.pcrProductSequence.textContent = product.sequence;
+    app.els.savePcrProductBtn.disabled = app.state.pcrProductSubmitting;
+  }
+
+  function applyFeatureSelection(app, record, index, feature, isShift) {
+    app.state.selectedFeatureIndex = index;
+    setSequenceCopyStatus(app, "");
+    setPCRProductStatus(app, "");
+    if (isShift && isPrimerBindingFeature(feature)) {
+      if (app.state.selectedForwardPrimerIndex !== null && app.state.selectedReversePrimerIndex !== null) {
+        app.state.selectedForwardPrimerIndex = null;
+        app.state.selectedReversePrimerIndex = null;
+      }
+      if (Number(feature.strand) === -1) {
+        app.state.selectedReversePrimerIndex = index;
+      } else {
+        app.state.selectedForwardPrimerIndex = index;
+      }
+    }
+    render(app);
   }
 
   async function copySelectedFeatureSequence(app) {
@@ -332,6 +468,10 @@
     app.els.copySelectedSequenceBtn.disabled = false;
   }
 
+  function isPCRPrimerSelected(app, index) {
+    return app.state.selectedForwardPrimerIndex === index || app.state.selectedReversePrimerIndex === index;
+  }
+
   function renderFeatureTable(app, record) {
     const filtered = getFilteredFeatures(app, record);
     app.els.featureCount.textContent = `${filtered.length.toLocaleString()} feature(s)`;
@@ -343,9 +483,10 @@
     app.els.featureTableBody.innerHTML = filtered
       .map(({ feature, index }) => {
         const isSelected = app.state.selectedFeatureIndex === index;
+        const isPCRSelected = isPCRPrimerSelected(app, index);
         const sourceLabel = feature.source === "user" ? "User" : "Imported";
         return `
-          <tr class="circular-feature-row${isSelected ? " is-selected" : ""}" data-feature-index="${index}">
+          <tr class="circular-feature-row${isSelected ? " is-selected" : ""}${isPCRSelected ? " is-pcr-selected" : ""}" data-feature-index="${index}">
             <td>${escapeHtml(feature.label || "-")}</td>
             <td>${escapeHtml(feature.type || "-")}</td>
             <td>${Number(feature.start).toLocaleString()}</td>
@@ -358,10 +499,9 @@
       .join("");
 
     app.els.featureTableBody.querySelectorAll("[data-feature-index]").forEach((row) => {
-      row.addEventListener("click", () => {
-        app.state.selectedFeatureIndex = Number(row.dataset.featureIndex);
-        setSequenceCopyStatus(app, "");
-        render(app);
+      row.addEventListener("click", (event) => {
+        const index = Number(row.dataset.featureIndex);
+        applyFeatureSelection(app, record, index, record.features[index], event.shiftKey);
       });
     });
   }
@@ -515,18 +655,17 @@
       const endAngle = (end / length) * 360;
       const radius = circularFeatureRadius(feature, featureBaseRadius);
       const isSelected = selectedFeature === feature;
+      const isPCRSelected = isPCRPrimerSelected(app, index);
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", describeArc(cx, cy, radius, startAngle, endAngle));
       path.setAttribute("fill", "none");
       path.setAttribute("stroke", featureColor(feature));
-      path.setAttribute("stroke-width", isSelected ? "13" : "8");
+      path.setAttribute("stroke-width", isSelected || isPCRSelected ? "13" : "8");
       path.setAttribute("stroke-linecap", "round");
-      path.setAttribute("opacity", selectedFeatureVisible && !isSelected ? "0.32" : "0.96");
+      path.setAttribute("opacity", selectedFeatureVisible && !isSelected && !isPCRSelected ? "0.32" : "0.96");
       path.style.cursor = "pointer";
-      path.addEventListener("click", () => {
-        app.state.selectedFeatureIndex = index;
-        setSequenceCopyStatus(app, "");
-        render(app);
+      path.addEventListener("click", (event) => {
+        applyFeatureSelection(app, record, index, feature, event.shiftKey);
       });
 
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
@@ -535,7 +674,7 @@
       app.els.featureArcs.appendChild(path);
 
       const spanDegrees = Math.abs(endAngle - startAngle);
-      if (isSelected || spanDegrees >= 24) {
+      if (isSelected || isPCRSelected || spanDegrees >= 24) {
         const labelAngle = startAngle + (spanDegrees / 2);
         const labelPoint = polarToCartesian(cx, cy, radius - 18, labelAngle);
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -624,6 +763,9 @@
       app.els.restrictionSelectionCount.textContent = "0 selected";
       app.els.restrictionPageInfo.textContent = "Page 0 of 0";
       app.els.restrictionSummary.textContent = app.state.loading ? "Loading restriction sites..." : "Restriction data not loaded.";
+      app.els.pcrProductSummary.textContent = app.state.loading ? "Loading PCR product context..." : "Record data not loaded.";
+      app.els.pcrProductSequence.textContent = "";
+      app.els.savePcrProductBtn.disabled = true;
       app.els.axisTicks.innerHTML = "";
       app.els.featureArcs.innerHTML = "";
       app.els.restrictionMarks.innerHTML = "";
@@ -639,6 +781,7 @@
     renderFeatureTable(app, record);
     renderRestrictionTable(app, record);
     renderFeatureDetails(app, app.state.selectedFeatureIndex === null ? null : record.features[app.state.selectedFeatureIndex]);
+    renderPCRProduct(app, record);
   }
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -663,12 +806,17 @@
     app.els.recordSelect.addEventListener("change", () => {
       app.state.recordIndex = Number(app.els.recordSelect.value);
       app.state.selectedFeatureIndex = null;
+      app.state.selectedForwardPrimerIndex = null;
+      app.state.selectedReversePrimerIndex = null;
       app.state.featureQuery = "";
       app.state.selectedRestrictionEnzymes = new Set();
       app.state.restrictionEnzymeQuery = "";
       app.state.restrictionTablePage = 1;
+      app.state.lastPCRProductAutoName = "";
       app.els.featureSearchInput.value = "";
       app.els.restrictionSearchInput.value = "";
+      app.els.pcrProductNameInput.value = "";
+      setPCRProductStatus(app, "");
       render(app);
       void ensureRecordLoaded(app);
     });
@@ -702,11 +850,68 @@
     });
     app.els.clearSelectionBtn.addEventListener("click", () => {
       app.state.selectedFeatureIndex = null;
+      app.state.selectedForwardPrimerIndex = null;
+      app.state.selectedReversePrimerIndex = null;
+      app.state.lastPCRProductAutoName = "";
+      app.els.pcrProductNameInput.value = "";
       setSequenceCopyStatus(app, "");
+      setPCRProductStatus(app, "");
       render(app);
     });
     app.els.copySelectedSequenceBtn.addEventListener("click", () => {
       void copySelectedFeatureSequence(app);
+    });
+    app.els.pcrProductNameInput.addEventListener("input", () => {
+      setPCRProductStatus(app, "");
+    });
+    app.els.savePcrProductBtn.addEventListener("click", async () => {
+      const record = getRecord(app);
+      const product = record ? computePCRProduct(app, record) : null;
+      if (!product || !product.valid) {
+        setPCRProductStatus(app, "Generate a valid PCR product first.", true);
+        return;
+      }
+
+      app.state.pcrProductSubmitting = true;
+      render(app);
+      setPCRProductStatus(app, "Saving PCR product...");
+      try {
+        const response = await fetch(app.urls.savePcrProductUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCsrfToken(),
+          },
+          body: JSON.stringify({
+            name: app.els.pcrProductNameInput.value.trim(),
+            record_id: product.recordId,
+            start: product.start,
+            end: product.end,
+            is_circular_wrap: product.wrapsOrigin,
+            sequence: product.sequence,
+            forward_primer_label: product.forwardLabel,
+            reverse_primer_label: product.reverseLabel,
+            forward_primer_id: product.forwardPrimerId,
+            reverse_primer_id: product.reversePrimerId,
+            forward_feature_id: product.forwardFeatureId,
+            reverse_feature_id: product.reverseFeatureId,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        if (payload.pcr_product && payload.pcr_product.name) {
+          app.els.pcrProductNameInput.value = payload.pcr_product.name;
+          app.state.lastPCRProductAutoName = payload.pcr_product.name;
+        }
+        setPCRProductStatus(app, `Saved PCR product${product.wrapsOrigin ? " across origin" : ""}.`);
+      } catch (error) {
+        setPCRProductStatus(app, `Could not save PCR product: ${error.message}`, true);
+      } finally {
+        app.state.pcrProductSubmitting = false;
+        render(app);
+      }
     });
     app.els.featureSearchInput.addEventListener("input", () => {
       app.state.featureQuery = app.els.featureSearchInput.value;

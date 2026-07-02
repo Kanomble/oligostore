@@ -90,7 +90,7 @@
                         <tr class="hover">
                             <td>
                                 <div class="font-semibold">{{ construct.name }}</div>
-                                <div class="text-sm opacity-70">{{ construct.assembled_length }} bp</div>
+                                <div class="text-sm opacity-70">{{ construct.assembled_length }} bp | {% if construct.is_circular %}circular{% else %}linear{% endif %}</div>
                                 {% if construct.description %}
                                 <div class="text-sm opacity-60 mt-1">{{ construct.description }}</div>
                                 {% endif %}

@@ -148,25 +148,71 @@ def _configure_fragment_choice_field(field, *, choices, enzyme_name: str, asset_
         field.choices = [("", f"Select a {asset_role} fragment")] + choices
     else:
         field.choices = choices or [("", f"No {enzyme_name} fragments available")]
-    field.required = bool(choices)
+    field.required = False
     field.help_text = f"Choose which {enzyme_name} fragment to keep from the {asset_role} asset."
 
 
+def _ensure_choice(choices, value, label=None):
+    normalized_value = str(value or "").strip()
+    if not normalized_value:
+        return choices
+    if any(str(choice_value) == normalized_value for choice_value, _ in choices):
+        return choices
+    return list(choices) + [(normalized_value, label or normalized_value)]
+
+
+def _format_circular_choice(value):
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    normalized = str(value or "").strip().lower()
+    return "1" if normalized in {"1", "true", "circular", "yes", "on"} else "0"
+
+
 class CloningConstructAssemblyForm(BaseCloningConstructForm):
+    RESULT_TOPOLOGY_CHOICES = (
+        ("1", "Circular"),
+        ("0", "Linear"),
+    )
+
     name = forms.CharField(max_length=255, widget=forms.HiddenInput)
     description = forms.CharField(required=False, widget=forms.HiddenInput)
     assembly_strategy = forms.ChoiceField(choices=CloningConstruct.STRATEGY_CHOICES, widget=forms.HiddenInput)
     vector_asset = forms.ChoiceField(choices=(), widget=forms.HiddenInput)
     insert_asset = forms.ChoiceField(choices=(), widget=forms.HiddenInput)
-    left_enzyme = forms.ChoiceField(choices=())
-    right_enzyme = forms.ChoiceField(choices=())
+    is_circular = forms.ChoiceField(
+        choices=RESULT_TOPOLOGY_CHOICES,
+        required=False,
+        label="Result topology",
+        help_text="Choose circular when the assembled sequence should be treated as a plasmid.",
+    )
+    left_enzyme = forms.ChoiceField(choices=(), required=False)
+    right_enzyme = forms.ChoiceField(choices=(), required=False)
+    selected_enzymes = forms.MultipleChoiceField(
+        choices=(),
+        required=False,
+        widget=forms.SelectMultiple,
+        label="Map enzyme overlays",
+        help_text="Select one or more enzymes to overlay cut sites and digest fragments on the assembly map.",
+    )
     vector_fragment_index = forms.ChoiceField(choices=(), required=False)
     insert_fragment_index = forms.ChoiceField(choices=(), required=False)
 
     def __init__(self, *args, **kwargs):
         user = kwargs.pop("user", None)
+        self.user = user
         super().__init__(*args, **kwargs)
         asset_choices = _build_cloning_asset_choices(user)
+        if self.is_bound:
+            asset_choices = _ensure_choice(
+                asset_choices,
+                self.data.get("vector_asset"),
+                "Submitted vector asset",
+            )
+            asset_choices = _ensure_choice(
+                asset_choices,
+                self.data.get("insert_asset"),
+                "Submitted insert asset",
+            )
         self.fields["vector_asset"].choices = asset_choices
         self.fields["insert_asset"].choices = list(asset_choices)
         selected_vector_asset = (
@@ -174,6 +220,13 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
             if self.is_bound
             else self.initial.get("vector_asset")
         )
+        if not self.is_bound:
+            if self.initial.get("is_circular") not in (None, ""):
+                self.initial["is_circular"] = _format_circular_choice(self.initial.get("is_circular"))
+            else:
+                self.initial["is_circular"] = _format_circular_choice(
+                    self._default_result_is_circular(selected_vector_asset)
+                )
         enzyme_choices = (
             get_detected_enzyme_choices(
                 user=user,
@@ -182,8 +235,33 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
             if user is not None
             else []
         )
-        self.fields["left_enzyme"].choices = enzyme_choices
-        self.fields["right_enzyme"].choices = enzyme_choices
+        self.fields["left_enzyme"].choices = [("", "Select left enzyme")] + list(enzyme_choices)
+        self.fields["right_enzyme"].choices = [("", "Select right enzyme")] + list(enzyme_choices)
+        self.fields["selected_enzymes"].choices = list(enzyme_choices)
+        if self.is_bound:
+            self.fields["left_enzyme"].choices = _ensure_choice(
+                self.fields["left_enzyme"].choices,
+                self.data.get("left_enzyme"),
+            )
+            self.fields["right_enzyme"].choices = _ensure_choice(
+                self.fields["right_enzyme"].choices,
+                self.data.get("right_enzyme"),
+            )
+            selected_enzyme_values = self.data.getlist("selected_enzymes")
+            for selected_enzyme in selected_enzyme_values:
+                self.fields["selected_enzymes"].choices = _ensure_choice(
+                    self.fields["selected_enzymes"].choices,
+                    selected_enzyme,
+                )
+        elif not self.initial.get("selected_enzymes"):
+            self.initial["selected_enzymes"] = [
+                enzyme_name
+                for enzyme_name in (
+                    self.initial.get("left_enzyme"),
+                    self.initial.get("right_enzyme"),
+                )
+                if enzyme_name
+            ]
         self.fields["left_enzyme"].help_text = "Only enzymes detected in the selected vector are listed."
         self.fields["right_enzyme"].help_text = "Choose the same enzyme twice for same-enzyme cloning. Fragment selectors appear below when a same-enzyme digest is selected."
 
@@ -212,10 +290,12 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
                 vector_choices = build_digest_fragment_choices(
                     sequence=vector_asset.sequence,
                     enzyme_name=same_enzyme_name,
+                    is_circular=vector_asset.is_circular,
                 )
                 insert_choices = build_digest_fragment_choices(
                     sequence=insert_asset.sequence,
                     enzyme_name=same_enzyme_name,
+                    is_circular=insert_asset.is_circular,
                 )
             except ValueError:
                 vector_choices = []
@@ -237,6 +317,38 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
             self.fields["vector_fragment_index"].widget = forms.HiddenInput()
             self.fields["insert_fragment_index"].widget = forms.HiddenInput()
         apply_tailwind_classes(self.fields)
+
+    def _default_result_is_circular(self, selected_vector_asset):
+        if not selected_vector_asset:
+            return False
+        try:
+            vector_asset = resolve_asset_choice(user=self.user, choice=selected_vector_asset)
+        except ValueError:
+            return False
+        return vector_asset.is_circular
+
+    def clean_is_circular(self):
+        value = self.cleaned_data.get("is_circular")
+        if value == "":
+            return self._default_result_is_circular(self.cleaned_data.get("vector_asset"))
+        return _format_circular_choice(value) == "1"
+
+    def clean_selected_enzymes(self):
+        selected_enzymes = [
+            str(enzyme_name or "").strip()
+            for enzyme_name in self.cleaned_data.get("selected_enzymes", [])
+            if str(enzyme_name or "").strip()
+        ]
+        if selected_enzymes:
+            return selected_enzymes
+        return [
+            enzyme_name
+            for enzyme_name in (
+                self.cleaned_data.get("left_enzyme"),
+                self.cleaned_data.get("right_enzyme"),
+            )
+            if enzyme_name
+        ]
 
 
 class CloningConstructSequenceFileForm(forms.Form):

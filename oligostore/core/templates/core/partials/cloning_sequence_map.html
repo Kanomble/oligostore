@@ -1,0 +1,114 @@
+<div
+    class="assembly-map-panel"
+    data-cloning-sequence-map
+    data-map-role="{{ role_badge }}"
+    data-map-shape="{{ sequence_map.map_shape }}"
+    data-sequence-length="{{ sequence_map.sequence_length }}"
+>
+    <div class="assembly-map-title">
+        <div>
+            <div class="font-semibold">{{ sequence_map.role }}</div>
+            <div class="text-sm opacity-70">{{ sequence_map.asset_name }} | {{ sequence_map.sequence_length }} bp | {{ sequence_map.map_shape_label }} | {{ sequence_map.source_topology_label }}</div>
+        </div>
+        <span class="badge badge-outline">{{ role_badge }}</span>
+    </div>
+
+    {% if sequence_map.is_circular_map %}
+    <div class="assembly-plasmid-wrap">
+        <svg class="assembly-plasmid-map" viewBox="-8 -8 116 116" role="img" aria-label="Circular {{ role_badge }} map">
+            <circle class="assembly-plasmid-backbone" cx="50" cy="50" r="35"></circle>
+            {% for region in sequence_map.regions %}
+            <circle
+                class="assembly-plasmid-region {% if region.selected %}is-selected{% endif %} {% if region.selectable %}is-selectable{% endif %}"
+                cx="50"
+                cy="50"
+                r="35"
+                pathLength="100"
+                stroke-dasharray="{{ region.dash_length }} 100"
+                stroke-dashoffset="{{ region.dash_offset }}"
+                transform="rotate(-90 50 50)"
+                {% if region.selectable %}
+                tabindex="0"
+                role="button"
+                data-cloning-region-picker
+                data-map-role="{{ role_badge }}"
+                data-fragment-field="{{ region.field_name }}"
+                data-fragment-index="{{ region.fragment_index }}"
+                data-fragment-start="{{ region.start }}"
+                data-fragment-end="{{ region.end }}"
+                data-fragment-wraps-origin="{% if region.wraps_origin %}1{% else %}0{% endif %}"
+                data-region-selected="{% if region.selected %}1{% else %}0{% endif %}"
+                {% endif %}
+            >
+                <title>{{ region.title }}</title>
+            </circle>
+            {% endfor %}
+            {% for site in sequence_map.restriction_sites %}
+            <g
+                class="assembly-site-marker {% if site.is_selected %}is-selected{% endif %}"
+                tabindex="0"
+                role="button"
+                data-cloning-enzyme-picker
+                data-site-id="{{ site.stable_id }}"
+                data-map-role="{{ role_badge }}"
+                data-enzyme-name="{{ site.enzyme_name }}"
+                data-enzyme-title="{{ site.title }}"
+                data-site-position="{{ site.position }}"
+                data-sequence-length="{{ site.sequence_length }}"
+            >
+                <title>{{ site.title }}</title>
+                <line x1="50" y1="50" x2="{{ site.marker_x }}" y2="{{ site.marker_y }}"></line>
+                <circle cx="{{ site.marker_x }}" cy="{{ site.marker_y }}" r="2.7"></circle>
+                <text x="{{ site.label_x }}" y="{{ site.label_y }}" text-anchor="{{ site.text_anchor }}">{{ site.enzyme_name }}</text>
+            </g>
+            {% endfor %}
+        </svg>
+    </div>
+    {% if not sequence_map.restriction_sites %}
+    <div class="assembly-map-status">{{ circular_empty_site_message }}</div>
+    {% endif %}
+    {% else %}
+    <div class="assembly-linear-map" aria-label="Linear {{ role_badge }} map">
+        <div class="assembly-linear-track">
+            {% for region in sequence_map.regions %}
+            <button
+                type="button"
+                class="assembly-linear-region {% if region.selected %}is-selected{% endif %} {% if region.selectable %}is-selectable{% endif %}"
+                style="left: {{ region.x_percent }}%; width: {{ region.width_percent }}%;"
+                title="{{ region.title }}"
+                {% if region.selectable %}
+                data-cloning-region-picker
+                data-map-role="{{ role_badge }}"
+                data-fragment-field="{{ region.field_name }}"
+                data-fragment-index="{{ region.fragment_index }}"
+                data-fragment-start="{{ region.start }}"
+                data-fragment-end="{{ region.end }}"
+                data-fragment-wraps-origin="{% if region.wraps_origin %}1{% else %}0{% endif %}"
+                data-region-selected="{% if region.selected %}1{% else %}0{% endif %}"
+                {% endif %}
+            ></button>
+            {% endfor %}
+            {% for site in sequence_map.restriction_sites %}
+            <button
+                type="button"
+                class="assembly-linear-site {% if site.is_selected %}is-selected{% endif %}"
+                style="left: {{ site.x_percent }}%;"
+                title="{{ site.title }}"
+                data-cloning-enzyme-picker
+                data-site-id="{{ site.stable_id }}"
+                data-map-role="{{ role_badge }}"
+                data-enzyme-name="{{ site.enzyme_name }}"
+                data-enzyme-title="{{ site.title }}"
+                data-site-position="{{ site.position }}"
+                data-sequence-length="{{ site.sequence_length }}"
+            >
+                <span class="assembly-linear-site-label">{{ site.enzyme_name }}</span>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+    {% if not sequence_map.restriction_sites %}
+    <div class="assembly-map-status">{{ linear_empty_site_message }}</div>
+    {% endif %}
+    {% endif %}
+</div>

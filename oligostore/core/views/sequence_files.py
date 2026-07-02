@@ -627,6 +627,7 @@ def sequencefile_linear_save_pcr_product(request, sequencefile_id):
     record_id = str(payload.get("record_id", "")).strip()
     start = _parse_optional_int(payload.get("start"), 0)
     end = _parse_optional_int(payload.get("end"), 0)
+    is_circular_wrap = _parse_bool(payload.get("is_circular_wrap", False))
     sequence = str(payload.get("sequence", "")).strip().upper()
     forward_primer_label = str(payload.get("forward_primer_label", "")).strip()
     reverse_primer_label = str(payload.get("reverse_primer_label", "")).strip()
@@ -637,8 +638,10 @@ def sequencefile_linear_save_pcr_product(request, sequencefile_id):
 
     if not record_id:
         return JsonResponse({"error": "record_id is required."}, status=400)
-    if start < 1 or end < start:
+    if start < 1 or end < 1:
         return JsonResponse({"error": "start/end are invalid."}, status=400)
+    if is_circular_wrap and end >= start:
+        return JsonResponse({"error": "Circular wrap PCR products must cross the sequence origin."}, status=400)
 
     try:
         sequence = clean_sequence_value(sequence, allow_n=True)
@@ -654,15 +657,22 @@ def sequencefile_linear_save_pcr_product(request, sequencefile_id):
     target_record = next((r for r in records if str(r.id) == record_id), None)
     if not target_record:
         return JsonResponse({"error": "record_id does not exist in this sequence file."}, status=400)
-    if end > len(target_record.seq):
+    record_length = len(target_record.seq)
+    if start > record_length or end > record_length:
         return JsonResponse({"error": "PCR product coordinates exceed record length."}, status=400)
+    if end < start and not is_circular_wrap:
+        return JsonResponse({"error": "end cannot be smaller than start unless this is a circular wrap product."}, status=400)
 
-    expected_sequence = str(target_record.seq[start - 1:end]).upper()
+    if is_circular_wrap:
+        expected_sequence = f"{str(target_record.seq[start - 1:]).upper()}{str(target_record.seq[:end]).upper()}"
+    else:
+        expected_sequence = str(target_record.seq[start - 1:end]).upper()
     if expected_sequence != sequence:
         return JsonResponse({"error": "PCR product sequence does not match the selected sequence record."}, status=400)
 
     if not name:
-        name = f"{sequence_file.name}:{record_id}:{start}-{end}"
+        coordinate_label = f"{start}-{end} (wrap)" if is_circular_wrap else f"{start}-{end}"
+        name = f"{sequence_file.name}:{record_id}:{coordinate_label}"
 
     primer_queryset = accessible_primers(request.user)
     forward_primer = primer_queryset.filter(id=forward_primer_id).first() if forward_primer_id else None
@@ -702,6 +712,7 @@ def sequencefile_linear_save_pcr_product(request, sequencefile_id):
                 "start": product.start,
                 "end": product.end,
                 "length": product.length,
+                "is_circular_wrap": is_circular_wrap,
             },
         },
         status=201,

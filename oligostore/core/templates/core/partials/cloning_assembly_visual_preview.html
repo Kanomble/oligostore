@@ -1,0 +1,126 @@
+<section class="assembly-preview-shell" aria-label="Interactive assembly preview" data-cloning-preview-shell>
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-4">
+        <div>
+            <h2 class="text-lg font-semibold">Assembly Map</h2>
+            <p class="text-sm opacity-70">{{ visual_preview.helper_text }}</p>
+        </div>
+        <div class="text-sm assembly-preview-feedback" data-cloning-visual-feedback aria-live="polite"></div>
+    </div>
+
+    <div class="assembly-preview-grid">
+        {% include "core/partials/cloning_sequence_map.html" with sequence_map=visual_preview.vector_map role_badge="vector" circular_empty_site_message="No selected enzyme sites" linear_empty_site_message="No selected enzyme sites on the vector." only %}
+        {% include "core/partials/cloning_sequence_map.html" with sequence_map=visual_preview.insert_map role_badge="insert" circular_empty_site_message="No selected enzyme sites" linear_empty_site_message="No selected enzyme sites in the insert." only %}
+    </div>
+
+    <div class="mt-4 grid gap-3 md:grid-cols-2">
+        <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+            <div class="text-xs uppercase opacity-60">Map enzyme overlays</div>
+            <div class="mt-2 flex flex-wrap gap-2">
+                {% for summary in visual_preview.enzyme_summaries %}
+                <span class="assembly-enzyme-chip {% if not summary.has_any_cut %}is-empty{% endif %}">
+                    <strong>{{ summary.enzyme_name }}</strong>
+                    <span>{{ summary.site_sequence|default:"site unavailable" }}</span>
+                    <span>vector {{ summary.vector_cut_count }}</span>
+                    <span>insert {{ summary.insert_cut_count }}</span>
+                </span>
+                {% empty %}
+                <span class="text-sm opacity-70">No enzymes selected.</span>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+            <div class="text-xs uppercase opacity-60">Cloning strategy enzymes</div>
+            <div class="mt-1 font-semibold">
+                Left: {{ visual_preview.selected_left_enzyme|default:"none" }} | Right: {{ visual_preview.selected_right_enzyme|default:"none" }}
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4 grid gap-4 lg:grid-cols-2">
+        <div class="rounded-lg border border-base-300 bg-base-100 p-4">
+            <div class="flex flex-col gap-1 mb-3">
+                <h3 class="font-semibold">Vector Digest Fragments</h3>
+                <p class="text-sm opacity-70">Fragments are calculated from the selected map enzyme overlays.</p>
+            </div>
+            {% if visual_preview.vector_map.digest_fragments %}
+            <div class="overflow-x-auto">
+                <table class="assembly-digest-table">
+                    <thead>
+                        <tr>
+                            <th>Fragment</th>
+                            <th>Coordinates</th>
+                            <th>Length</th>
+                            <th>Boundaries</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fragment in visual_preview.vector_map.digest_fragments %}
+                        <tr
+                            data-cloning-digest-fragment
+                            data-map-role="vector"
+                            data-fragment-field="vector_fragment_index"
+                            data-fragment-index="{{ fragment.index }}"
+                            data-fragment-start="{{ fragment.start }}"
+                            data-fragment-end="{{ fragment.end }}"
+                            data-fragment-wraps-origin="{% if fragment.wraps_origin %}1{% else %}0{% endif %}"
+                        >
+                            <td>{{ fragment.index }}</td>
+                            <td>{{ fragment.coordinate_label }}</td>
+                            <td>{{ fragment.length }} bp</td>
+                            <td>{% if fragment.boundary_labels %}{{ fragment.boundary_labels|join:", " }}{% else %}terminal{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-sm opacity-70">
+                {% if visual_preview.selected_enzyme_names %}Selected enzymes produce no cut sites on this sequence.{% else %}Select enzymes to preview digest fragments.{% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="rounded-lg border border-base-300 bg-base-100 p-4">
+            <div class="flex flex-col gap-1 mb-3">
+                <h3 class="font-semibold">Insert Digest Fragments</h3>
+                <p class="text-sm opacity-70">Linear inserts include terminal fragments when selected enzymes cut the sequence.</p>
+            </div>
+            {% if visual_preview.insert_map.digest_fragments %}
+            <div class="overflow-x-auto">
+                <table class="assembly-digest-table">
+                    <thead>
+                        <tr>
+                            <th>Fragment</th>
+                            <th>Coordinates</th>
+                            <th>Length</th>
+                            <th>Boundaries</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fragment in visual_preview.insert_map.digest_fragments %}
+                        <tr
+                            data-cloning-digest-fragment
+                            data-map-role="insert"
+                            data-fragment-field="insert_fragment_index"
+                            data-fragment-index="{{ fragment.index }}"
+                            data-fragment-start="{{ fragment.start }}"
+                            data-fragment-end="{{ fragment.end }}"
+                            data-fragment-wraps-origin="{% if fragment.wraps_origin %}1{% else %}0{% endif %}"
+                        >
+                            <td>{{ fragment.index }}</td>
+                            <td>{{ fragment.coordinate_label }}</td>
+                            <td>{{ fragment.length }} bp</td>
+                            <td>{% if fragment.boundary_labels %}{{ fragment.boundary_labels|join:", " }}{% else %}terminal{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-sm opacity-70">
+                {% if visual_preview.selected_enzyme_names %}Selected enzymes produce no cut sites on this sequence.{% else %}Select enzymes to preview digest fragments.{% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</section>

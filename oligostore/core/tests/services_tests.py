@@ -1,4 +1,5 @@
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -12,6 +13,7 @@ from core.services import primer_binding
 from core.services import sequence_loader
 from core.services import user_assignment
 from core.services import cloning
+from core.services import cloning_exports
 
 
 class PrimerAnalysisTests(SimpleTestCase):
@@ -556,6 +558,97 @@ class CloningServiceTests(SimpleTestCase):
             preview_data.assembled_sequence,
             selected_vector_fragment.sequence + selected_insert_fragment.sequence,
         )
+        self.assertEqual(len(preview_data.digest_sequence_views), 2)
+        vector_digest_view = preview_data.digest_sequence_views[0]
+        insert_digest_view = preview_data.digest_sequence_views[1]
+        self.assertEqual(vector_digest_view.role, "Plasmid / vector")
+        self.assertEqual(vector_digest_view.used_segments[0].start, selected_vector_fragment.start)
+        self.assertEqual(vector_digest_view.used_segments[0].end, selected_vector_fragment.end)
+        self.assertEqual(insert_digest_view.used_segments[0].start, selected_insert_fragment.start)
+        self.assertTrue(any(marker.enzyme_name == "EcoRI" for marker in vector_digest_view.cut_markers))
+        self.assertTrue(any(part.kind == "used" for part in vector_digest_view.preview_parts))
+        self.assertTrue(vector_digest_view.double_strand_cut_views)
+        self.assertEqual(vector_digest_view.double_strand_cut_views[0].overhang_sequence, "AATT")
+        self.assertIn("|", vector_digest_view.double_strand_cut_views[0].top_line)
+        self.assertIn("|", vector_digest_view.double_strand_cut_views[0].bottom_line)
+        self.assertTrue(vector_digest_view.fragment_options)
+        self.assertTrue(any(option.selected for option in vector_digest_view.fragment_options))
+
+    def test_same_enzyme_fragment_selection_supports_circular_vector_backbone(self):
+        sequence_files_dir = next(
+            (
+                parent / "media" / "sequence_files"
+                for parent in Path(__file__).resolve().parents
+                if (parent / "media" / "sequence_files").exists()
+            )
+        )
+        expected_path = sequence_files_dir / "LvL25_leader_DR_metH_spacer_DR.dna"
+        if not expected_path.exists():
+            expected_path = sequence_files_dir / "LvL25_leader_DR_metH_sapcer_DR.dna"
+
+        vector_record = next(
+            SeqIO.parse(
+                sequence_files_dir / "LvL25_leader_sequence_DR_placeholder_DR.dna",
+                "snapgene",
+            )
+        )
+        insert_record = next(SeqIO.parse(sequence_files_dir / "spacer_metH.fasta", "fasta"))
+        expected_record = next(SeqIO.parse(expected_path, "snapgene"))
+
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id=str(vector_record.id),
+            name="LvL25 leader DR placeholder DR",
+            sequence=str(vector_record.seq).upper(),
+            is_circular=True,
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id=str(insert_record.id),
+            name="spacer_metH",
+            sequence=str(insert_record.seq).upper(),
+        )
+        enzyme = cloning._get_enzyme_by_name("BsmBI")
+        vector_backbone_fragment = max(
+            cloning._digest_sequence_fragments(
+                vector_asset.sequence,
+                enzyme,
+                is_circular=True,
+            ),
+            key=lambda fragment: fragment.length,
+        )
+        insert_fragment = max(
+            cloning._digest_sequence_fragments(insert_asset.sequence, enzyme),
+            key=lambda fragment: fragment.length,
+        )
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="BsmBI",
+            right_enzyme="BsmBI",
+            vector_fragment_index=vector_backbone_fragment.index,
+            insert_fragment_index=insert_fragment.index,
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertTrue(vector_backbone_fragment.wraps_origin)
+        self.assertEqual(preview_data.assembled_sequence, str(expected_record.seq).upper())
+        self.assertEqual(preview_data.assembled_length, len(expected_record.seq))
+        self.assertTrue(preview_data.digest_sequence_views[0].fragment_options)
+        self.assertTrue(
+            any(
+                option.selected and option.wraps_origin
+                for option in preview_data.digest_sequence_views[0].fragment_options
+            )
+        )
 
     def test_resolve_cloning_assets_returns_vector_and_insert_assets(self):
         vector_asset = cloning.ResolvedCloningAsset(
@@ -637,7 +730,422 @@ class CloningServiceTests(SimpleTestCase):
             "BamHI",
             vector_fragment_index=None,
             insert_fragment_index=None,
+            vector_is_circular=False,
+            insert_is_circular=False,
         )
+
+    def test_preview_cloning_construct_defaults_result_topology_from_vector(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Circular vector",
+            sequence="GAATTCACCCCGGATCC",
+            is_circular=True,
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="pcr_product",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="ATGCATGC",
+        )
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+        )
+        linear_preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            is_circular=False,
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertTrue(preview_data.is_circular)
+        self.assertFalse(linear_preview_data.is_circular)
+
+    def test_assembly_visual_preview_supports_multiple_selected_enzymes_on_linear_sequence(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Linear vector",
+            sequence="AAAAGAATTCTTTTGGATCCAAAA",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="ATGCATGC",
+        )
+
+        visual_preview = cloning.build_cloning_assembly_visual_preview(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            map_enzyme_names=("EcoRI", "BamHI"),
+        )
+
+        enzyme_names = {site.enzyme_name for site in visual_preview.vector_map.restriction_sites}
+        self.assertEqual(visual_preview.selected_enzyme_names, ("EcoRI", "BamHI"))
+        self.assertEqual(enzyme_names, {"EcoRI", "BamHI"})
+        self.assertTrue(
+            all(site.stable_id.startswith("vector-") for site in visual_preview.vector_map.restriction_sites)
+        )
+        self.assertTrue(
+            all(site.position >= 0 for site in visual_preview.vector_map.restriction_sites)
+        )
+        self.assertGreaterEqual(len(visual_preview.vector_map.digest_fragments), 3)
+        self.assertEqual(visual_preview.vector_map.digest_fragments[0].start, 0)
+        self.assertEqual(
+            visual_preview.vector_map.digest_fragments[-1].end,
+            len(vector_asset.sequence),
+        )
+
+    def test_assembly_visual_preview_renders_full_maps_before_enzyme_selection(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Circular vector",
+            sequence="AAAAGAATTCTTTT",
+            is_circular=True,
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Linear insert",
+            sequence="ATGCATGC",
+        )
+
+        visual_preview = cloning.build_cloning_assembly_visual_preview(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+        )
+
+        self.assertTrue(visual_preview.vector_map.is_circular)
+        self.assertEqual(visual_preview.vector_map.map_shape, "circular")
+        self.assertTrue(visual_preview.vector_map.is_circular_map)
+        self.assertEqual(visual_preview.vector_map.map_shape_label, "circular map")
+        self.assertEqual(visual_preview.vector_map.source_topology_label, "circular source")
+        self.assertFalse(visual_preview.insert_map.is_circular)
+        self.assertEqual(visual_preview.insert_map.map_shape, "linear")
+        self.assertFalse(visual_preview.insert_map.is_circular_map)
+        self.assertEqual(visual_preview.insert_map.map_shape_label, "linear map")
+        self.assertEqual(visual_preview.insert_map.source_topology_label, "linear source")
+        self.assertEqual(visual_preview.selected_enzyme_names, ())
+        self.assertEqual(visual_preview.vector_map.restriction_sites, ())
+        self.assertEqual(visual_preview.insert_map.restriction_sites, ())
+        self.assertEqual(visual_preview.vector_map.regions[0].length, len(vector_asset.sequence))
+        self.assertEqual(visual_preview.insert_map.regions[0].length, len(insert_asset.sequence))
+
+    def test_assembly_visual_preview_uses_topology_based_map_shapes(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Linear vector source",
+            sequence="AAAAGAATTCTTTT",
+            is_circular=False,
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Circular insert source",
+            sequence="ATGCATGC",
+            is_circular=True,
+        )
+
+        visual_preview = cloning.build_cloning_assembly_visual_preview(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+        )
+
+        self.assertFalse(visual_preview.vector_map.is_circular)
+        self.assertEqual(visual_preview.vector_map.map_shape, "linear")
+        self.assertFalse(visual_preview.vector_map.is_circular_map)
+        self.assertTrue(visual_preview.insert_map.is_circular)
+        self.assertEqual(visual_preview.insert_map.map_shape, "circular")
+        self.assertTrue(visual_preview.insert_map.is_circular_map)
+
+    def test_assembly_visual_preview_supports_circular_digest_wraparound(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Circular vector",
+            sequence="AAAAGAATTCTTTT",
+            is_circular=True,
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="ATGCATGC",
+        )
+
+        visual_preview = cloning.build_cloning_assembly_visual_preview(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            map_enzyme_names=("EcoRI",),
+        )
+
+        self.assertTrue(visual_preview.vector_map.is_circular)
+        self.assertEqual(len(visual_preview.vector_map.digest_fragments), 1)
+        self.assertTrue(visual_preview.vector_map.digest_fragments[0].wraps_origin)
+        self.assertEqual(
+            visual_preview.vector_map.digest_fragments[0].length,
+            len(vector_asset.sequence),
+        )
+
+    def test_assembly_visual_preview_handles_selected_enzyme_with_no_cut_sites(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="No-cut vector",
+            sequence="AAAATTTTCCCC",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="No-cut insert",
+            sequence="TTTTCCCCAAAA",
+        )
+
+        visual_preview = cloning.build_cloning_assembly_visual_preview(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            map_enzyme_names=("EcoRI",),
+        )
+
+        self.assertEqual(visual_preview.vector_map.restriction_sites, ())
+        self.assertEqual(visual_preview.insert_map.restriction_sites, ())
+        self.assertEqual(visual_preview.vector_map.digest_fragments, ())
+        self.assertEqual(visual_preview.enzyme_summaries[0].vector_cut_count, 0)
+        self.assertEqual(visual_preview.enzyme_summaries[0].insert_cut_count, 0)
+
+    def test_build_cloning_construct_record_uses_saved_result_topology(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="pcr_product",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="GAATTCACCCCGGATCC",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="pcr_product",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="ATGCATGC",
+        )
+        construct = SimpleNamespace(
+            name="Circular Construct",
+            description="",
+            vector_source_type="pcr_product",
+            vector_sequence_file=None,
+            vector_template_name="",
+            vector_pcr_product=None,
+            vector_record_id="vec1",
+            vector_fragment_index=None,
+            insert_source_type="pcr_product",
+            insert_sequence_file=None,
+            insert_template_name="",
+            insert_pcr_product=None,
+            insert_record_id="ins1",
+            insert_fragment_index=None,
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            assembled_sequence="GATGCATGCGATCC",
+            vector_asset_label="Vector",
+            insert_asset_label="Insert",
+            is_circular=True,
+        )
+
+        with mock.patch.object(
+            cloning_exports,
+            "_resolve_construct_asset",
+            side_effect=[vector_asset, insert_asset],
+        ):
+            record = cloning_exports.build_cloning_construct_record(construct)
+
+        self.assertEqual(record.annotations["topology"], "circular")
+
+    def test_export_snapgene_fragment_construct_preserves_features_and_round_trips(self):
+        sequence_files_dir = next(
+            (
+                parent / "media" / "sequence_files"
+                for parent in Path(__file__).resolve().parents
+                if (parent / "media" / "sequence_files").exists()
+            )
+        )
+        vector_record = next(
+            SeqIO.parse(
+                sequence_files_dir / "LvL25_leader_sequence_DR_placeholder_DR.dna",
+                "snapgene",
+            )
+        )
+        insert_record = next(SeqIO.parse(sequence_files_dir / "spacer_metH.fasta", "fasta"))
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id=str(vector_record.id),
+            name="LvL25 leader DR placeholder DR",
+            sequence=str(vector_record.seq).upper(),
+            is_circular=True,
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id=str(insert_record.id),
+            name="spacer_metH",
+            sequence=str(insert_record.seq).upper(),
+        )
+        enzyme = cloning._get_enzyme_by_name("BsmBI")
+        vector_fragment = max(
+            cloning._digest_sequence_fragments(
+                vector_asset.sequence,
+                enzyme,
+                is_circular=True,
+            ),
+            key=lambda fragment: fragment.length,
+        )
+        insert_fragment = max(
+            cloning._digest_sequence_fragments(insert_asset.sequence, enzyme),
+            key=lambda fragment: fragment.length,
+        )
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="BsmBI",
+            right_enzyme="BsmBI",
+            vector_fragment_index=vector_fragment.index,
+            insert_fragment_index=insert_fragment.index,
+        )
+        construct = SimpleNamespace(
+            name="LvL25 leader DR metH spacer DR",
+            description="Feature-rich circular construct",
+            vector_source_type="sequence_file",
+            vector_sequence_file=None,
+            vector_template_name="",
+            vector_pcr_product=None,
+            vector_record_id=str(vector_record.id),
+            vector_fragment_index=vector_fragment.index,
+            insert_source_type="sequence_file",
+            insert_sequence_file=None,
+            insert_template_name="",
+            insert_pcr_product=None,
+            insert_record_id=str(insert_record.id),
+            insert_fragment_index=insert_fragment.index,
+            left_enzyme="BsmBI",
+            right_enzyme="BsmBI",
+            assembled_sequence=preview_data.assembled_sequence,
+            vector_asset_label="LvL25 leader DR placeholder DR",
+            insert_asset_label="spacer_metH",
+            is_circular=True,
+        )
+
+        with mock.patch.object(
+            cloning_exports,
+            "_resolve_construct_asset",
+            side_effect=[vector_asset, insert_asset],
+        ), mock.patch.object(
+            cloning_exports,
+            "_build_asset_bundle",
+            side_effect=[
+                {
+                    "sequence": vector_asset.sequence,
+                    "features": list(vector_record.features),
+                    "annotations": dict(getattr(vector_record, "annotations", {}) or {}),
+                },
+                {
+                    "sequence": insert_asset.sequence,
+                    "features": list(getattr(insert_record, "features", [])),
+                    "annotations": dict(getattr(insert_record, "annotations", {}) or {}),
+                },
+            ],
+        ):
+            content = cloning_exports.export_cloning_construct_sequence(
+                construct,
+                "genbank",
+            )
+            records = cloning_exports._validate_exported_sequence_content(
+                content=content,
+                file_type="genbank",
+            )
+
+        labels = {
+            (feature.qualifiers.get("label") or [""])[0]
+            for feature in records[0].features
+        }
+        self.assertEqual(records[0].annotations["topology"], "circular")
+        self.assertGreaterEqual(len(records[0].features), 30)
+        self.assertIn("leader_sequence_CRISPR", labels)
+        self.assertIn("KanR", labels)
+
+    def test_validate_exported_sequence_content_rejects_unparseable_generated_assembly(self):
+        with mock.patch.object(cloning_exports.SeqIO, "parse", side_effect=ValueError("bad export")):
+            with self.assertRaises(ValueError) as exc:
+                cloning_exports._validate_exported_sequence_content(
+                    content="LOCUS       bad\n",
+                    file_type="genbank",
+                )
+
+        self.assertIn("exported sequence file could not be parsed", str(exc.exception))
+
+    def test_validate_exported_sequence_content_accepts_generated_fasta(self):
+        records = cloning_exports._validate_exported_sequence_content(
+            content=">assembled\nATGCATGC\n",
+            file_type="fasta",
+        )
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(str(records[0].seq), "ATGCATGC")
 
     def test_build_cloning_construct_detail_display_returns_read_model(self):
         construct = SimpleNamespace(

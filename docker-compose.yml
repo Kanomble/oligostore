@@ -1,6 +1,17 @@
+x-app-service: &app-service
+  build: ./oligostore
+  volumes:
+    - ./oligostore:/app
+    - ./media:/app/media
+  env_file:
+    - .env
+  depends_on:
+    - db
+    - redis
+
 services:
   web:
-    build: ./oligostore
+    <<: *app-service
     container_name: oligostore_web
     command: >
       sh -c "
@@ -8,16 +19,8 @@ services:
       npx tailwindcss -c ./tailwind.config.cjs -i ./static/css/src/styles.css -o ./static/css/dist/styles.css --minify &&
       python manage.py runserver 0.0.0.0:8000
       "
-    volumes:
-      - ./oligostore:/app
-      - ./media:/app/media
-    env_file:
-      - .env
     ports:
       - "8000:8000"
-    depends_on:
-      - db
-      - redis
 
   db:
     image: postgres:15
@@ -34,17 +37,9 @@ services:
       - "6379:6379"
 
   worker:
-    build: ./oligostore
+    <<: *app-service
     container_name: oligostore_worker
     command: celery -A oligostore worker -l info
-    volumes:
-      - ./oligostore:/app
-      - ./media:/app/media
-    env_file:
-      - .env
-    depends_on:
-      - db
-      - redis
 
   #nginx:
   #  image: nginx:latest

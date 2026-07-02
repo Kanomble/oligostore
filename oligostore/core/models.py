@@ -448,6 +448,7 @@ class CloningConstruct(AccessControllModel):
     right_enzyme = models.CharField(max_length=100)
     assembled_sequence = models.TextField(blank=True, default="")
     assembled_length = models.IntegerField(default=0)
+    is_circular = models.BooleanField(default=False)
     is_valid = models.BooleanField(default=False)
     validation_messages = models.JSONField(default=list, blank=True)
     detail_display_snapshot = models.JSONField(default=dict, blank=True)

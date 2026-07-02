@@ -1627,16 +1627,29 @@ class CloningViewTests(TestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls._temp_media_root = tempfile.mkdtemp(prefix="oligostore-tests-")
-        source_sequence_files = Path(__file__).resolve().parents[3] / "media" / "sequence_files"
+        source_sequence_files = next(
+            (
+                parent / "media" / "sequence_files"
+                for parent in Path(__file__).resolve().parents
+                if (parent / "media" / "sequence_files").exists()
+            ),
+            Path(__file__).resolve().parents[3] / "media" / "sequence_files",
+        )
         target_sequence_files = Path(cls._temp_media_root) / "sequence_files"
         target_sequence_files.mkdir(parents=True, exist_ok=True)
         for template_filename in (
             "LvL25_without_J23100.gb",
             "tProm_leader_sequence_CRISPR_1.gb",
         ):
+            source_path = source_sequence_files / template_filename
+            if not source_path.exists():
+                source_path = next(
+                    source_sequence_files.glob(f"{Path(template_filename).stem}.*"),
+                    source_path,
+                )
             shutil.copy2(
-                source_sequence_files / template_filename,
-                target_sequence_files / template_filename,
+                source_path,
+                target_sequence_files / source_path.name,
             )
 
     @classmethod
@@ -1720,6 +1733,7 @@ class CloningViewTests(TestCase):
                 "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
                 "left_enzyme": "EcoRI",
                 "right_enzyme": "BamHI",
+                "is_circular": "1",
             },
         )
 
@@ -1729,9 +1743,14 @@ class CloningViewTests(TestCase):
             reverse("cloning_construct_detail", args=[construct.id]),
         )
         self.assertTrue(construct.is_valid)
+        self.assertTrue(construct.is_circular)
         self.assertEqual(construct.assembled_sequence, "GATGCATGCGATCC")
         self.assertEqual(construct.vector_sequence_file, vector)
         self.assertEqual(construct.insert_pcr_product, insert)
+        detail_response = self.client.get(reverse("cloning_construct_detail", args=[construct.id]))
+        self.assertContains(detail_response, "Circular")
+        download_response = self.client.get(reverse("cloning_construct_download_genbank", args=[construct.id]))
+        self.assertContains(download_response, "circular")
 
     def test_cloning_construct_detail_shows_cut_site_summary_and_junction_context(self):
         vector = SequenceFile.objects.create(
@@ -2456,7 +2475,18 @@ class CloningViewTests(TestCase):
         assembly_form = preview_response.context["assembly_form"]
         self.assertEqual(assembly_form.fields["vector_fragment_index"].widget.__class__.__name__, "Select")
         self.assertEqual(assembly_form.fields["insert_fragment_index"].widget.__class__.__name__, "Select")
-        self.assertIsNone(preview_response.context["preview_data"])
+        self.assertIsNotNone(preview_response.context["preview_data"])
+        self.assertIsNotNone(preview_response.context["visual_preview"])
+        self.assertContains(preview_response, "Assembly Map")
+        self.assertContains(preview_response, "Select enzymes to overlay cut sites")
+        self.assertContains(preview_response, "data-cloning-enzyme-picker")
+        self.assertContains(preview_response, "cloning_assembly_preview.js")
+        self.assertContains(preview_response, "data-site-id=")
+        self.assertContains(preview_response, "data-site-position=")
+        visual_preview = preview_response.context["visual_preview"]
+        self.assertTrue(
+            all(site.enzyme_name == "BbsI" for site in visual_preview.vector_map.restriction_sites)
+        )
 
     def test_cloning_construct_save_preserves_bbsi_template_fragment_selection(self):
         response = self.client.get(reverse("cloning_construct_create"))
@@ -2501,6 +2531,15 @@ class CloningViewTests(TestCase):
         self.assertContains(preview_response, "Selected Fragments")
         self.assertContains(preview_response, f"Vector fragment {vector_fragments[-1][0]}")
         self.assertContains(preview_response, f"Insert fragment {insert_fragments[-1][0]}")
+        self.assertContains(preview_response, "Vector Digest Fragments")
+        self.assertContains(preview_response, "Insert Digest Fragments")
+        self.assertContains(preview_response, "Map enzyme overlays")
+        self.assertContains(preview_response, "data-cloning-region-picker")
+        self.assertContains(preview_response, "data-cloning-digest-fragment")
+        self.assertContains(preview_response, "data-fragment-start=")
+        self.assertContains(preview_response, "data-fragment-end=")
+        self.assertContains(preview_response, "data-fragment-wraps-origin=")
+        self.assertContains(preview_response, "Left: BbsI | Right: BbsI")
 
         save_response = self.client.post(
             reverse("cloning_construct_create"),
@@ -2669,6 +2708,21 @@ class CloningViewTests(TestCase):
         self.assertEqual(step_one.status_code, 200)
         self.assertIsNotNone(step_one.context["assembly_form"])
         self.assertIsNone(step_one.context["preview_data"])
+        self.assertIsNotNone(step_one.context["visual_preview"])
+        self.assertContains(step_one, "Assembly Map")
+        self.assertContains(step_one, "linear map")
+        self.assertContains(step_one, "Select enzymes to preview digest fragments.")
+        visual_preview = step_one.context["visual_preview"]
+        self.assertEqual(
+            visual_preview.vector_map.map_shape,
+            "circular" if visual_preview.vector_map.is_circular else "linear",
+        )
+        self.assertEqual(
+            visual_preview.insert_map.map_shape,
+            "circular" if visual_preview.insert_map.is_circular else "linear",
+        )
+        self.assertEqual(visual_preview.vector_map.restriction_sites, ())
+        self.assertEqual(visual_preview.insert_map.restriction_sites, ())
 
         step_two = self.client.post(
             reverse("cloning_construct_create"),
@@ -2690,6 +2744,44 @@ class CloningViewTests(TestCase):
         self.assertContains(step_two, "Assembled Length")
         self.assertContains(step_two, "Save Construct")
         self.assertEqual(step_two.context["preview_data"].assembled_length, 14)
+
+    def test_cloning_construct_map_overlay_updates_without_strategy_enzymes(self):
+        vector = SequenceFile.objects.create(
+            name="Vector Backbone",
+            file=SimpleUploadedFile("vector_backbone.fasta", b">vec1\nGAATTCACCCCGGATCC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        vector.users.add(self.user)
+        insert_source = SequenceFile.objects.create(
+            name="Insert Fragment",
+            file=SimpleUploadedFile("insert_fragment.fasta", b">ins1\nATGCATGC"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        insert_source.users.add(self.user)
+
+        response = self.client.post(
+            reverse("cloning_construct_create"),
+            {
+                "step": "preview",
+                "name": "Overlay Only Construct",
+                "description": "Map overlay without assembly enzymes",
+                "vector_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{vector.id}:vec1",
+                "insert_asset": f"{CloningConstruct.SOURCE_SEQUENCE_FILE}:{insert_source.id}:ins1",
+                "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                "selected_enzymes": ["EcoRI", "BamHI"],
+            },
+        )
+
+        visual_preview = response.context["visual_preview"]
+        enzyme_names = {site.enzyme_name for site in visual_preview.vector_map.restriction_sites}
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["preview_data"])
+        self.assertEqual(visual_preview.selected_enzyme_names, ("EcoRI", "BamHI"))
+        self.assertEqual(enzyme_names, {"EcoRI", "BamHI"})
+        self.assertContains(response, "Vector Digest Fragments")
+        self.assertContains(response, "Left: none | Right: none")
 
     def test_cloning_construct_requires_explicit_record_for_multi_record_sequence_file(self):
         vector = SequenceFile.objects.create(

@@ -15,6 +15,7 @@ from ..forms import (
     CloningConstructSequenceFileForm,
 )
 from ..services.cloning import (
+    build_cloning_assembly_visual_preview,
     build_pcr_product_asset_choice,
     build_cloning_construct_detail_display,
     build_sequence_file_asset_choice,
@@ -65,6 +66,12 @@ def _build_construct_asset_form_values(construct):
         "insert_asset": insert_asset,
         "left_enzyme": construct.left_enzyme,
         "right_enzyme": construct.right_enzyme,
+        "is_circular": "1" if getattr(construct, "is_circular", False) else "0",
+        "selected_enzymes": [
+            enzyme_name
+            for enzyme_name in (construct.left_enzyme, construct.right_enzyme)
+            if enzyme_name
+        ],
         "vector_fragment_index": "" if construct.vector_fragment_index is None else str(construct.vector_fragment_index),
         "insert_fragment_index": "" if construct.insert_fragment_index is None else str(construct.insert_fragment_index),
     }
@@ -161,6 +168,39 @@ def _build_construct_linear_page_context(request, construct, *, save_sequence_fi
     }
 
 
+def _form_field_value(form, field_name):
+    try:
+        value = form[field_name].value()
+    except KeyError:
+        value = None
+    return value if value is not None else ""
+
+
+def _form_field_values(form, field_name):
+    value = _form_field_value(form, field_name)
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    if value in (None, ""):
+        return []
+    return [value]
+
+
+def _build_assembly_visual_preview(assembly_form, assets):
+    if assembly_form is None or assets is None:
+        return None
+    selected_left_enzyme = _form_field_value(assembly_form, "left_enzyme")
+    selected_right_enzyme = _form_field_value(assembly_form, "right_enzyme")
+    return build_cloning_assembly_visual_preview(
+        vector_asset=assets.vector_asset,
+        insert_asset=assets.insert_asset,
+        selected_left_enzyme=selected_left_enzyme,
+        selected_right_enzyme=selected_right_enzyme,
+        map_enzyme_names=_form_field_values(assembly_form, "selected_enzymes"),
+        vector_fragment_index=_form_field_value(assembly_form, "vector_fragment_index"),
+        insert_fragment_index=_form_field_value(assembly_form, "insert_fragment_index"),
+    )
+
+
 @login_required
 def cloning_asset_list(request):
     sequence_files = accessible_sequence_files(request.user)
@@ -228,6 +268,7 @@ def cloning_construct_create(request):
     asset_form = CloningConstructAssetForm(user=request.user)
     assembly_form = None
     preview_data = None
+    visual_preview = None
     assets = None
     review_construct = None
 
@@ -272,8 +313,11 @@ def cloning_construct_create(request):
                 except ValueError as exc:
                     asset_form.add_error(None, str(exc))
                 else:
+                    initial = dict(asset_form.cleaned_data)
+                    initial["is_circular"] = "1" if assets.vector_asset.is_circular else "0"
+                    initial["selected_enzymes"] = []
                     assembly_form = CloningConstructAssemblyForm(
-                        initial=asset_form.cleaned_data,
+                        initial=initial,
                         user=request.user,
                     )
         elif step in {"preview", "save"}:
@@ -288,31 +332,44 @@ def cloning_construct_create(request):
                 except ValueError as exc:
                     assembly_form.add_error(None, str(exc))
                 else:
-                    try:
-                        preview_data = preview_cloning_construct(
-                            vector_asset=assets.vector_asset,
-                            insert_asset=assets.insert_asset,
-                            assembly_strategy=assembly_form.cleaned_data["assembly_strategy"],
-                            left_enzyme=assembly_form.cleaned_data["left_enzyme"],
-                            right_enzyme=assembly_form.cleaned_data["right_enzyme"],
-                            vector_fragment_index=assembly_form.cleaned_data.get("vector_fragment_index"),
-                            insert_fragment_index=assembly_form.cleaned_data.get("insert_fragment_index"),
-                        )
-                    except ValueError as exc:
-                        assembly_form.add_error(None, str(exc))
-                    else:
+                    left_enzyme = assembly_form.cleaned_data["left_enzyme"]
+                    right_enzyme = assembly_form.cleaned_data["right_enzyme"]
+                    if not left_enzyme or not right_enzyme:
                         if step == "save":
-                            construct = save_cloning_construct(
-                                name=assembly_form.cleaned_data["name"],
-                                description=assembly_form.cleaned_data["description"],
-                                preview_data=preview_data,
-                                user=request.user,
+                            assembly_form.add_error(
+                                None,
+                                "Select both left and right enzymes before saving this construct.",
                             )
-                            if construct.is_valid:
-                                messages.success(request, "Construct assembled successfully.")
-                            else:
-                                messages.warning(request, "Construct saved with validation warnings.")
-                            return redirect("cloning_construct_detail", construct_id=construct.id)
+                    else:
+                        try:
+                            preview_data = preview_cloning_construct(
+                                vector_asset=assets.vector_asset,
+                                insert_asset=assets.insert_asset,
+                                assembly_strategy=assembly_form.cleaned_data["assembly_strategy"],
+                                left_enzyme=left_enzyme,
+                                right_enzyme=right_enzyme,
+                                is_circular=assembly_form.cleaned_data["is_circular"],
+                                vector_fragment_index=assembly_form.cleaned_data.get("vector_fragment_index"),
+                                insert_fragment_index=assembly_form.cleaned_data.get("insert_fragment_index"),
+                            )
+                        except ValueError as exc:
+                            assembly_form.add_error(None, str(exc))
+                        else:
+                            if step == "save":
+                                if not preview_data.is_valid:
+                                    assembly_form.add_error(
+                                        None,
+                                        "Resolve the cloning validation messages before saving this construct.",
+                                    )
+                                else:
+                                    construct = save_cloning_construct(
+                                        name=assembly_form.cleaned_data["name"],
+                                        description=assembly_form.cleaned_data["description"],
+                                        preview_data=preview_data,
+                                        user=request.user,
+                                    )
+                                    messages.success(request, "Construct assembled successfully.")
+                                    return redirect("cloning_construct_detail", construct_id=construct.id)
             if assembly_form is not None:
                 asset_form = CloningConstructAssetForm(
                     initial={
@@ -323,11 +380,15 @@ def cloning_construct_create(request):
                         "insert_asset": assembly_form.data.get("insert_asset", ""),
                         "left_enzyme": assembly_form.data.get("left_enzyme", ""),
                         "right_enzyme": assembly_form.data.get("right_enzyme", ""),
+                        "is_circular": assembly_form.data.get("is_circular", ""),
+                        "selected_enzymes": assembly_form.data.getlist("selected_enzymes"),
                         "vector_fragment_index": assembly_form.data.get("vector_fragment_index", ""),
                         "insert_fragment_index": assembly_form.data.get("insert_fragment_index", ""),
                     },
                     user=request.user,
                 )
+
+    visual_preview = _build_assembly_visual_preview(assembly_form, assets)
 
     return render(
         request,
@@ -336,6 +397,7 @@ def cloning_construct_create(request):
             "asset_form": asset_form,
             "assembly_form": assembly_form,
             "preview_data": preview_data,
+            "visual_preview": visual_preview,
             "assets": assets,
             "review_construct": review_construct,
         },

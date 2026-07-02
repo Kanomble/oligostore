@@ -94,6 +94,9 @@
                   <td class="font-mono">{{ product.record_id }}</td>
                   <td class="font-mono">
                     {{ product.start }}-{{ product.end }}
+                    {% if product.end < product.start %}
+                      <div class="text-xs opacity-70">wraps origin</div>
+                    {% endif %}
                   </td>
                   <td>
                     <div>{{ product.forward_primer_label|default:"-" }}</div>
@@ -130,7 +133,7 @@
         <div class="p-10 text-center">
           <h2 class="text-xl font-bold">No PCR products saved yet</h2>
           <p class="opacity-70 mt-2">
-            Generate an amplicon in the linear sequence viewer or PCR product finder and save it here.
+            Generate an amplicon in the sequence viewers or PCR product finder and save it here.
           </p>
         </div>
       {% endif %}

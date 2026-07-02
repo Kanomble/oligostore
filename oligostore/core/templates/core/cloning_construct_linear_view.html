@@ -1,0 +1,150 @@
+{% extends "core/base.html" %}
+{% block title %}{{ construct.name }} Linear Sequence{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-8">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <h1 class="text-3xl font-bold">Linear Sequence</h1>
+            <p class="opacity-70 mt-2">{{ construct.name }} - {{ construct.assembled_length }} bp {% if construct.is_circular %}circular{% else %}linear{% endif %} assembled construct</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <a href="{% url 'cloning_construct_detail' construct.id %}" class="btn btn-outline">Detail</a>
+            <a href="{% url 'cloning_construct_download_genbank' construct.id %}" class="btn btn-outline">Download GenBank</a>
+            <a href="{% url 'cloning_construct_list' %}" class="btn btn-ghost">Back</a>
+        </div>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-3">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Record</div>
+                <div class="font-semibold">{{ construct_record.id }}</div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Length</div>
+                <div class="font-semibold">{{ construct_record.length }} bp</div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm opacity-60">Enzymes</div>
+                <div class="font-semibold">{{ construct.left_enzyme }} / {{ construct.right_enzyme }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow">
+        <div class="card-body space-y-4">
+            <h2 class="card-title">Save to Sequence File</h2>
+            <form method="POST" action="{% url 'cloning_construct_save_sequence_file' construct.id %}" class="grid gap-4 md:grid-cols-2">
+                {% csrf_token %}
+                <input type="hidden" name="return_to" value="linear">
+                {% if save_sequence_file_form.non_field_errors %}
+                <div class="md:col-span-2 text-error text-sm">{{ save_sequence_file_form.non_field_errors }}</div>
+                {% endif %}
+                <label class="form-control">
+                    <div class="label"><span class="label-text">Name</span></div>
+                    {{ save_sequence_file_form.name }}
+                    {% if save_sequence_file_form.name.errors %}
+                    <div class="text-error text-sm mt-1">{{ save_sequence_file_form.name.errors }}</div>
+                    {% endif %}
+                </label>
+                <label class="form-control">
+                    <div class="label"><span class="label-text">Format</span></div>
+                    {{ save_sequence_file_form.file_type }}
+                    {% if save_sequence_file_form.file_type.errors %}
+                    <div class="text-error text-sm mt-1">{{ save_sequence_file_form.file_type.errors }}</div>
+                    {% endif %}
+                </label>
+                <label class="form-control md:col-span-2">
+                    <div class="label"><span class="label-text">Description</span></div>
+                    {{ save_sequence_file_form.description }}
+                    {% if save_sequence_file_form.description.errors %}
+                    <div class="text-error text-sm mt-1">{{ save_sequence_file_form.description.errors }}</div>
+                    {% endif %}
+                </label>
+                <div class="md:col-span-2 flex justify-end">
+                    <button type="submit" class="btn btn-primary">Save Sequence File</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="grid gap-4 lg:grid-cols-2">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title">Cut Site Summary</h2>
+                <div class="space-y-4">
+                    {% for preview in detail_display.cut_site_previews %}
+                    <div class="rounded-lg border border-base-300 p-4">
+                        <div class="font-semibold">{{ preview.enzyme_name }}</div>
+                        <div class="text-sm opacity-70">Recognition site: {{ preview.site_sequence|default:"Unavailable" }}</div>
+                        <div class="text-sm">Vector cuts: {% if preview.vector_cut_positions %}{{ preview.vector_cut_positions|join:", " }}{% else %}none{% endif %}</div>
+                        <div class="text-sm">Insert sites: {% if preview.insert_recognition_site_positions %}{{ preview.insert_recognition_site_positions|join:", " }}{% else %}none{% endif %}</div>
+                    </div>
+                    {% empty %}
+                    <p class="text-sm opacity-70">No cut-site summary is available.</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title">Annotated Features</h2>
+                <div class="overflow-x-auto">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>Type</th>
+                                <th>Start</th>
+                                <th>End</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for feature in construct_record.features %}
+                            <tr>
+                                <td>{{ feature.label }}</td>
+                                <td>{{ feature.type }}</td>
+                                <td>{{ feature.start }}</td>
+                                <td>{{ feature.end }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="4">No annotated features.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow">
+        <div class="card-body">
+            <div class="flex items-center justify-between">
+                <h2 class="card-title">Sequence</h2>
+                <span class="text-sm opacity-60">{{ construct_record.length }} bp</span>
+            </div>
+            <div class="mt-4 overflow-x-auto">
+                <table class="table table-sm">
+                    <tbody>
+                        {% for line in sequence_lines %}
+                        <tr>
+                            <td class="w-20 text-right opacity-60">{{ line.start }}</td>
+                            <td class="font-mono whitespace-pre">{{ line.text }}</td>
+                            <td class="w-20 opacity-60">{{ line.end }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td>No assembled sequence was generated.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

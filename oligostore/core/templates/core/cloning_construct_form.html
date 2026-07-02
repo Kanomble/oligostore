@@ -1,8 +1,9 @@
 {% extends "core/base.html" %}
+{% load static %}
 {% block title %}Create Cloning Construct{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto">
+<div class="max-w-5xl mx-auto">
     <div class="flex justify-between items-center mb-8">
         <h1 class="text-3xl font-bold">{% if review_construct %}Review Cloning Construct{% else %}Create Cloning Construct{% endif %}</h1>
         <a href="{% url 'cloning_construct_list' %}" class="btn btn-ghost">Back</a>
@@ -66,18 +67,20 @@
                     <div class="rounded-lg border border-base-300 bg-base-100 p-4">
                         <div class="text-xs uppercase opacity-60">Vector</div>
                         <div class="font-semibold mt-1">{{ assets.vector_asset.name }}</div>
-                        <div class="text-sm opacity-70">Record {{ assets.vector_asset.record_id }} | {{ assets.vector_asset.sequence|length }} bp</div>
+                        <div class="text-sm opacity-80">{{ assets.vector_asset.name }} / {{ assets.vector_asset.record_id }}</div>
+                        <div class="text-sm opacity-70">Record {{ assets.vector_asset.record_id }} | {{ assets.vector_asset.sequence|length }} bp | {% if assets.vector_asset.is_circular %}circular{% else %}linear{% endif %}</div>
                     </div>
                     <div class="rounded-lg border border-base-300 bg-base-100 p-4">
                         <div class="text-xs uppercase opacity-60">Insert</div>
                         <div class="font-semibold mt-1">{{ assets.insert_asset.name }}</div>
-                        <div class="text-sm opacity-70">Record {{ assets.insert_asset.record_id }} | {{ assets.insert_asset.sequence|length }} bp</div>
+                        <div class="text-sm opacity-80">{{ assets.insert_asset.name }} / {{ assets.insert_asset.record_id }}</div>
+                        <div class="text-sm opacity-70">Record {{ assets.insert_asset.record_id }} | {{ assets.insert_asset.sequence|length }} bp | {% if assets.insert_asset.is_circular %}circular{% else %}linear{% endif %}</div>
                     </div>
                 </div>
             </div>
             {% endif %}
 
-            <form method="POST" class="space-y-6">
+            <form method="POST" class="space-y-6" id="cloning-assembly-preview-form">
                 {% csrf_token %}
                 <input type="hidden" name="step" value="preview">
                 {% for hidden in assembly_form.hidden_fields %}
@@ -91,6 +94,9 @@
                     {% if field.errors %}<div class="text-error text-sm mt-2">{{ field.errors|join:", " }}</div>{% endif %}
                 </div>
                 {% endfor %}
+                {% if visual_preview %}
+                {% include "core/partials/cloning_assembly_visual_preview.html" %}
+                {% endif %}
                 <div class="flex gap-3">
                     <button type="submit" class="btn btn-primary">Preview Assembly</button>
                     <a href="{% url 'cloning_construct_create' %}" class="btn btn-ghost">Start Over</a>
@@ -117,7 +123,7 @@
                 </div>
             </div>
 
-            <div class="grid gap-4 md:grid-cols-3">
+            <div class="grid gap-4 md:grid-cols-4">
                 <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
                     <div class="text-sm opacity-60">Strategy</div>
                     <div class="font-semibold mt-1">{{ preview_data.assembly_strategy|title }}</div>
@@ -129,6 +135,10 @@
                 <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
                     <div class="text-sm opacity-60">Assembled Length</div>
                     <div class="font-semibold mt-1">{{ preview_data.assembled_length }} bp</div>
+                </div>
+                <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                    <div class="text-sm opacity-60">Topology</div>
+                    <div class="font-semibold mt-1">{% if preview_data.is_circular %}Circular{% else %}Linear{% endif %}</div>
                 </div>
             </div>
 
@@ -195,6 +205,7 @@
                 {% endfor %}
                 <input type="hidden" name="left_enzyme" value="{{ assembly_form.left_enzyme.value|default:'' }}">
                 <input type="hidden" name="right_enzyme" value="{{ assembly_form.right_enzyme.value|default:'' }}">
+                <input type="hidden" name="is_circular" value="{% if preview_data.is_circular %}1{% else %}0{% endif %}">
                 <input type="hidden" name="vector_fragment_index" value="{{ assembly_form.vector_fragment_index.value|default:'' }}">
                 <input type="hidden" name="insert_fragment_index" value="{{ assembly_form.insert_fragment_index.value|default:'' }}">
                 <button type="submit" class="btn btn-primary">Save Construct</button>
@@ -204,4 +215,9 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ block.super }}
+<script src="{% static 'js/cloning_assembly_preview.js' %}" defer></script>
 {% endblock %}

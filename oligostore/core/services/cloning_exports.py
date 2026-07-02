@@ -10,7 +10,7 @@ from django.core.files.base import ContentFile
 
 from ..models import CloningConstruct, PCRProduct, SequenceFeature, SequenceFile
 from .cloning import _load_template_records, _resolve_construct_asset, _validate_restriction_ligation
-from .sequence_loader import load_sequences
+from .sequence_loader import load_sequences, resolve_sequence_format
 from .sequence_records import get_sequence_records
 
 
@@ -25,6 +25,47 @@ def _build_sequence_file_name(value, fallback="construct"):
     normalized = re.sub(r"\s+", "_", str(value or "").strip())
     normalized = re.sub(r"[^A-Za-z0-9_.-]", "_", normalized)
     return normalized.strip("._-") or fallback
+
+
+def _sanitize_genbank_text(value):
+    text = str(value)
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _sanitize_feature_type(feature_type):
+    normalized = _sanitize_genbank_text(feature_type or "misc_feature")
+    normalized = re.sub(r"[^A-Za-z0-9_'-]", "_", normalized)
+    normalized = normalized.strip("_") or "misc_feature"
+    return normalized[:16]
+
+
+def _sanitize_qualifier_key(key):
+    normalized = _sanitize_genbank_text(key)
+    normalized = re.sub(r"[^A-Za-z0-9_]", "_", normalized)
+    return normalized.strip("_")
+
+
+def _sanitize_qualifiers(qualifiers):
+    sanitized = {}
+    for key, raw_values in (qualifiers or {}).items():
+        clean_key = _sanitize_qualifier_key(key)
+        if not clean_key:
+            continue
+        if isinstance(raw_values, (list, tuple)):
+            values = raw_values
+        else:
+            values = [raw_values]
+        clean_values = []
+        for value in values:
+            if value is None:
+                continue
+            clean_value = _sanitize_genbank_text(value)
+            if clean_value:
+                clean_values.append(clean_value)
+        if clean_values:
+            sanitized[clean_key] = clean_values
+    return sanitized
 
 
 def _map_location_parts(parts, segments):
@@ -64,9 +105,9 @@ def _build_feature_location(feature, segments):
 def _clone_feature(feature, mapped_location):
     return SeqFeature(
         location=mapped_location,
-        type=str(getattr(feature, "type", "misc_feature")),
+        type=_sanitize_feature_type(getattr(feature, "type", "misc_feature")),
         id=getattr(feature, "id", "<unknown id>"),
-        qualifiers=deepcopy(getattr(feature, "qualifiers", {}) or {}),
+        qualifiers=_sanitize_qualifiers(deepcopy(getattr(feature, "qualifiers", {}) or {})),
     )
 
 
@@ -278,6 +319,8 @@ def build_cloning_construct_record(construct):
         construct.right_enzyme,
         vector_fragment_index=construct.vector_fragment_index,
         insert_fragment_index=construct.insert_fragment_index,
+        vector_is_circular=vector_asset.is_circular,
+        insert_is_circular=insert_asset.is_circular,
     )
     if not validation_result.is_valid or validation_result.assembled_sequence != construct.assembled_sequence:
         raise ValueError("Construct cannot be exported because the assembled sequence could not be reproduced.")
@@ -292,7 +335,7 @@ def build_cloning_construct_record(construct):
         description=str(construct.description or construct.name),
     )
     record.annotations["molecule_type"] = "DNA"
-    record.annotations["topology"] = "linear"
+    record.annotations["topology"] = "circular" if getattr(construct, "is_circular", False) else "linear"
     source_annotations = vector_bundle.get("annotations") or insert_bundle.get("annotations") or {}
     record.annotations["source"] = str(source_annotations.get("source", "") or "")
     record.annotations["organism"] = str(source_annotations.get("organism", ".") or ".")
@@ -304,7 +347,18 @@ def build_cloning_construct_record(construct):
     vector_features = vector_bundle["features"]
     insert_features = insert_bundle["features"]
 
-    if construct.left_enzyme == construct.right_enzyme:
+    if validation_result.vector_assembly_segments or validation_result.insert_assembly_segments:
+        _append_features(
+            record,
+            vector_features,
+            validation_result.vector_assembly_segments,
+        )
+        _append_features(
+            record,
+            insert_features,
+            validation_result.insert_assembly_segments,
+        )
+    elif construct.left_enzyme == construct.right_enzyme:
         from .cloning import _find_cut_positions, _get_enzyme_by_name
 
         enzyme = _get_enzyme_by_name(construct.left_enzyme)
@@ -427,12 +481,30 @@ def export_cloning_construct_sequence(construct, file_type):
     return handle.getvalue()
 
 
+def _validate_exported_sequence_content(*, content: str, file_type: str):
+    try:
+        records = list(SeqIO.parse(StringIO(content), resolve_sequence_format(file_type)))
+    except Exception as exc:
+        raise ValueError(
+            "The cloned assembly was generated, but the exported sequence file could not be parsed. "
+            f"Parser detail: {exc}"
+        ) from exc
+
+    if not records:
+        raise ValueError(
+            "The cloned assembly was generated, but the exported sequence file did not contain any records."
+        )
+
+    return records
+
+
 def save_cloning_construct_sequence_file(*, construct, user, name, description="", file_type=SequenceFile.FILE_GENBANK):
     file_type = str(file_type or "").strip().lower()
     if file_type not in {SequenceFile.FILE_FASTA, SequenceFile.FILE_GENBANK}:
         raise ValueError("Unsupported sequence file type.")
 
     content = export_cloning_construct_sequence(construct, file_type)
+    _validate_exported_sequence_content(content=content, file_type=file_type)
     extension = ".gb" if file_type == SequenceFile.FILE_GENBANK else ".fasta"
     file_name = f"{_build_sequence_file_name(name or construct.name)}{extension}"
     sequence_file = SequenceFile.objects.create(
