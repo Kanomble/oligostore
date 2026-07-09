@@ -14,7 +14,7 @@
 
     <div class="mt-4 grid gap-3 md:grid-cols-2">
         <div class="rounded-lg border border-base-300 bg-base-100 p-3">
-            <div class="text-xs uppercase opacity-60">Map enzyme overlays</div>
+            <div class="text-xs uppercase opacity-60">Selected enzymes</div>
             <div class="mt-2 flex flex-wrap gap-2">
                 {% for summary in visual_preview.enzyme_summaries %}
                 <span class="assembly-enzyme-chip {% if not summary.has_any_cut %}is-empty{% endif %}">
@@ -29,9 +29,9 @@
             </div>
         </div>
         <div class="rounded-lg border border-base-300 bg-base-100 p-3">
-            <div class="text-xs uppercase opacity-60">Cloning strategy enzymes</div>
-            <div class="mt-1 font-semibold">
-                Left: {{ visual_preview.selected_left_enzyme|default:"none" }} | Right: {{ visual_preview.selected_right_enzyme|default:"none" }}
+            <div class="text-xs uppercase opacity-60">Selected fragments</div>
+            <div class="mt-1 text-sm" data-cloning-selected-fragment-summary>
+                Select vector and insert fragments from the map.
             </div>
         </div>
     </div>
@@ -42,6 +42,7 @@
                 <h3 class="font-semibold">Vector Digest Fragments</h3>
                 <p class="text-sm opacity-70">Fragments are calculated from the selected map enzyme overlays.</p>
             </div>
+            <div data-cloning-digest-fragments data-map-role="vector">
             {% if visual_preview.vector_map.digest_fragments %}
             <div class="overflow-x-auto">
                 <table class="assembly-digest-table">
@@ -56,6 +57,7 @@
                     <tbody>
                         {% for fragment in visual_preview.vector_map.digest_fragments %}
                         <tr
+                            class="{% if fragment.selected %}is-selected{% endif %}"
                             data-cloning-digest-fragment
                             data-map-role="vector"
                             data-fragment-field="vector_fragment_index"
@@ -78,6 +80,7 @@
                 {% if visual_preview.selected_enzyme_names %}Selected enzymes produce no cut sites on this sequence.{% else %}Select enzymes to preview digest fragments.{% endif %}
             </div>
             {% endif %}
+            </div>
         </div>
 
         <div class="rounded-lg border border-base-300 bg-base-100 p-4">
@@ -85,6 +88,7 @@
                 <h3 class="font-semibold">Insert Digest Fragments</h3>
                 <p class="text-sm opacity-70">Linear inserts include terminal fragments when selected enzymes cut the sequence.</p>
             </div>
+            <div data-cloning-digest-fragments data-map-role="insert">
             {% if visual_preview.insert_map.digest_fragments %}
             <div class="overflow-x-auto">
                 <table class="assembly-digest-table">
@@ -99,6 +103,7 @@
                     <tbody>
                         {% for fragment in visual_preview.insert_map.digest_fragments %}
                         <tr
+                            class="{% if fragment.selected %}is-selected{% endif %}"
                             data-cloning-digest-fragment
                             data-map-role="insert"
                             data-fragment-field="insert_fragment_index"
@@ -121,6 +126,7 @@
                 {% if visual_preview.selected_enzyme_names %}Selected enzymes produce no cut sites on this sequence.{% else %}Select enzymes to preview digest fragments.{% endif %}
             </div>
             {% endif %}
+            </div>
         </div>
     </div>
 </section>

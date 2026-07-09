@@ -9,9 +9,10 @@ from ..access import (
     accessible_pcr_products,
     accessible_primers,
     accessible_sequence_files,
+    editable_sequence_files,
     editable_pcr_products,
 )
-from ..models import AnalysisJob, SequenceFeature, SequenceFile
+from ..models import AnalysisJob, Primer, SequenceFeature, SequenceFile
 from ..forms import clean_optional_sequence_value, clean_sequence_value
 from ..services.async_jobs import create_analysis_job, get_owned_job_or_404, mark_job_running
 from ..services.creation import create_pcr_product, create_primer_and_optional_feature
@@ -168,6 +169,23 @@ def sequencefile_update_type(request, sequencefile_id):
         sequence_file.save(update_fields=["file_type"])
         messages.success(request, f"Updated sequence file type for {sequence_file.name}.")
 
+    return redirect(redirect_url)
+
+
+@login_required
+def sequencefile_delete(request, sequencefile_id):
+    if request.method != "POST":
+        return HttpResponse("POST only", status=405)
+
+    sequence_file = get_object_or_404(
+        editable_sequence_files(request.user),
+        id=sequencefile_id,
+    )
+    redirect_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("sequencefile_list").url
+    sequence_file_name = sequence_file.name
+    sequence_file.file.delete(save=False)
+    sequence_file.delete()
+    messages.success(request, f"Deleted sequence file {sequence_file_name}.")
     return redirect(redirect_url)
 
 
@@ -446,6 +464,7 @@ def sequencefile_linear_view(request, sequencefile_id):
                 "record_id": pcr_product.record_id,
                 "start": pcr_product.start,
                 "end": pcr_product.end,
+                "is_circular_wrap": pcr_product.start > pcr_product.end,
                 "length": pcr_product.length,
                 "sequence": pcr_product.sequence,
                 "forward_feature_id": pcr_product.forward_feature_id,
@@ -539,7 +558,7 @@ def sequencefile_linear_create_primer(request, sequencefile_id):
     sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     try:
-        payload = _parse_json_or_form_payload(request)
+        payload = parse_json_or_form_payload(request)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 
@@ -619,7 +638,7 @@ def sequencefile_linear_save_pcr_product(request, sequencefile_id):
     sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     try:
-        payload = _parse_json_or_form_payload(request)
+        payload = parse_json_or_form_payload(request)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 
@@ -727,7 +746,7 @@ def sequencefile_linear_delete_primer(request, sequencefile_id):
     sequence_file = get_object_or_404(accessible_sequence_files(request.user), id=sequencefile_id)
 
     try:
-        payload = _parse_json_or_form_payload(request)
+        payload = parse_json_or_form_payload(request)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 

@@ -247,6 +247,30 @@
   vertical-align: top;
 }
 
+.assembly-digest-table tr.is-selected td {
+  background: var(--assembly-selected-soft);
+  font-weight: 700;
+}
+
+.assembly-enzyme-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.assembly-enzyme-table th,
+.assembly-enzyme-table td {
+  border-top: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.assembly-enzyme-table tr.is-selected td {
+  background: var(--assembly-selected-soft);
+  font-weight: 700;
+}
+
 .assembly-enzyme-chip {
   display: inline-flex;
   align-items: center;

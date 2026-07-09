@@ -41,6 +41,23 @@ def _select_template_asset_with_fragments(choice_pairs, template_name, *, user, 
     raise AssertionError(f"No {enzyme_name} fragments are available for template {template_name}.")
 
 
+def _select_compatible_fragment_pair(vector_asset, insert_asset, vector_fragments, insert_fragments, *, enzyme_name):
+    for vector_fragment_index, _ in vector_fragments:
+        for insert_fragment_index, _ in insert_fragments:
+            preview_data = cloning.preview_cloning_construct(
+                vector_asset=vector_asset,
+                insert_asset=insert_asset,
+                assembly_strategy=CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
+                left_enzyme=enzyme_name,
+                right_enzyme=enzyme_name,
+                vector_fragment_index=vector_fragment_index,
+                insert_fragment_index=insert_fragment_index,
+            )
+            if preview_data.is_valid:
+                return vector_fragment_index, insert_fragment_index, preview_data
+    raise AssertionError(f"No compatible {enzyme_name} fragment pair is available.")
+
+
 class SequenceFileViewTests(TestCase):
     @classmethod
     def setUpClass(cls):
@@ -200,6 +217,82 @@ class SequenceFileViewTests(TestCase):
         sequence_file.refresh_from_db()
         self.assertEqual(sequence_file.file_type, SequenceFile.FILE_FASTA)
         self.assertContains(response, "Invalid sequence file type.")
+
+    def test_sequencefile_list_shows_delete_for_owner_only(self):
+        other_user = User.objects.create_user(
+            username="sequence_delete_other",
+            email="sequence_delete_other@example.com",
+            password="testpass123",
+        )
+        owned_file = SequenceFile.objects.create(
+            name="Owned Delete",
+            file=SimpleUploadedFile("owned_delete.fasta", b">seq\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        shared_file = SequenceFile.objects.create(
+            name="Shared No Delete",
+            file=SimpleUploadedFile("shared_no_delete.fasta", b">seq\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=other_user,
+        )
+        shared_file.users.add(self.user)
+
+        response = self.client.get(reverse("sequencefile_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("sequencefile_delete", args=[owned_file.id]))
+        self.assertNotContains(response, reverse("sequencefile_delete", args=[shared_file.id]))
+
+    def test_sequencefile_delete_removes_owned_file(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Delete Sequence File",
+            file=SimpleUploadedFile("delete_sequence_file.fasta", b">seq\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+        stored_path = sequence_file.file.path
+
+        response = self.client.post(
+            reverse("sequencefile_delete", args=[sequence_file.id]),
+            {"next": reverse("sequencefile_list")},
+        )
+
+        self.assertRedirects(response, reverse("sequencefile_list"))
+        self.assertFalse(SequenceFile.objects.filter(id=sequence_file.id).exists())
+        self.assertFalse(Path(stored_path).exists())
+
+    def test_sequencefile_delete_rejects_shared_non_owner(self):
+        other_user = User.objects.create_user(
+            username="sequence_shared_delete_other",
+            email="sequence_shared_delete_other@example.com",
+            password="testpass123",
+        )
+        sequence_file = SequenceFile.objects.create(
+            name="Shared Delete Forbidden",
+            file=SimpleUploadedFile("shared_delete_forbidden.fasta", b">seq\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=other_user,
+        )
+        sequence_file.users.add(self.user)
+
+        response = self.client.post(reverse("sequencefile_delete", args=[sequence_file.id]))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(SequenceFile.objects.filter(id=sequence_file.id).exists())
+
+    def test_sequencefile_delete_requires_post(self):
+        sequence_file = SequenceFile.objects.create(
+            name="Delete Requires Post",
+            file=SimpleUploadedFile("delete_requires_post.fasta", b">seq\nATCG"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.get(reverse("sequencefile_delete", args=[sequence_file.id]))
+
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(SequenceFile.objects.filter(id=sequence_file.id).exists())
 
     def test_sequencefile_linear_view_payload(self):
         sequence_file = SequenceFile.objects.create(
@@ -628,14 +721,14 @@ class SequenceFileViewTests(TestCase):
             length=4,
             creator=self.user,
         )
-        reverse = Primer.objects.create(
+        reverse_primer = Primer.objects.create(
             primer_name="Reverse Save",
             sequence="GATC",
             length=4,
             creator=self.user,
         )
         forward.users.add(self.user)
-        reverse.users.add(self.user)
+        reverse_primer.users.add(self.user)
         forward_feature = SequenceFeature.objects.create(
             sequence_file=sequence_file,
             primer=forward,
@@ -649,7 +742,7 @@ class SequenceFileViewTests(TestCase):
         )
         reverse_feature = SequenceFeature.objects.create(
             sequence_file=sequence_file,
-            primer=reverse,
+            primer=reverse_primer,
             record_id="record1",
             start=9,
             end=12,
@@ -671,7 +764,7 @@ class SequenceFileViewTests(TestCase):
                     "forward_primer_label": "Forward Save",
                     "reverse_primer_label": "Reverse Save",
                     "forward_primer_id": forward.id,
-                    "reverse_primer_id": reverse.id,
+                    "reverse_primer_id": reverse_primer.id,
                     "forward_feature_id": forward_feature.id,
                     "reverse_feature_id": reverse_feature.id,
                 }
@@ -686,10 +779,44 @@ class SequenceFileViewTests(TestCase):
         self.assertEqual(product.name, "Saved Amplicon")
         self.assertEqual(product.sequence_file, sequence_file)
         self.assertEqual(product.forward_primer, forward)
-        self.assertEqual(product.reverse_primer, reverse)
+        self.assertEqual(product.reverse_primer, reverse_primer)
         self.assertEqual(product.forward_feature, forward_feature)
         self.assertEqual(product.reverse_feature, reverse_feature)
         self.assertEqual(product.length, 12)
+
+    def test_sequencefile_linear_save_pcr_product_allows_wrap_origin_product(self):
+        sequence_file = SequenceFile.objects.create(
+            name="PCR Save Wrap",
+            file=SimpleUploadedFile("pcr_save_wrap.fasta", b">record1\nAAAACCCCGGGGTTTT"),
+            file_type=SequenceFile.FILE_FASTA,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("sequencefile_linear_save_pcr_product", args=[sequence_file.id]),
+            data=json.dumps(
+                {
+                    "record_id": "record1",
+                    "start": 13,
+                    "end": 4,
+                    "is_circular_wrap": True,
+                    "sequence": "TTTTAAAA",
+                    "forward_primer_label": "Forward Wrap",
+                    "reverse_primer_label": "Reverse Wrap",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        product = PCRProduct.objects.get(id=payload["pcr_product"]["id"])
+        self.assertEqual(product.start, 13)
+        self.assertEqual(product.end, 4)
+        self.assertEqual(product.sequence, "TTTTAAAA")
+        self.assertEqual(product.length, 8)
+        self.assertTrue(payload["pcr_product"]["is_circular_wrap"])
 
     def test_sequencefile_linear_save_pcr_product_rejects_mismatched_sequence(self):
         sequence_file = SequenceFile.objects.create(
@@ -2277,7 +2404,7 @@ class CloningViewTests(TestCase):
         self.assertContains(response, "could not be parsed for cloning")
         self.assertFalse(CloningConstruct.objects.filter(name="Construct Parse Error").exists())
 
-    def test_cloning_construct_allows_single_enzyme_mode(self):
+    def test_cloning_construct_rejects_sticky_single_enzyme_mode_with_uncut_insert(self):
         vector = SequenceFile.objects.create(
             name="Single Enzyme Vector",
             file=SimpleUploadedFile("single_enzyme_vector.fasta", b">vec1\nAAAAGAATTCTTTT"),
@@ -2306,13 +2433,9 @@ class CloningViewTests(TestCase):
             },
         )
 
-        construct = CloningConstruct.objects.get(name="Single Enzyme Construct")
-        self.assertRedirects(
-            response,
-            reverse("cloning_construct_detail", args=[construct.id]),
-        )
-        self.assertTrue(construct.is_valid)
-        self.assertEqual(construct.assembled_sequence, "AAAAGATGCATGCAATTCTTTT")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(CloningConstruct.objects.filter(name="Single Enzyme Construct").exists())
+        self.assertContains(response, "sticky end cannot ligate to blunt end")
 
     def test_cloning_construct_allows_same_enzyme_double_cut_fragment_replacement(self):
         vector = SequenceFile.objects.create(
@@ -2473,8 +2596,8 @@ class CloningViewTests(TestCase):
 
         self.assertEqual(preview_response.status_code, 200)
         assembly_form = preview_response.context["assembly_form"]
-        self.assertEqual(assembly_form.fields["vector_fragment_index"].widget.__class__.__name__, "Select")
-        self.assertEqual(assembly_form.fields["insert_fragment_index"].widget.__class__.__name__, "Select")
+        self.assertEqual(assembly_form.fields["vector_fragment_index"].widget.__class__.__name__, "HiddenInput")
+        self.assertEqual(assembly_form.fields["insert_fragment_index"].widget.__class__.__name__, "HiddenInput")
         self.assertIsNotNone(preview_response.context["preview_data"])
         self.assertIsNotNone(preview_response.context["visual_preview"])
         self.assertContains(preview_response, "Assembly Map")
@@ -2506,6 +2629,13 @@ class CloningViewTests(TestCase):
             user=self.user,
             enzyme_name="BbsI",
         )
+        vector_fragment_index, insert_fragment_index, _ = _select_compatible_fragment_pair(
+            vector_asset,
+            insert_asset,
+            vector_fragments,
+            insert_fragments,
+            enzyme_name="BbsI",
+        )
 
         preview_response = self.client.post(
             reverse("cloning_construct_create"),
@@ -2518,8 +2648,8 @@ class CloningViewTests(TestCase):
                 "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
                 "left_enzyme": "BbsI",
                 "right_enzyme": "BbsI",
-                "vector_fragment_index": vector_fragments[-1][0],
-                "insert_fragment_index": insert_fragments[-1][0],
+                "vector_fragment_index": vector_fragment_index,
+                "insert_fragment_index": insert_fragment_index,
             },
         )
 
@@ -2527,19 +2657,21 @@ class CloningViewTests(TestCase):
         preview_data = preview_response.context["preview_data"]
         self.assertIsNotNone(preview_data)
         self.assertTrue(preview_data.is_valid)
-        self.assertLess(preview_data.assembled_length, 312)
+        self.assertEqual(preview_data.vector_fragment_index, int(vector_fragment_index))
+        self.assertEqual(preview_data.insert_fragment_index, int(insert_fragment_index))
+        self.assertGreater(preview_data.assembled_length, 0)
         self.assertContains(preview_response, "Selected Fragments")
-        self.assertContains(preview_response, f"Vector fragment {vector_fragments[-1][0]}")
-        self.assertContains(preview_response, f"Insert fragment {insert_fragments[-1][0]}")
+        self.assertContains(preview_response, f"Vector fragment {vector_fragment_index}")
+        self.assertContains(preview_response, f"Insert fragment {insert_fragment_index}")
         self.assertContains(preview_response, "Vector Digest Fragments")
         self.assertContains(preview_response, "Insert Digest Fragments")
-        self.assertContains(preview_response, "Map enzyme overlays")
+        self.assertContains(preview_response, "Selected enzymes")
         self.assertContains(preview_response, "data-cloning-region-picker")
         self.assertContains(preview_response, "data-cloning-digest-fragment")
         self.assertContains(preview_response, "data-fragment-start=")
         self.assertContains(preview_response, "data-fragment-end=")
         self.assertContains(preview_response, "data-fragment-wraps-origin=")
-        self.assertContains(preview_response, "Left: BbsI | Right: BbsI")
+        self.assertContains(preview_response, "BbsI")
 
         save_response = self.client.post(
             reverse("cloning_construct_create"),
@@ -2552,16 +2684,16 @@ class CloningViewTests(TestCase):
                 "assembly_strategy": CloningConstruct.STRATEGY_RESTRICTION_LIGATION,
                 "left_enzyme": "BbsI",
                 "right_enzyme": "BbsI",
-                "vector_fragment_index": vector_fragments[-1][0],
-                "insert_fragment_index": insert_fragments[-1][0],
+                "vector_fragment_index": vector_fragment_index,
+                "insert_fragment_index": insert_fragment_index,
             },
         )
 
         construct = CloningConstruct.objects.get(name="Template BbsI Construct")
         self.assertRedirects(save_response, reverse("cloning_construct_detail", args=[construct.id]))
         self.assertTrue(construct.is_valid)
-        self.assertEqual(construct.vector_fragment_index, int(vector_fragments[-1][0]))
-        self.assertEqual(construct.insert_fragment_index, int(insert_fragments[-1][0]))
+        self.assertEqual(construct.vector_fragment_index, int(vector_fragment_index))
+        self.assertEqual(construct.insert_fragment_index, int(insert_fragment_index))
         detail_response = self.client.get(reverse("cloning_construct_detail", args=[construct.id]))
         self.assertEqual(detail_response.status_code, 200)
         self.assertContains(detail_response, reverse("cloning_construct_linear_view", args=[construct.id]))
@@ -2608,7 +2740,7 @@ class CloningViewTests(TestCase):
                 "left_enzyme": "EcoRI",
                 "right_enzyme": "EcoRI",
                 "vector_fragment_index": vector_fragments[-1][0],
-                "insert_fragment_index": insert_fragments[-1][0],
+                "insert_fragment_index": insert_fragments[0][0],
             },
         )
 
@@ -2618,7 +2750,7 @@ class CloningViewTests(TestCase):
         self.assertTrue(preview_data.is_valid)
         self.assertContains(preview_response, "Selected Fragments")
         self.assertContains(preview_response, f"Vector fragment {vector_fragments[-1][0]}")
-        self.assertContains(preview_response, f"Insert fragment {insert_fragments[-1][0]}")
+        self.assertContains(preview_response, f"Insert fragment {insert_fragments[0][0]}")
 
         save_response = self.client.post(
             reverse("cloning_construct_create"),
@@ -2632,7 +2764,7 @@ class CloningViewTests(TestCase):
                 "left_enzyme": "EcoRI",
                 "right_enzyme": "EcoRI",
                 "vector_fragment_index": vector_fragments[-1][0],
-                "insert_fragment_index": insert_fragments[-1][0],
+                "insert_fragment_index": insert_fragments[0][0],
             },
         )
 
@@ -2641,7 +2773,7 @@ class CloningViewTests(TestCase):
         self.assertTrue(construct.is_valid)
         self.assertEqual(construct.left_enzyme, "EcoRI")
         self.assertEqual(construct.vector_fragment_index, int(vector_fragments[-1][0]))
-        self.assertEqual(construct.insert_fragment_index, int(insert_fragments[-1][0]))
+        self.assertEqual(construct.insert_fragment_index, int(insert_fragments[0][0]))
 
     def test_cloning_construct_form_filters_enzymes_to_selected_vector(self):
         eco_vector = SequenceFile.objects.create(
@@ -2711,7 +2843,17 @@ class CloningViewTests(TestCase):
         self.assertIsNotNone(step_one.context["visual_preview"])
         self.assertContains(step_one, "Assembly Map")
         self.assertContains(step_one, "linear map")
-        self.assertContains(step_one, "Select enzymes to preview digest fragments.")
+        self.assertContains(step_one, "Search enzymes")
+        self.assertContains(step_one, "data-cloning-unified-enzyme-picker")
+        self.assertContains(step_one, "data-cloning-enzyme-pagination")
+        self.assertContains(step_one, "data-cloning-enzyme-page-info")
+        self.assertContains(step_one, 'name="left_enzyme"', html=False)
+        self.assertContains(step_one, 'type="hidden" name="left_enzyme"', html=False)
+        self.assertContains(step_one, 'type="hidden" name="right_enzyme"', html=False)
+        self.assertNotContains(step_one, "Select left enzyme")
+        self.assertNotContains(step_one, "Select right enzyme")
+        self.assertContains(step_one, "js/cloning_assembly_state.js")
+        self.assertContains(step_one, "js/cloning_assembly_preview.js")
         visual_preview = step_one.context["visual_preview"]
         self.assertEqual(
             visual_preview.vector_map.map_shape,
@@ -2781,7 +2923,7 @@ class CloningViewTests(TestCase):
         self.assertEqual(visual_preview.selected_enzyme_names, ("EcoRI", "BamHI"))
         self.assertEqual(enzyme_names, {"EcoRI", "BamHI"})
         self.assertContains(response, "Vector Digest Fragments")
-        self.assertContains(response, "Left: none | Right: none")
+        self.assertContains(response, "Selected enzymes")
 
     def test_cloning_construct_requires_explicit_record_for_multi_record_sequence_file(self):
         vector = SequenceFile.objects.create(

@@ -215,6 +215,20 @@
                           Analyze
                         </a>
 
+                      {% if sf.uploaded_by_id == request.user.id %}
+                        <form
+                          method="POST"
+                          action="{% url 'sequencefile_delete' sf.id %}"
+                          onsubmit="return confirm('Delete sequence file {{ sf.name|escapejs }}?');"
+                        >
+                          {% csrf_token %}
+                          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                          <button type="submit" class="btn btn-sm btn-error btn-outline">
+                            Delete
+                          </button>
+                        </form>
+                      {% endif %}
+
                     </div>
                   </td>
                 </tr>

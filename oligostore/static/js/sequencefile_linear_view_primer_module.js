@@ -17,7 +17,7 @@
     app.getPCRProductAutoName = function getPCRProductAutoName(product) {
       const forward = String(product.forwardLabel || "FWD").replace(/\s+/g, "_");
       const reverse = String(product.reverseLabel || "REV").replace(/\s+/g, "_");
-      return `${forward}_${reverse}_${product.start}-${product.end}`;
+      return `${forward}_${reverse}_${product.start}-${product.end}${product.wrapsOrigin ? "_wrap" : ""}`;
     };
 
     app.closePrimerSelectionMenu = function closePrimerSelectionMenu() {
@@ -207,6 +207,18 @@
       }
     };
 
+    app.getPCRProductSequenceSlice = function getPCRProductSequenceSlice(record, start, end, wrapsOrigin) {
+      if (!wrapsOrigin) {
+        return app.getSequenceSlice(record, start, end);
+      }
+      const first = app.getSequenceSlice(record, start, record.length);
+      const second = app.getSequenceSlice(record, 1, end);
+      if (first === null || second === null) {
+        return null;
+      }
+      return `${first}${second}`;
+    };
+
     app.computePCRProduct = function computePCRProduct(record) {
       if (state.selectedForwardPrimerIndex === null || state.selectedReversePrimerIndex === null) {
         return null;
@@ -220,17 +232,26 @@
       const revBounds = app.featureBounds(reversePrimer);
       const productStart = fwdBounds.start;
       const productEnd = revBounds.end;
-      if (productStart > productEnd) {
-        return {
-          valid: false,
-          reason: "Forward primer is downstream of reverse primer in this linear view.",
-        };
-      }
-      const sequence = app.getSequenceSlice(record, productStart, productEnd);
+      const wrapsOrigin = productEnd < productStart;
+      const productLength = wrapsOrigin
+        ? (record.length - productStart + 1) + productEnd
+        : productEnd - productStart + 1;
+      const sequence = app.getPCRProductSequenceSlice(record, productStart, productEnd, wrapsOrigin);
       if (sequence === null) {
+        if (wrapsOrigin && !app.isRangeCovered(record, 1, record.length) && !state.loadingRecord) {
+          window.setTimeout(() => {
+            void app.ensureRecordRegionLoaded(state.recordIndex, 1, record.length);
+          }, 0);
+        }
         return {
           valid: false,
-          reason: "PCR product sequence is outside the loaded region. Pan/zoom to load that region.",
+          reason: wrapsOrigin
+            ? "PCR product crosses the origin. Loading the full record sequence..."
+            : "PCR product sequence is outside the loaded region. Pan/zoom to load that region.",
+          start: productStart,
+          end: productEnd,
+          length: productLength,
+          wrapsOrigin,
         };
       }
       return {
@@ -240,6 +261,7 @@
         end: productEnd,
         length: sequence.length,
         sequence,
+        wrapsOrigin,
         forwardLabel: forwardPrimer.label,
         reverseLabel: reversePrimer.label,
         forwardPrimerId: Number.isFinite(Number(forwardPrimer.primer_id)) ? Number(forwardPrimer.primer_id) : null,
@@ -283,7 +305,8 @@
         els.pcrProductNameInput.value = autoName;
       }
       state.lastPCRProductAutoName = autoName;
-      els.pcrProductSummary.textContent = `PCR product: ${product.start.toLocaleString()}-${product.end.toLocaleString()} (${product.length.toLocaleString()} bp) | Fwd: ${product.forwardLabel} | Rev: ${product.reverseLabel}`;
+      const wrapLabel = product.wrapsOrigin ? " | wraps origin" : "";
+      els.pcrProductSummary.textContent = `PCR product: ${product.start.toLocaleString()}-${product.end.toLocaleString()} (${product.length.toLocaleString()} bp)${wrapLabel} | Fwd: ${product.forwardLabel} | Rev: ${product.reverseLabel}`;
       els.pcrProductSequence.textContent = product.sequence;
       els.savePcrProductBtn.disabled = state.pcrProductSubmitting;
     };
@@ -296,7 +319,9 @@
       const maxWindow = Math.min(5000, record.length);
       state.windowSize = Math.max(app.constants.MIN_WINDOW_BP, Math.min(maxWindow, product.length));
       state.start = Math.max(1, Math.min(product.start, record.length - state.windowSize + 1));
-      const midpoint = Math.floor((product.start + product.end) / 2);
+      const midpoint = product.wrapsOrigin
+        ? product.start
+        : Math.floor((product.start + product.end) / 2);
       const centeredMapStart = midpoint - Math.floor(state.mapWindowSize / 2);
       const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
       state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
@@ -308,12 +333,15 @@
         return false;
       }
       const productStart = Math.max(1, Math.min(Number(savedProduct.start) || 1, record.length));
-      const productEnd = Math.max(productStart, Math.min(Number(savedProduct.end) || productStart, record.length));
-      const productLength = Math.max(1, productEnd - productStart + 1);
+      const productEnd = Math.max(1, Math.min(Number(savedProduct.end) || productStart, record.length));
+      const wrapsOrigin = Boolean(savedProduct.is_circular_wrap || productEnd < productStart);
+      const productLength = wrapsOrigin
+        ? Math.max(1, (record.length - productStart + 1) + productEnd)
+        : Math.max(1, productEnd - productStart + 1);
       const maxWindow = Math.min(5000, record.length);
       state.windowSize = Math.max(app.constants.MIN_WINDOW_BP, Math.min(maxWindow, productLength));
       state.start = Math.max(1, Math.min(productStart, record.length - state.windowSize + 1));
-      const midpoint = Math.floor((productStart + productEnd) / 2);
+      const midpoint = wrapsOrigin ? productStart : Math.floor((productStart + productEnd) / 2);
       const centeredMapStart = midpoint - Math.floor(state.mapWindowSize / 2);
       const maxMapStart = Math.max(1, record.length - state.mapWindowSize + 1);
       state.mapStart = Math.max(1, Math.min(centeredMapStart, maxMapStart));
@@ -442,6 +470,7 @@
               record_id: product.recordId,
               start: product.start,
               end: product.end,
+              is_circular_wrap: product.wrapsOrigin,
               sequence: product.sequence,
               forward_primer_label: product.forwardLabel,
               reverse_primer_label: product.reverseLabel,

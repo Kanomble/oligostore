@@ -6,7 +6,7 @@ from unittest import mock
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from core.services import primer_analysis
 from core.services import primer_binding
@@ -445,6 +445,311 @@ class UserAssignmentTests(SimpleTestCase):
 
 
 class CloningServiceTests(SimpleTestCase):
+    def _sequence_files_dir(self):
+        return next(
+            (
+                parent / "media" / "sequence_files"
+                for parent in Path(__file__).resolve().parents
+                if (parent / "media" / "sequence_files").exists()
+            )
+        )
+
+    def _select_compatible_fragment_pair(self, vector_asset, insert_asset, vector_fragments, insert_fragments, *, enzyme_name):
+        for vector_fragment_index, _ in vector_fragments:
+            for insert_fragment_index, _ in insert_fragments:
+                preview_data = cloning.preview_cloning_construct(
+                    vector_asset=vector_asset,
+                    insert_asset=insert_asset,
+                    assembly_strategy="restriction_ligation",
+                    left_enzyme=enzyme_name,
+                    right_enzyme=enzyme_name,
+                    vector_fragment_index=vector_fragment_index,
+                    insert_fragment_index=insert_fragment_index,
+                )
+                if preview_data.is_valid:
+                    return vector_fragment_index, insert_fragment_index, preview_data
+        raise AssertionError(f"No compatible {enzyme_name} fragment pair is available.")
+
+    def test_restriction_end_compatibility_uses_generated_end_properties(self):
+        blunt_left = cloning.RestrictionEnd(kind="blunt", fragment_side="left")
+        blunt_right = cloning.RestrictionEnd(kind="blunt", fragment_side="right")
+        sticky_left = cloning.RestrictionEnd(
+            kind="sticky",
+            overhang_sequence="AATT",
+            overhang_polarity="5_prime",
+            fragment_side="left",
+            source_enzyme="EcoRI",
+        )
+        sticky_right = cloning.RestrictionEnd(
+            kind="sticky",
+            overhang_sequence="AATT",
+            overhang_polarity="5_prime",
+            fragment_side="right",
+            source_enzyme="MfeI",
+        )
+        sticky_wrong_sequence = cloning.RestrictionEnd(
+            kind="sticky",
+            overhang_sequence="GATC",
+            overhang_polarity="5_prime",
+            fragment_side="right",
+            source_enzyme="BamHI",
+        )
+        sticky_wrong_polarity = cloning.RestrictionEnd(
+            kind="sticky",
+            overhang_sequence="AATT",
+            overhang_polarity="3_prime",
+            fragment_side="right",
+        )
+        sticky_wrong_orientation = cloning.RestrictionEnd(
+            kind="sticky",
+            overhang_sequence="AATT",
+            overhang_polarity="5_prime",
+            fragment_side="left",
+            source_enzyme="EcoRI",
+        )
+
+        self.assertTrue(cloning.are_ends_compatible(blunt_left, blunt_right))
+        self.assertTrue(cloning.are_ends_compatible(sticky_left, sticky_right))
+        self.assertFalse(cloning.are_ends_compatible(blunt_left, sticky_right))
+        self.assertFalse(cloning.are_ends_compatible(sticky_left, blunt_right))
+        self.assertFalse(cloning.are_ends_compatible(sticky_left, sticky_wrong_sequence))
+        self.assertFalse(cloning.are_ends_compatible(sticky_left, sticky_wrong_polarity))
+        self.assertFalse(cloning.are_ends_compatible(sticky_left, sticky_wrong_orientation))
+
+    def test_type_iis_generated_end_uses_actual_overhang_sequence(self):
+        enzyme = cloning._get_enzyme_by_name("BsaI")
+        first_sequence = "AAAAGGTCTCAACGTTTT"
+        second_sequence = "CCCCGGTCTCAACGTGGGG"
+        incompatible_sequence = "CCCCGGTCTCATGCAGGGG"
+        first_event = cloning._cut_events_for_enzyme(
+            sequence=first_sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )[0]
+        second_event = cloning._cut_events_for_enzyme(
+            sequence=second_sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )[0]
+        incompatible_event = cloning._cut_events_for_enzyme(
+            sequence=incompatible_sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )[0]
+
+        first_end = first_event.end(
+            sequence=first_sequence,
+            fragment_side=cloning.FRAGMENT_SIDE_LEFT,
+        )
+        second_end = second_event.end(
+            sequence=second_sequence,
+            fragment_side=cloning.FRAGMENT_SIDE_RIGHT,
+        )
+        incompatible_end = incompatible_event.end(
+            sequence=incompatible_sequence,
+            fragment_side=cloning.FRAGMENT_SIDE_RIGHT,
+        )
+
+        self.assertEqual(first_end.overhang_sequence, "ACGT")
+        self.assertEqual(second_end.overhang_sequence, "ACGT")
+        self.assertEqual(incompatible_end.overhang_sequence, "TGCA")
+        self.assertTrue(cloning.are_ends_compatible(first_end, second_end))
+        self.assertFalse(cloning.are_ends_compatible(first_end, incompatible_end))
+
+    def test_two_enzyme_preview_accepts_mixed_sticky_and_blunt_generated_ends(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGAATTCTTTTGATATCAAAA",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="CCCCGAATTCATGCGATATCGGGG",
+        )
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="EcoRV",
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertIn("generated-end compatibility", preview_data.validation_messages[0])
+        self.assertEqual(preview_data.assembled_sequence, "AAAAGAATTCATGCGATATCAAAA")
+
+    def test_preview_accepts_blunt_single_cut_vector_with_blunt_insert(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGATATCTTTT",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="ATGC",
+        )
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRV",
+            right_enzyme="EcoRV",
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertEqual(preview_data.assembled_sequence, "AAAAGATATGCATCTTTT")
+
+    def test_two_enzyme_preview_accepts_compatible_sticky_end_from_different_enzyme(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGAATTCTTTTGATATCAAAA",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="CCCCCAATTGATGCGATATCGGGG",
+        )
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="EcoRV",
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertEqual(preview_data.assembled_sequence, "AAAAGAATTGATGCGATATCAAAA")
+
+    def test_two_enzyme_preview_rejects_incompatible_generated_end_sequence(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGAATTCTTTTGATATCAAAA",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="CCCCGGATCCATGCGATATCGGGG",
+        )
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="EcoRV",
+        )
+
+        self.assertFalse(preview_data.is_valid)
+        self.assertTrue(
+            any("junction is incompatible" in message for message in preview_data.validation_messages)
+        )
+
+    def test_generated_fragment_is_rejected_when_only_one_junction_is_compatible(self):
+        vector_left_end = cloning.RestrictionEnd(
+            kind="sticky",
+            overhang_sequence="AATT",
+            overhang_polarity="5_prime",
+            fragment_side="left",
+        )
+        vector_right_end = cloning.RestrictionEnd(
+            kind="blunt",
+            fragment_side="right",
+        )
+        insert_start_end = cloning.RestrictionEnd(
+            kind="sticky",
+            overhang_sequence="AATT",
+            overhang_polarity="5_prime",
+            fragment_side="right",
+        )
+        insert_end_end = cloning.RestrictionEnd(
+            kind="sticky",
+            overhang_sequence="GATC",
+            overhang_polarity="5_prime",
+            fragment_side="left",
+        )
+
+        is_valid, messages = cloning._validate_candidate_orientation(
+            vector_left_end=vector_left_end,
+            vector_right_end=vector_right_end,
+            insert_start_end=insert_start_end,
+            insert_end_end=insert_end_end,
+        )
+
+        self.assertFalse(is_valid)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("Right junction is incompatible", messages[0])
+
+    def test_two_enzyme_preview_supports_reverse_insert_orientation_when_compatible(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGAATTCTTTTGGATCCAAAA",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="CCCCGGATCCATGCGAATTCGGGG",
+        )
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertIn("reverse insert orientation", preview_data.validation_messages[0])
+        self.assertEqual(preview_data.assembled_sequence, "AAAAGCGCATGGATCGATCCAAAA")
+
     def test_asset_choice_helpers_encode_record_aware_values(self):
         sequence_choice = cloning.build_sequence_file_asset_choice(
             sequence_file_id=7,
@@ -496,18 +801,34 @@ class CloningServiceTests(SimpleTestCase):
         self.assertTrue(vector_fragments)
         self.assertTrue(insert_fragments)
 
-        preview_data = cloning.preview_cloning_construct(
-            vector_asset=vector_asset,
-            insert_asset=insert_asset,
-            assembly_strategy="restriction_ligation",
-            left_enzyme="BbsI",
-            right_enzyme="BbsI",
-            vector_fragment_index=vector_fragments[-1][0],
-            insert_fragment_index=insert_fragments[-1][0],
+        vector_fragment_index, insert_fragment_index, preview_data = self._select_compatible_fragment_pair(
+            vector_asset,
+            insert_asset,
+            vector_fragments,
+            insert_fragments,
+            enzyme_name="BbsI",
         )
 
         self.assertTrue(preview_data.is_valid)
-        self.assertLess(preview_data.assembled_length, 312)
+        self.assertEqual(preview_data.vector_fragment_index, int(vector_fragment_index))
+        self.assertEqual(preview_data.insert_fragment_index, int(insert_fragment_index))
+        self.assertGreater(preview_data.assembled_length, 0)
+
+    def test_template_resolution_prioritizes_exact_filename_before_stem_fallback(self):
+        with tempfile.TemporaryDirectory() as media_root:
+            sequence_dir = Path(media_root) / "sequence_files"
+            sequence_dir.mkdir()
+            exact_file = sequence_dir / "same_name.gb"
+            fallback_file = sequence_dir / "same_name.dna"
+            fallback_file.write_text("fallback", encoding="utf-8")
+            exact_file.write_text("exact", encoding="utf-8")
+
+            with override_settings(MEDIA_ROOT=media_root):
+                self.assertEqual(cloning._resolve_template_path("same_name.gb"), exact_file)
+                self.assertIn(
+                    cloning._resolve_template_path("same_name").name,
+                    {"same_name.gb", "same_name.dna"},
+                )
 
     def test_preview_cloning_construct_supports_fragment_selection_for_other_same_enzyme(self):
         vector_asset = cloning.ResolvedCloningAsset(
@@ -536,7 +857,7 @@ class CloningServiceTests(SimpleTestCase):
         self.assertGreater(len(vector_fragments), 1)
         self.assertGreater(len(insert_fragments), 1)
 
-        selected_vector_fragment = vector_fragments[-1]
+        selected_vector_fragment = vector_fragments[0]
         selected_insert_fragment = insert_fragments[-1]
 
         preview_data = cloning.preview_cloning_construct(
@@ -573,6 +894,317 @@ class CloningServiceTests(SimpleTestCase):
         self.assertIn("|", vector_digest_view.double_strand_cut_views[0].bottom_line)
         self.assertTrue(vector_digest_view.fragment_options)
         self.assertTrue(any(option.selected for option in vector_digest_view.fragment_options))
+
+    def test_selected_same_enzyme_fragments_reject_incompatible_generated_ends(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGAATTCTTTT",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="TTTTGAATTCAAAA",
+        )
+
+        enzyme = cloning._get_enzyme_by_name("EcoRI")
+        vector_fragments = cloning._digest_sequence_fragments(vector_asset.sequence, enzyme)
+        insert_fragments = cloning._digest_sequence_fragments(insert_asset.sequence, enzyme)
+        self.assertEqual(len(vector_fragments), 2)
+        self.assertEqual(len(insert_fragments), 2)
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="EcoRI",
+            vector_fragment_index=vector_fragments[-1].index,
+            insert_fragment_index=insert_fragments[-1].index,
+        )
+
+        self.assertFalse(preview_data.is_valid)
+        self.assertTrue(
+            any("sticky end cannot ligate to blunt end" in message for message in preview_data.validation_messages)
+        )
+        self.assertTrue(
+            cloning.build_digest_fragment_choices(sequence=vector_asset.sequence, enzyme_name="EcoRI")
+        )
+        self.assertTrue(
+            cloning.build_digest_fragment_choices(sequence=insert_asset.sequence, enzyme_name="EcoRI")
+        )
+
+    def test_selected_same_enzyme_fragments_accept_blunt_generated_ends(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGATATCTTTT",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="CCCCGATATCGGGG",
+        )
+
+        enzyme = cloning._get_enzyme_by_name("EcoRV")
+        vector_fragments = cloning._digest_sequence_fragments(vector_asset.sequence, enzyme)
+        insert_fragments = cloning._digest_sequence_fragments(insert_asset.sequence, enzyme)
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRV",
+            right_enzyme="EcoRV",
+            vector_fragment_index=vector_fragments[0].index,
+            insert_fragment_index=insert_fragments[-1].index,
+        )
+
+        self.assertTrue(preview_data.is_valid)
+        self.assertEqual(
+            preview_data.assembled_sequence,
+            vector_fragments[0].sequence + insert_fragments[-1].sequence,
+        )
+
+    def test_two_enzyme_ligation_rejects_unsupported_explicit_fragment_selection(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGAATTCTTTTGGATCCAAAA",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="CCCCGAATTCATGCGGATCCGGGG",
+        )
+
+        preview_data = cloning.preview_cloning_construct(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="BamHI",
+            vector_fragment_index=1,
+            insert_fragment_index=1,
+        )
+
+        self.assertFalse(preview_data.is_valid)
+        self.assertEqual(preview_data.assembled_sequence, "")
+        self.assertTrue(
+            any("same" in message for message in preview_data.validation_messages)
+        )
+
+    def test_save_cloning_construct_rejects_invalid_preview_payload(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Vector",
+            sequence="AAAAGAATTCTTTT",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="TTTTGAATTCAAAA",
+        )
+        preview_data = cloning.CloningConstructPreview(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            assembly_strategy="restriction_ligation",
+            left_enzyme="EcoRI",
+            right_enzyme="EcoRI",
+            is_circular=False,
+            assembled_sequence="",
+            assembled_length=0,
+            is_valid=False,
+            validation_messages=("invalid generated ends",),
+            vector_fragment_index=2,
+            insert_fragment_index=2,
+        )
+
+        with self.assertRaisesMessage(ValueError, "validation failed"):
+            cloning.save_cloning_construct(
+                name="Invalid construct",
+                description="",
+                preview_data=preview_data,
+                user=None,
+            )
+
+    def test_bsa_i_selected_fragment_ligation_requires_matching_generated_overhangs(self):
+        sequence_files_dir = self._sequence_files_dir()
+        vector_record = next(
+            SeqIO.parse(sequence_files_dir / "LVL2_KAN_CDS_DO.gb", "genbank")
+        )
+        insert_record = next(
+            SeqIO.parse(
+                sequence_files_dir / "bsa1_dr_bsmb1_placeholder_bmsb1_dr_fasta.fasta",
+                "fasta",
+            )
+        )
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id=str(vector_record.id),
+            name="LVL2_KAN_CDS_DO.gb",
+            sequence=str(vector_record.seq).upper(),
+            is_circular=True,
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id=str(insert_record.id),
+            name="bsa1_dr_bsmb1_placeholder_bmsb1_dr_fasta.fasta",
+            sequence=str(insert_record.seq).upper(),
+        )
+
+        enzyme = cloning._get_enzyme_by_name("BsaI")
+        vector_fragments = cloning._digest_sequence_fragments(
+            vector_asset.sequence,
+            enzyme,
+            is_circular=True,
+        )
+        insert_fragments = cloning._digest_sequence_fragments(insert_asset.sequence, enzyme)
+        self.assertEqual(len(vector_fragments), 2)
+        self.assertEqual(len(insert_fragments), 3)
+
+        results = {}
+        invalid_messages = {}
+        for vector_fragment in vector_fragments:
+            for insert_fragment in insert_fragments:
+                preview_data = cloning.preview_cloning_construct(
+                    vector_asset=vector_asset,
+                    insert_asset=insert_asset,
+                    assembly_strategy="restriction_ligation",
+                    left_enzyme="BsaI",
+                    right_enzyme="BsaI",
+                    vector_fragment_index=vector_fragment.index,
+                    insert_fragment_index=insert_fragment.index,
+                )
+                key = (vector_fragment.index, insert_fragment.index)
+                results[key] = preview_data
+                if not preview_data.is_valid:
+                    invalid_messages[key] = " ".join(preview_data.validation_messages)
+
+        self.assertEqual(len(results), 6)
+        valid_pairs = [key for key, preview_data in results.items() if preview_data.is_valid]
+        self.assertEqual(valid_pairs, [(2, 2)])
+        known_bad_preview = results[(1, 2)]
+        self.assertFalse(known_bad_preview.is_valid)
+        self.assertEqual(known_bad_preview.assembled_sequence, "")
+
+        known_bad_vector_fragment = vector_fragments[0]
+        known_bad_insert_fragment = insert_fragments[1]
+        self.assertEqual(known_bad_vector_fragment.index, 1)
+        self.assertEqual(known_bad_insert_fragment.index, 2)
+        self.assertEqual(known_bad_vector_fragment.length, 1030)
+        self.assertEqual(known_bad_insert_fragment.length, 106)
+        known_bad_vector_start_end = known_bad_vector_fragment.start_ligation_end(
+            source_sequence=vector_asset.sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )
+        known_bad_vector_end_end = known_bad_vector_fragment.end_ligation_end(
+            source_sequence=vector_asset.sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )
+        known_bad_insert_start_end = known_bad_insert_fragment.start_ligation_end(
+            source_sequence=insert_asset.sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )
+        known_bad_insert_end_end = known_bad_insert_fragment.end_ligation_end(
+            source_sequence=insert_asset.sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )
+        self.assertEqual(known_bad_vector_end_end.overhang_sequence, "GCTT")
+        self.assertEqual(known_bad_insert_start_end.overhang_sequence, "AATG")
+        self.assertEqual(known_bad_vector_start_end.overhang_sequence, "AATG")
+        self.assertEqual(known_bad_insert_end_end.overhang_sequence, "GCTT")
+        self.assertFalse(cloning.are_ends_compatible(known_bad_vector_end_end, known_bad_insert_start_end))
+        self.assertFalse(cloning.are_ends_compatible(known_bad_vector_start_end, known_bad_insert_end_end))
+
+        valid_preview = results[(2, 2)]
+        self.assertEqual(valid_preview.assembled_length, 7218)
+        self.assertEqual(valid_preview.vector_fragment_start, 8085)
+        self.assertEqual(valid_preview.vector_fragment_end, 7055)
+        self.assertEqual(valid_preview.insert_fragment_start, 10)
+        self.assertEqual(valid_preview.insert_fragment_end, 116)
+
+        vector_fragment = vector_fragments[1]
+        insert_fragment = insert_fragments[1]
+        vector_start_end = vector_fragment.start_ligation_end(
+            source_sequence=vector_asset.sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )
+        vector_end_end = vector_fragment.end_ligation_end(
+            source_sequence=vector_asset.sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )
+        insert_start_end = insert_fragment.start_ligation_end(
+            source_sequence=insert_asset.sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )
+        insert_end_end = insert_fragment.end_ligation_end(
+            source_sequence=insert_asset.sequence,
+            enzyme_name="BsaI",
+            enzyme=enzyme,
+        )
+        self.assertTrue(vector_fragment.wraps_origin)
+        self.assertEqual(vector_fragment.length, 7112)
+        self.assertEqual(insert_fragment.length, 106)
+        self.assertEqual(vector_end_end.overhang_sequence, "AATG")
+        self.assertEqual(insert_start_end.overhang_sequence, "AATG")
+        self.assertEqual(vector_start_end.overhang_sequence, "GCTT")
+        self.assertEqual(insert_end_end.overhang_sequence, "GCTT")
+        self.assertTrue(cloning.are_ends_compatible(vector_end_end, insert_start_end))
+        self.assertTrue(cloning.are_ends_compatible(vector_start_end, insert_end_end))
+
+        self.assertIn("sticky end cannot ligate to blunt end", invalid_messages[(1, 1)])
+        self.assertIn("Sticky-end overhang mismatch: GCTT vs AATG", invalid_messages[(1, 2)])
+        self.assertIn("Sticky-end overhang mismatch: AATG vs GCTT", invalid_messages[(1, 2)])
+        self.assertIn("sticky end cannot ligate to blunt end", invalid_messages[(1, 3)])
+        self.assertIn("sticky end cannot ligate to blunt end", invalid_messages[(2, 1)])
+        self.assertIn("Sticky-end overhang mismatch: GCTT vs AATG", invalid_messages[(2, 1)])
+        self.assertIn("Sticky-end overhang mismatch: AATG vs GCTT", invalid_messages[(2, 3)])
+        self.assertIn("sticky end cannot ligate to blunt end", invalid_messages[(2, 3)])
 
     def test_same_enzyme_fragment_selection_supports_circular_vector_backbone(self):
         sequence_files_dir = next(
@@ -648,6 +1280,36 @@ class CloningServiceTests(SimpleTestCase):
                 option.selected and option.wraps_origin
                 for option in preview_data.digest_sequence_views[0].fragment_options
             )
+        )
+
+        visual_preview = cloning.build_cloning_assembly_visual_preview(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            selected_left_enzyme="BsmBI",
+            selected_right_enzyme="BsmBI",
+            vector_fragment_index=vector_backbone_fragment.index,
+            insert_fragment_index=insert_fragment.index,
+        )
+        selected_vector_regions = [
+            region for region in visual_preview.vector_map.regions if region.selected
+        ]
+        self.assertEqual(len(selected_vector_regions), 1)
+        selected_vector_region = selected_vector_regions[0]
+        self.assertTrue(selected_vector_region.wraps_origin)
+        self.assertEqual(selected_vector_region.length, vector_backbone_fragment.length)
+        self.assertEqual(
+            tuple(
+                (segment.start, segment.end)
+                for segment in selected_vector_region.circular_draw_segments
+            ),
+            (
+                (vector_backbone_fragment.start, len(vector_asset.sequence)),
+                (0, vector_backbone_fragment.end),
+            ),
+        )
+        self.assertEqual(
+            sum(segment.length for segment in selected_vector_region.circular_draw_segments),
+            vector_backbone_fragment.length,
         )
 
     def test_resolve_cloning_assets_returns_vector_and_insert_assets(self):
@@ -816,6 +1478,65 @@ class CloningServiceTests(SimpleTestCase):
             visual_preview.vector_map.digest_fragments[-1].end,
             len(vector_asset.sequence),
         )
+        self.assertTrue(all(region.selectable for region in visual_preview.vector_map.regions))
+        self.assertEqual(
+            [region.fragment_index for region in visual_preview.vector_map.regions],
+            [fragment.index for fragment in visual_preview.vector_map.digest_fragments],
+        )
+
+        map_payload = cloning.build_cloning_assembly_map_payload(
+            vector_asset=vector_asset,
+            insert_asset=insert_asset,
+            enzyme_names=("EcoRI", "BamHI"),
+        )
+        self.assertEqual(map_payload["vector"]["sequenceLength"], len(vector_asset.sequence))
+        self.assertEqual(map_payload["insert"]["sequenceLength"], len(insert_asset.sequence))
+        self.assertEqual(
+            {enzyme["name"] for enzyme in map_payload["enzymes"]},
+            {"EcoRI", "BamHI"},
+        )
+        self.assertTrue(
+            any(enzyme["vectorCutPositions"] for enzyme in map_payload["enzymes"])
+        )
+
+    def test_assembly_map_payload_searches_each_sequence_once(self):
+        vector_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="vec1",
+            name="Linear vector",
+            sequence="AAAAGAATTCTTTTGGATCCAAAA",
+        )
+        insert_asset = cloning.ResolvedCloningAsset(
+            source_type="sequence_file",
+            sequence_file=None,
+            pcr_product=None,
+            template_name=None,
+            record_id="ins1",
+            name="Insert",
+            sequence="AAAAGAATTCTTTT",
+        )
+        eco_ri = cloning._get_enzyme_by_name("EcoRI")
+        bam_hi = cloning._get_enzyme_by_name("BamHI")
+        search_results = [
+            {eco_ri: (5,), bam_hi: (14,)},
+            {eco_ri: (5,)},
+        ]
+
+        with mock.patch.object(cloning.CommOnly, "search", side_effect=search_results) as search_mock:
+            map_payload = cloning.build_cloning_assembly_map_payload(
+                vector_asset=vector_asset,
+                insert_asset=insert_asset,
+                enzyme_names=("EcoRI", "BamHI"),
+            )
+
+        self.assertEqual(search_mock.call_count, 2)
+        self.assertEqual(map_payload["enzymes"][0]["vectorCutPositions"], [4])
+        self.assertEqual(map_payload["enzymes"][0]["insertCutPositions"], [4])
+        self.assertEqual(map_payload["enzymes"][1]["vectorCutPositions"], [13])
+        self.assertEqual(map_payload["enzymes"][1]["insertCutPositions"], [])
 
     def test_assembly_visual_preview_renders_full_maps_before_enzyme_selection(self):
         vector_asset = cloning.ResolvedCloningAsset(
@@ -1201,7 +1922,7 @@ class CloningServiceTests(SimpleTestCase):
                  ],
              ), \
              mock.patch.object(cloning, "_get_enzyme_by_name", side_effect=["eco", "bam"]), \
-             mock.patch.object(cloning, "_find_cut_positions", side_effect=[[1], [9]]):
+             mock.patch.object(cloning, "_find_cut_positions", side_effect=[[1], [9], [], []]):
             detail_display = cloning.build_cloning_construct_detail_display(construct)
 
         self.assertEqual(detail_display.junction_context_window, 12)

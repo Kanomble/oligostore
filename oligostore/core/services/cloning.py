@@ -65,6 +65,24 @@ class CloningValidationResult:
 
 
 @dataclass(frozen=True)
+class RestrictionEnd:
+    kind: str
+    overhang_sequence: str = ""
+    overhang_polarity: str = ""
+    fragment_side: str = ""
+    cut_position: Optional[int] = None
+    source_enzyme: str = ""
+    recognition_sequence: str = ""
+    source_site: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class CompatibilityResult:
+    is_compatible: bool
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class CloningCutSitePreview:
     enzyme_name: str
     site_sequence: str
@@ -159,6 +177,29 @@ class CloningDigestFragmentOption:
 
 
 @dataclass(frozen=True)
+class CloningVisualRegionDrawSegment:
+    start: int
+    end: int
+    sequence_length: int
+
+    @property
+    def length(self) -> int:
+        return max(0, self.end - self.start)
+
+    @property
+    def dash_length(self) -> str:
+        if self.sequence_length <= 0:
+            return "0.000"
+        return f"{max(1.0, (self.length / self.sequence_length) * 100):.3f}"
+
+    @property
+    def dash_offset(self) -> str:
+        if self.sequence_length <= 0:
+            return "0.000"
+        return f"{-(self.start / self.sequence_length) * 100:.3f}"
+
+
+@dataclass(frozen=True)
 class CloningVisualRegion:
     label: str
     field_name: str
@@ -207,6 +248,25 @@ class CloningVisualRegion:
         if self.sequence_length <= 0:
             return "0.000"
         return f"{-(self.start / self.sequence_length) * 100:.3f}"
+
+    @property
+    def circular_draw_segments(self) -> tuple[CloningVisualRegionDrawSegment, ...]:
+        if self.sequence_length <= 0:
+            return tuple()
+        segments = (
+            ((self.start, self.sequence_length), (0, self.end))
+            if self.wraps_origin
+            else ((self.start, self.end),)
+        )
+        return tuple(
+            CloningVisualRegionDrawSegment(
+                start=start,
+                end=end,
+                sequence_length=self.sequence_length,
+            )
+            for start, end in segments
+            if end > start
+        )
 
     @property
     def title(self) -> str:
@@ -327,6 +387,7 @@ class CloningVisualDigestFragment:
     end: int
     sequence_length: int
     wraps_origin: bool = False
+    selected: bool = False
     boundary_labels: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -466,6 +527,13 @@ TEMPLATE_SEQUENCE_FILENAMES = (
     "tProm_leader_sequence_CRISPR_1.gb",
 )
 DNA_COMPLEMENT = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+END_BLUNT = "blunt"
+END_STICKY = "sticky"
+OVERHANG_5_PRIME = "5_prime"
+OVERHANG_3_PRIME = "3_prime"
+FRAGMENT_SIDE_LEFT = "left"
+FRAGMENT_SIDE_RIGHT = "right"
+FRAGMENT_SIDE_TERMINAL = "terminal"
 
 
 def build_sequence_file_asset_choice(*, sequence_file_id: int, record_id: str) -> CloningAssetChoice:
@@ -505,12 +573,14 @@ def _resolve_template_path(template_name: str) -> Path:
     if not template_directory.exists():
         raise ValueError("The template media directory is not available.")
 
-    for candidate in template_directory.iterdir():
-        if not candidate.is_file():
-            continue
+    candidates = [candidate for candidate in template_directory.iterdir() if candidate.is_file()]
+    for candidate in candidates:
+        if candidate.name.lower() == normalized_template_name.lower():
+            return candidate
+
+    for candidate in candidates:
         if (
-            candidate.name.lower() == normalized_template_name.lower()
-            or candidate.stem.lower() == normalized_template_name.lower()
+            candidate.stem.lower() == normalized_template_name.lower()
             or candidate.stem.lower() == normalized_template_stem
         ):
             return candidate
@@ -791,6 +861,28 @@ def _visual_regions_from_fragment_options(
     )
 
 
+def _visual_regions_from_digest_fragments(
+    digest_fragments: tuple[CloningVisualDigestFragment, ...],
+    *,
+    field_name: str,
+    selected_fragment_index: Optional[int],
+) -> tuple[CloningVisualRegion, ...]:
+    return tuple(
+        CloningVisualRegion(
+            label=f"Fragment {fragment.index}",
+            field_name=field_name,
+            fragment_index=fragment.index,
+            start=fragment.start,
+            end=fragment.end,
+            sequence_length=fragment.sequence_length,
+            selected=selected_fragment_index == fragment.index,
+            selectable=True,
+            wraps_origin=fragment.wraps_origin,
+        )
+        for fragment in digest_fragments
+    )
+
+
 def _visual_regions_from_used_segments(
     *,
     used_segments: tuple[CloningDigestSegment, ...],
@@ -877,6 +969,18 @@ def _cut_positions_for_enzyme_names(sequence: str, enzyme_names: tuple[str, ...]
     return cut_positions
 
 
+def _restriction_search_positions_by_name(sequence: str) -> dict[str, tuple[int, ...]]:
+    try:
+        results = CommOnly.search(Seq(str(sequence or "").upper()), linear=True)
+    except Exception:
+        return {}
+    return {
+        str(enzyme): tuple(sorted(int(position) - 1 for position in cut_positions))
+        for enzyme, cut_positions in results.items()
+        if cut_positions
+    }
+
+
 def _boundary_labels_by_position(cut_positions_by_enzyme: dict[str, tuple[int, ...]]) -> dict[int, tuple[str, ...]]:
     labels_by_position = {}
     for enzyme_name, positions in cut_positions_by_enzyme.items():
@@ -893,6 +997,7 @@ def _build_visual_digest_fragments(
     sequence: str,
     enzyme_names: tuple[str, ...],
     is_circular: bool,
+    selected_fragment_index: Optional[int] = None,
 ) -> tuple[CloningVisualDigestFragment, ...]:
     sequence = str(sequence or "").upper()
     sequence_length = len(sequence)
@@ -917,6 +1022,7 @@ def _build_visual_digest_fragments(
                     end=end,
                     sequence_length=sequence_length,
                     wraps_origin=wraps_origin,
+                    selected=selected_fragment_index == index,
                     boundary_labels=tuple(
                         sorted(set(labels_by_position.get(start, ())) | set(labels_by_position.get(end, ())))
                     ),
@@ -935,6 +1041,7 @@ def _build_visual_digest_fragments(
                 start=start,
                 end=end,
                 sequence_length=sequence_length,
+                selected=selected_fragment_index == len(fragments) + 1,
                 boundary_labels=tuple(
                     sorted(set(labels_by_position.get(start, ())) | set(labels_by_position.get(end, ())))
                 ),
@@ -1057,14 +1164,39 @@ def build_cloning_assembly_visual_preview(
         else tuple()
     )
 
-    vector_regions = _visual_regions_from_fragment_options(vector_fragment_options)
+    vector_digest_fragments = _build_visual_digest_fragments(
+        sequence=vector_asset.sequence,
+        enzyme_names=overlay_enzyme_names,
+        is_circular=vector_asset.is_circular,
+        selected_fragment_index=vector_fragment_index,
+    )
+    insert_digest_fragments = _build_visual_digest_fragments(
+        sequence=insert_asset.sequence,
+        enzyme_names=overlay_enzyme_names,
+        is_circular=insert_asset.is_circular,
+        selected_fragment_index=insert_fragment_index,
+    )
+
+    vector_regions = _visual_regions_from_digest_fragments(
+        vector_digest_fragments,
+        field_name="vector_fragment_index",
+        selected_fragment_index=vector_fragment_index,
+    )
+    if not vector_regions:
+        vector_regions = _visual_regions_from_fragment_options(vector_fragment_options)
     if not vector_regions:
         vector_regions = _visual_regions_from_used_segments(
             used_segments=vector_used_segments,
             sequence_length=len(vector_asset.sequence),
             fallback_label="Full vector",
         )
-    insert_regions = _visual_regions_from_fragment_options(insert_fragment_options)
+    insert_regions = _visual_regions_from_digest_fragments(
+        insert_digest_fragments,
+        field_name="insert_fragment_index",
+        selected_fragment_index=insert_fragment_index,
+    )
+    if not insert_regions:
+        insert_regions = _visual_regions_from_fragment_options(insert_fragment_options)
     if not insert_regions:
         insert_regions = _visual_regions_from_used_segments(
             used_segments=insert_used_segments,
@@ -1097,11 +1229,7 @@ def build_cloning_assembly_visual_preview(
                 selected_left_enzyme=selected_left_enzyme,
                 selected_right_enzyme=selected_right_enzyme,
             ),
-            digest_fragments=_build_visual_digest_fragments(
-                sequence=vector_asset.sequence,
-                enzyme_names=overlay_enzyme_names,
-                is_circular=vector_asset.is_circular,
-            ),
+            digest_fragments=vector_digest_fragments,
         ),
         insert_map=CloningVisualSequenceMap(
             role="Insert",
@@ -1119,13 +1247,50 @@ def build_cloning_assembly_visual_preview(
                 selected_left_enzyme=selected_left_enzyme,
                 selected_right_enzyme=selected_right_enzyme,
             ),
-            digest_fragments=_build_visual_digest_fragments(
-                sequence=insert_asset.sequence,
-                enzyme_names=overlay_enzyme_names,
-                is_circular=insert_asset.is_circular,
-            ),
+            digest_fragments=insert_digest_fragments,
         ),
     )
+
+
+def build_cloning_assembly_map_payload(
+    *,
+    vector_asset: ResolvedCloningAsset,
+    insert_asset: ResolvedCloningAsset,
+    enzyme_names=(),
+) -> dict:
+    enzyme_payload = []
+    deduped_enzyme_names = _dedupe_enzyme_names(enzyme_names)
+    vector_positions_by_name = _restriction_search_positions_by_name(vector_asset.sequence)
+    insert_positions_by_name = _restriction_search_positions_by_name(insert_asset.sequence)
+    for enzyme_name in deduped_enzyme_names:
+        enzyme = _get_enzyme_by_name(enzyme_name)
+        if enzyme is None:
+            continue
+        enzyme_payload.append(
+            {
+                "name": enzyme_name,
+                "siteSequence": str(getattr(enzyme, "site", "") or ""),
+                "vectorCutPositions": list(vector_positions_by_name.get(enzyme_name, ())),
+                "insertCutPositions": list(insert_positions_by_name.get(enzyme_name, ())),
+            }
+        )
+    return {
+        "vector": {
+            "role": "Vector",
+            "assetName": vector_asset.name,
+            "sequenceLength": len(vector_asset.sequence),
+            "isCircular": vector_asset.is_circular,
+            "mapShape": _visual_map_shape_for_topology(is_circular=vector_asset.is_circular),
+        },
+        "insert": {
+            "role": "Insert",
+            "assetName": insert_asset.name,
+            "sequenceLength": len(insert_asset.sequence),
+            "isCircular": insert_asset.is_circular,
+            "mapShape": _visual_map_shape_for_topology(is_circular=insert_asset.is_circular),
+        },
+        "enzymes": enzyme_payload,
+    }
 
 
 def _non_empty_segment(start: int, end: int, label: str) -> Optional[CloningDigestSegment]:
@@ -1477,6 +1642,81 @@ class DigestedFragment:
             return _compact_source_segments(((self.start, sequence_length), (0, self.end)))
         return _compact_source_segments(((self.start, self.end),))
 
+    def start_ligation_end(self, *, source_sequence: str, enzyme_name: str, enzyme) -> RestrictionEnd:
+        return _fragment_start_end(
+            sequence=source_sequence,
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            boundary=self.start,
+        )
+
+    def end_ligation_end(self, *, source_sequence: str, enzyme_name: str, enzyme) -> RestrictionEnd:
+        return _fragment_end_end(
+            sequence=source_sequence,
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            boundary=self.end,
+        )
+
+    def reverse_start_ligation_end(self, *, source_sequence: str, enzyme_name: str, enzyme) -> RestrictionEnd:
+        return _reverse_restriction_end(
+            self.end_ligation_end(
+                source_sequence=source_sequence,
+                enzyme_name=enzyme_name,
+                enzyme=enzyme,
+            )
+        )
+
+    def reverse_end_ligation_end(self, *, source_sequence: str, enzyme_name: str, enzyme) -> RestrictionEnd:
+        return _reverse_restriction_end(
+            self.start_ligation_end(
+                source_sequence=source_sequence,
+                enzyme_name=enzyme_name,
+                enzyme=enzyme,
+            )
+        )
+
+
+@dataclass(frozen=True)
+class RestrictionCutEvent:
+    enzyme_name: str
+    enzyme: object
+    position: int
+
+    def end(self, *, sequence: str, fragment_side: str) -> RestrictionEnd:
+        return _restriction_end_from_cut(
+            sequence=sequence,
+            enzyme_name=self.enzyme_name,
+            enzyme=self.enzyme,
+            top_cut_position=self.position,
+            fragment_side=fragment_side,
+        )
+
+
+@dataclass(frozen=True)
+class InsertFragmentCandidate:
+    sequence: str
+    start: int
+    end: int
+    start_end: RestrictionEnd
+    end_end: RestrictionEnd
+
+    @property
+    def length(self) -> int:
+        return len(self.sequence)
+
+    @property
+    def reverse_sequence(self) -> str:
+        return _reverse_complement_sequence(self.sequence)
+
+    @property
+    def reverse_start_end(self) -> RestrictionEnd:
+        return _reverse_restriction_end(self.end_end)
+
+    @property
+    def reverse_end_end(self) -> RestrictionEnd:
+        return _reverse_restriction_end(self.start_end)
+
 
 def _compact_source_segments(segments: tuple[tuple[int, int], ...]) -> tuple[tuple[int, int], ...]:
     return tuple((start, end) for start, end in segments if end > start)
@@ -1776,6 +2016,126 @@ def _invalid_cloning_result(*messages: str) -> CloningValidationResult:
     return CloningValidationResult(is_valid=False, validation_messages=tuple(messages))
 
 
+def _reverse_complement_sequence(sequence: str) -> str:
+    return str(sequence or "").translate(DNA_COMPLEMENT)[::-1].upper()
+
+
+def _opposite_fragment_side(fragment_side: str) -> str:
+    if fragment_side == FRAGMENT_SIDE_LEFT:
+        return FRAGMENT_SIDE_RIGHT
+    if fragment_side == FRAGMENT_SIDE_RIGHT:
+        return FRAGMENT_SIDE_LEFT
+    return fragment_side
+
+
+def _reverse_restriction_end(restriction_end: RestrictionEnd) -> RestrictionEnd:
+    return RestrictionEnd(
+        kind=restriction_end.kind,
+        overhang_sequence=restriction_end.overhang_sequence,
+        overhang_polarity=restriction_end.overhang_polarity,
+        fragment_side=_opposite_fragment_side(restriction_end.fragment_side),
+        cut_position=restriction_end.cut_position,
+        source_enzyme=restriction_end.source_enzyme,
+        recognition_sequence=restriction_end.recognition_sequence,
+        source_site=restriction_end.source_site,
+    )
+
+
+def _terminal_blunt_end(*, cut_position: int, fragment_side: str) -> RestrictionEnd:
+    return RestrictionEnd(
+        kind=END_BLUNT,
+        fragment_side=fragment_side,
+        cut_position=cut_position,
+    )
+
+
+def _restriction_end_from_cut(
+    *,
+    sequence: str,
+    enzyme_name: str,
+    enzyme,
+    top_cut_position: int,
+    fragment_side: str,
+) -> RestrictionEnd:
+    sequence = str(sequence or "").upper()
+    site_sequence = str(getattr(enzyme, "site", "") or "").upper()
+    site_length = len(site_sequence)
+    cut_offset = int(getattr(enzyme, "fst5", 0))
+    reverse_cut_offset = int(getattr(enzyme, "fst3", cut_offset))
+    recognition_start = int(top_cut_position) - cut_offset
+    bottom_cut_position = recognition_start + site_length + reverse_cut_offset
+
+    if top_cut_position == bottom_cut_position:
+        return RestrictionEnd(
+            kind=END_BLUNT,
+            fragment_side=fragment_side,
+            cut_position=top_cut_position,
+            source_enzyme=enzyme_name,
+            recognition_sequence=site_sequence,
+            source_site=recognition_start,
+        )
+
+    overhang_start = min(top_cut_position, bottom_cut_position)
+    overhang_end = max(top_cut_position, bottom_cut_position)
+    overhang_sequence = sequence[overhang_start:overhang_end]
+    overhang_polarity = OVERHANG_5_PRIME if top_cut_position < bottom_cut_position else OVERHANG_3_PRIME
+    return RestrictionEnd(
+        kind=END_STICKY,
+        overhang_sequence=overhang_sequence,
+        overhang_polarity=overhang_polarity,
+        fragment_side=fragment_side,
+        cut_position=top_cut_position,
+        source_enzyme=enzyme_name,
+        recognition_sequence=site_sequence,
+        source_site=recognition_start,
+    )
+
+
+def validate_end_compatibility(vector_end: RestrictionEnd, insert_end: RestrictionEnd) -> CompatibilityResult:
+    """Validate ligation from generated DNA ends, not enzyme identity.
+
+    Blunt ends ligate with blunt ends. Sticky ends ligate only when their
+    actual generated overhang sequence and polarity match and the fragment
+    sides are opposite. Enzyme names and recognition sequences are provenance
+    for display/debugging; they are not compatibility criteria. This covers
+    mixed-end cloning at the junction level and Type IIS cutters whose
+    ligatable overhang is sequence-derived rather than the recognition motif.
+    """
+    if vector_end.kind == END_BLUNT and insert_end.kind == END_BLUNT:
+        return CompatibilityResult(True)
+    if vector_end.kind != insert_end.kind:
+        return CompatibilityResult(
+            False,
+            f"{vector_end.kind} end cannot ligate to {insert_end.kind} end.",
+        )
+    if vector_end.kind != END_STICKY:
+        return CompatibilityResult(False, "Unknown restriction end type.")
+    if vector_end.overhang_polarity != insert_end.overhang_polarity:
+        return CompatibilityResult(
+            False,
+            f"Sticky-end polarity mismatch: {vector_end.overhang_polarity or 'unknown'} vs {insert_end.overhang_polarity or 'unknown'}.",
+        )
+    if vector_end.overhang_sequence != insert_end.overhang_sequence:
+        return CompatibilityResult(
+            False,
+            f"Sticky-end overhang mismatch: {vector_end.overhang_sequence or 'none'} vs {insert_end.overhang_sequence or 'none'}.",
+        )
+    if (
+        vector_end.fragment_side in {FRAGMENT_SIDE_LEFT, FRAGMENT_SIDE_RIGHT}
+        and insert_end.fragment_side in {FRAGMENT_SIDE_LEFT, FRAGMENT_SIDE_RIGHT}
+        and vector_end.fragment_side == insert_end.fragment_side
+    ):
+        return CompatibilityResult(
+            False,
+            "Sticky ends have matching overhangs but incompatible cut orientation.",
+        )
+    return CompatibilityResult(True)
+
+
+def are_ends_compatible(vector_end: RestrictionEnd, insert_end: RestrictionEnd) -> bool:
+    return validate_end_compatibility(vector_end, insert_end).is_compatible
+
+
 @dataclass(frozen=True)
 class RestrictionLigationStrategy:
     left_enzyme_name: str
@@ -1821,6 +2181,179 @@ def _build_cloning_strategy(
     )
 
 
+def _cut_events_for_enzyme(*, sequence: str, enzyme_name: str, enzyme) -> tuple[RestrictionCutEvent, ...]:
+    return tuple(
+        RestrictionCutEvent(
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            position=position,
+        )
+        for position in sorted(_find_cut_positions(sequence, enzyme))
+    )
+
+
+def _all_restriction_cut_events(sequence: str) -> tuple[RestrictionCutEvent, ...]:
+    sequence = str(sequence or "").upper()
+    events = []
+    try:
+        results = CommOnly.search(Seq(sequence), linear=True)
+    except Exception:
+        return tuple()
+    for enzyme, cut_positions in results.items():
+        enzyme_name = str(enzyme)
+        events.extend(
+            RestrictionCutEvent(
+                enzyme_name=enzyme_name,
+                enzyme=enzyme,
+                position=int(position) - 1,
+            )
+            for position in cut_positions
+        )
+    return tuple(sorted(events, key=lambda event: (event.position, event.enzyme_name)))
+
+
+def _generated_insert_fragment_candidates(
+    *,
+    insert_sequence: str,
+    preferred_left_event: Optional[RestrictionCutEvent] = None,
+    preferred_right_event: Optional[RestrictionCutEvent] = None,
+) -> tuple[InsertFragmentCandidate, ...]:
+    insert_sequence = str(insert_sequence or "").upper()
+    candidates = []
+    if preferred_left_event is not None and preferred_right_event is not None:
+        event_pairs = ((preferred_left_event, preferred_right_event), (preferred_right_event, preferred_left_event))
+    elif preferred_left_event is not None:
+        event_pairs = tuple(
+            (preferred_left_event, event)
+            for event in _all_restriction_cut_events(insert_sequence)
+            if event.position > preferred_left_event.position
+        )
+    elif preferred_right_event is not None:
+        event_pairs = tuple(
+            (event, preferred_right_event)
+            for event in _all_restriction_cut_events(insert_sequence)
+            if event.position < preferred_right_event.position
+        )
+    else:
+        event_pairs = tuple()
+
+    seen = set()
+    for first_event, second_event in event_pairs:
+        left_event, right_event = sorted(
+            (first_event, second_event),
+            key=lambda event: (event.position, event.enzyme_name),
+        )
+        if right_event.position <= left_event.position:
+            continue
+        key = (
+            left_event.position,
+            left_event.enzyme_name,
+            right_event.position,
+            right_event.enzyme_name,
+        )
+        if key in seen:
+            continue
+        fragment_sequence = insert_sequence[left_event.position:right_event.position]
+        if not fragment_sequence:
+            continue
+        seen.add(key)
+        candidates.append(
+            InsertFragmentCandidate(
+                sequence=fragment_sequence,
+                start=left_event.position,
+                end=right_event.position,
+                start_end=left_event.end(
+                    sequence=insert_sequence,
+                    fragment_side=FRAGMENT_SIDE_RIGHT,
+                ),
+                end_end=right_event.end(
+                    sequence=insert_sequence,
+                    fragment_side=FRAGMENT_SIDE_LEFT,
+                )
+            )
+        )
+    return tuple(candidates)
+
+
+def _junction_failure_message(label: str, result: CompatibilityResult) -> str:
+    return f"{label} junction is incompatible: {result.reason}"
+
+
+def _validate_candidate_orientation(
+    *,
+    vector_left_end: RestrictionEnd,
+    vector_right_end: RestrictionEnd,
+    insert_start_end: RestrictionEnd,
+    insert_end_end: RestrictionEnd,
+    left_label: str = "Left",
+    right_label: str = "Right",
+) -> tuple[bool, tuple[str, ...]]:
+    left_result = validate_end_compatibility(vector_left_end, insert_start_end)
+    right_result = validate_end_compatibility(vector_right_end, insert_end_end)
+    messages = []
+    if not left_result.is_compatible:
+        messages.append(_junction_failure_message(left_label, left_result))
+    if not right_result.is_compatible:
+        messages.append(_junction_failure_message(right_label, right_result))
+    return not messages, tuple(messages)
+
+
+def _select_compatible_insert_candidate(
+    *,
+    vector_left_end: RestrictionEnd,
+    vector_right_end: RestrictionEnd,
+    candidates: tuple[InsertFragmentCandidate, ...],
+) -> tuple[Optional[InsertFragmentCandidate], str, tuple[str, ...]]:
+    rejection_messages = []
+    for candidate in candidates:
+        forward_valid, forward_messages = _validate_candidate_orientation(
+            vector_left_end=vector_left_end,
+            vector_right_end=vector_right_end,
+            insert_start_end=candidate.start_end,
+            insert_end_end=candidate.end_end,
+        )
+        if forward_valid:
+            return candidate, "forward", tuple()
+
+        reverse_valid, reverse_messages = _validate_candidate_orientation(
+            vector_left_end=vector_left_end,
+            vector_right_end=vector_right_end,
+            insert_start_end=candidate.reverse_start_end,
+            insert_end_end=candidate.reverse_end_end,
+        )
+        if reverse_valid:
+            return candidate, "reverse", tuple()
+
+        if not rejection_messages:
+            rejection_messages.extend(forward_messages or reverse_messages)
+
+    return None, "", tuple(rejection_messages)
+
+
+def _fragment_start_end(*, sequence: str, enzyme_name: str, enzyme, boundary: int) -> RestrictionEnd:
+    if boundary <= 0:
+        return _terminal_blunt_end(cut_position=0, fragment_side=FRAGMENT_SIDE_TERMINAL)
+    return _restriction_end_from_cut(
+        sequence=sequence,
+        enzyme_name=enzyme_name,
+        enzyme=enzyme,
+        top_cut_position=boundary,
+        fragment_side=FRAGMENT_SIDE_RIGHT,
+    )
+
+
+def _fragment_end_end(*, sequence: str, enzyme_name: str, enzyme, boundary: int) -> RestrictionEnd:
+    if boundary >= len(sequence):
+        return _terminal_blunt_end(cut_position=len(sequence), fragment_side=FRAGMENT_SIDE_TERMINAL)
+    return _restriction_end_from_cut(
+        sequence=sequence,
+        enzyme_name=enzyme_name,
+        enzyme=enzyme,
+        top_cut_position=boundary,
+        fragment_side=FRAGMENT_SIDE_LEFT,
+    )
+
+
 def _validate_same_enzyme_fragment_ligation(
     *,
     vector_sequence: str,
@@ -1849,6 +2382,37 @@ def _validate_same_enzyme_fragment_ligation(
         )
     except ValueError as exc:
         return _invalid_cloning_result(str(exc))
+
+    vector_start_end = vector_fragment.start_ligation_end(
+        source_sequence=vector_sequence,
+        enzyme_name=enzyme_name,
+        enzyme=enzyme,
+    )
+    vector_end_end = vector_fragment.end_ligation_end(
+        source_sequence=vector_sequence,
+        enzyme_name=enzyme_name,
+        enzyme=enzyme,
+    )
+    insert_start_end = insert_fragment.start_ligation_end(
+        source_sequence=insert_sequence,
+        enzyme_name=enzyme_name,
+        enzyme=enzyme,
+    )
+    insert_end_end = insert_fragment.end_ligation_end(
+        source_sequence=insert_sequence,
+        enzyme_name=enzyme_name,
+        enzyme=enzyme,
+    )
+    orientation_valid, orientation_messages = _validate_candidate_orientation(
+        vector_left_end=vector_end_end,
+        vector_right_end=vector_start_end,
+        insert_start_end=insert_start_end,
+        insert_end_end=insert_end_end,
+        left_label="Vector-insert",
+        right_label="Insert-vector",
+    )
+    if not orientation_valid:
+        return _invalid_cloning_result(*orientation_messages)
 
     vector_fragment_segments = vector_fragment.source_segments(len(vector_sequence))
     insert_fragment_segments = insert_fragment.source_segments(len(insert_sequence))
@@ -1909,6 +2473,28 @@ def _validate_same_enzyme_ligation(
 
     if len(vector_cut_hits) == 1 and len(insert_cut_hits) == 0:
         insertion_point = vector_cut_hits[0]
+        vector_left_end = _fragment_end_end(
+            sequence=vector_sequence,
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            boundary=insertion_point,
+        )
+        vector_right_end = _fragment_start_end(
+            sequence=vector_sequence,
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            boundary=insertion_point,
+        )
+        insert_start_end = _terminal_blunt_end(cut_position=0, fragment_side=FRAGMENT_SIDE_TERMINAL)
+        insert_end_end = _terminal_blunt_end(cut_position=len(insert_sequence), fragment_side=FRAGMENT_SIDE_TERMINAL)
+        orientation_valid, orientation_messages = _validate_candidate_orientation(
+            vector_left_end=vector_left_end,
+            vector_right_end=vector_right_end,
+            insert_start_end=insert_start_end,
+            insert_end_end=insert_end_end,
+        )
+        if not orientation_valid:
+            return _invalid_cloning_result(*orientation_messages)
         assembled_sequence = (
             vector_sequence[:insertion_point]
             + insert_sequence
@@ -1941,6 +2527,39 @@ def _validate_same_enzyme_ligation(
             messages.append(f"{enzyme_name} cut positions in the insert are overlapping or out of order.")
         if messages:
             return _invalid_cloning_result(*messages)
+
+        vector_left_end = _fragment_end_end(
+            sequence=vector_sequence,
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            boundary=vector_left_cut,
+        )
+        vector_right_end = _fragment_start_end(
+            sequence=vector_sequence,
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            boundary=vector_right_cut,
+        )
+        insert_start_end = _fragment_start_end(
+            sequence=insert_sequence,
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            boundary=insert_left_cut,
+        )
+        insert_end_end = _fragment_end_end(
+            sequence=insert_sequence,
+            enzyme_name=enzyme_name,
+            enzyme=enzyme,
+            boundary=insert_right_cut,
+        )
+        orientation_valid, orientation_messages = _validate_candidate_orientation(
+            vector_left_end=vector_left_end,
+            vector_right_end=vector_right_end,
+            insert_start_end=insert_start_end,
+            insert_end_end=insert_end_end,
+        )
+        if not orientation_valid:
+            return _invalid_cloning_result(*orientation_messages)
 
         insert_fragment = insert_sequence[insert_left_cut:insert_right_cut]
         assembled_sequence = (
@@ -1998,26 +2617,110 @@ def _validate_two_enzyme_ligation(
     insert_is_circular: bool = False,
 ) -> CloningValidationResult:
     messages = []
-    left_site = str(getattr(left_enzyme, "site", "") or "")
-    right_site = str(getattr(right_enzyme, "site", "") or "")
-    left_hits = _find_cut_positions(vector_sequence, left_enzyme)
-    right_hits = _find_cut_positions(vector_sequence, right_enzyme)
+    left_events = _cut_events_for_enzyme(
+        sequence=vector_sequence,
+        enzyme_name=left_enzyme_name,
+        enzyme=left_enzyme,
+    )
+    right_events = _cut_events_for_enzyme(
+        sequence=vector_sequence,
+        enzyme_name=right_enzyme_name,
+        enzyme=right_enzyme,
+    )
 
-    if len(left_hits) != 1:
-        messages.append(f"Vector must contain exactly one {left_enzyme_name} cut site; found {len(left_hits)}.")
-    if len(right_hits) != 1:
-        messages.append(f"Vector must contain exactly one {right_enzyme_name} cut site; found {len(right_hits)}.")
-    if _find_site_positions(insert_sequence, left_site):
-        messages.append(f"Insert contains an internal {left_enzyme_name} site.")
-    if _find_site_positions(insert_sequence, right_site):
-        messages.append(f"Insert contains an internal {right_enzyme_name} site.")
+    if len(left_events) != 1:
+        messages.append(f"Vector must contain exactly one {left_enzyme_name} cut site; found {len(left_events)}.")
+    if len(right_events) != 1:
+        messages.append(f"Vector must contain exactly one {right_enzyme_name} cut site; found {len(right_events)}.")
     if messages:
         return _invalid_cloning_result(*messages)
 
-    left_cut = left_hits[0]
-    right_cut = right_hits[0]
+    left_event = left_events[0]
+    right_event = right_events[0]
+    left_cut = left_event.position
+    right_cut = right_event.position
     if right_cut <= left_cut:
         return _invalid_cloning_result("Restriction sites are overlapping or out of order in the vector.")
+
+    vector_left_end = left_event.end(
+        sequence=vector_sequence,
+        fragment_side=FRAGMENT_SIDE_LEFT,
+    )
+    vector_right_end = right_event.end(
+        sequence=vector_sequence,
+        fragment_side=FRAGMENT_SIDE_RIGHT,
+    )
+
+    insert_left_events = _cut_events_for_enzyme(
+        sequence=insert_sequence,
+        enzyme_name=left_enzyme_name,
+        enzyme=left_enzyme,
+    )
+    insert_right_events = _cut_events_for_enzyme(
+        sequence=insert_sequence,
+        enzyme_name=right_enzyme_name,
+        enzyme=right_enzyme,
+    )
+    preferred_left_event = insert_left_events[0] if len(insert_left_events) == 1 else None
+    preferred_right_event = insert_right_events[0] if len(insert_right_events) == 1 else None
+    insert_candidates = _generated_insert_fragment_candidates(
+        insert_sequence=insert_sequence,
+        preferred_left_event=preferred_left_event,
+        preferred_right_event=preferred_right_event,
+    )
+
+    if insert_candidates:
+        insert_candidate, orientation, rejection_messages = _select_compatible_insert_candidate(
+            vector_left_end=vector_left_end,
+            vector_right_end=vector_right_end,
+            candidates=insert_candidates,
+        )
+        if insert_candidate is None:
+            return _invalid_cloning_result(
+                *(
+                    rejection_messages
+                    or (
+                        "No insert restriction fragment has generated ends compatible with both vector junctions.",
+                    )
+                )
+            )
+
+        insert_fragment = (
+            insert_candidate.reverse_sequence
+            if orientation == "reverse"
+            else insert_candidate.sequence
+        )
+        assembled_sequence = (
+            vector_sequence[:left_cut]
+            + insert_fragment
+            + vector_sequence[right_cut:]
+        )
+        return CloningValidationResult(
+            is_valid=True,
+            validation_messages=(
+                f"Construct assembled successfully using two-enzyme cloning with generated-end compatibility ({orientation} insert orientation).",
+            ),
+            assembled_sequence=assembled_sequence,
+            insertion_start=left_cut,
+            inserted_length=len(insert_fragment),
+            vector_fragment_segments=_compact_source_segments(
+                ((0, left_cut), (right_cut, len(vector_sequence)))
+            ),
+            insert_fragment_segments=((insert_candidate.start, insert_candidate.end),),
+            vector_assembly_segments=(
+                *_offset_segments(((0, left_cut),), assembled_offset=0),
+                *_offset_segments(
+                    ((right_cut, len(vector_sequence)),),
+                    assembled_offset=left_cut + len(insert_fragment),
+                ),
+            ),
+            insert_assembly_segments=((insert_candidate.start, insert_candidate.end, left_cut),),
+        )
+
+    if insert_left_events or insert_right_events:
+        return _invalid_cloning_result(
+            "Insert restriction sites were found, but no generated insert fragment has ends compatible with both vector junctions."
+        )
 
     assembled_sequence = (
         vector_sequence[:left_cut]
@@ -2026,7 +2729,9 @@ def _validate_two_enzyme_ligation(
     )
     return CloningValidationResult(
         is_valid=True,
-        validation_messages=("Construct assembled successfully using two-enzyme cloning.",),
+        validation_messages=(
+            "Construct assembled successfully using two-enzyme cloning. Insert has no generated restriction ends for compatibility checking; legacy full-insert mode was used.",
+        ),
         assembled_sequence=assembled_sequence,
         insertion_start=left_cut,
         inserted_length=len(insert_sequence),
@@ -2086,6 +2791,11 @@ def _validate_restriction_ligation(
             enzyme=left_enzyme,
             vector_is_circular=vector_is_circular,
             insert_is_circular=insert_is_circular,
+        )
+
+    if vector_fragment_index is not None or insert_fragment_index is not None:
+        return _invalid_cloning_result(
+            "Explicit digest fragment selection is currently supported only when the left and right enzymes are the same."
         )
 
     return _validate_two_enzyme_ligation(
@@ -2387,37 +3097,39 @@ def build_cloning_construct_detail_display(
     )
 
 
-@transaction.atomic
 def save_cloning_construct(*, name: str, description: str, preview_data: CloningConstructPreview, user):
-    detail_display = _build_detail_display_from_preview(preview_data)
-    construct = CloningConstruct(
-        name=name,
-        description=description,
-        vector_source_type=preview_data.vector_asset.source_type,
-        vector_sequence_file=preview_data.vector_asset.sequence_file,
-        vector_template_name=preview_data.vector_asset.template_name or "",
-        vector_pcr_product=preview_data.vector_asset.pcr_product,
-        vector_record_id=preview_data.vector_asset.record_id,
-        vector_fragment_index=preview_data.vector_fragment_index,
-        insert_source_type=preview_data.insert_asset.source_type,
-        insert_sequence_file=preview_data.insert_asset.sequence_file,
-        insert_template_name=preview_data.insert_asset.template_name or "",
-        insert_pcr_product=preview_data.insert_asset.pcr_product,
-        insert_record_id=preview_data.insert_asset.record_id,
-        insert_fragment_index=preview_data.insert_fragment_index,
-        assembly_strategy=preview_data.assembly_strategy,
-        left_enzyme=preview_data.left_enzyme,
-        right_enzyme=preview_data.right_enzyme,
-        assembled_sequence=preview_data.assembled_sequence,
-        is_circular=preview_data.is_circular,
-        is_valid=preview_data.is_valid,
-        validation_messages=list(preview_data.validation_messages),
-        detail_display_snapshot=_serialize_detail_display(detail_display),
-    )
-    assign_creator(construct, user)
-    construct.save()
-    grant_user_access(construct, user)
-    return construct
+    if not preview_data.is_valid:
+        raise ValueError("Construct cannot be saved because restriction-ligation validation failed.")
+    with transaction.atomic():
+        detail_display = _build_detail_display_from_preview(preview_data)
+        construct = CloningConstruct(
+            name=name,
+            description=description,
+            vector_source_type=preview_data.vector_asset.source_type,
+            vector_sequence_file=preview_data.vector_asset.sequence_file,
+            vector_template_name=preview_data.vector_asset.template_name or "",
+            vector_pcr_product=preview_data.vector_asset.pcr_product,
+            vector_record_id=preview_data.vector_asset.record_id,
+            vector_fragment_index=preview_data.vector_fragment_index,
+            insert_source_type=preview_data.insert_asset.source_type,
+            insert_sequence_file=preview_data.insert_asset.sequence_file,
+            insert_template_name=preview_data.insert_asset.template_name or "",
+            insert_pcr_product=preview_data.insert_asset.pcr_product,
+            insert_record_id=preview_data.insert_asset.record_id,
+            insert_fragment_index=preview_data.insert_fragment_index,
+            assembly_strategy=preview_data.assembly_strategy,
+            left_enzyme=preview_data.left_enzyme,
+            right_enzyme=preview_data.right_enzyme,
+            assembled_sequence=preview_data.assembled_sequence,
+            is_circular=preview_data.is_circular,
+            is_valid=preview_data.is_valid,
+            validation_messages=list(preview_data.validation_messages),
+            detail_display_snapshot=_serialize_detail_display(detail_display),
+        )
+        assign_creator(construct, user)
+        construct.save()
+        grant_user_access(construct, user)
+        return construct
 
 
 def create_cloning_construct(

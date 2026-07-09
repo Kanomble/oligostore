@@ -58,6 +58,7 @@ from .views.sequence_files import (
     primer_binding_analysis_async,
     primer_binding_status,
     sequencefile_circular_view,
+    sequencefile_delete,
     sequencefile_linear_create_primer,
     sequencefile_linear_delete_primer,
     sequencefile_linear_record_data,
@@ -137,6 +138,7 @@ urlpatterns = [
     path("primer-product/download/", download_product_sequence, name="download_product_sequence"),
     path("sequence-files/", sequencefile_list, name="sequencefile_list"),
     path("sequence-files/upload/", sequencefile_upload, name="sequencefile_upload"),
+    path("sequence-files/<int:sequencefile_id>/delete/", sequencefile_delete, name="sequencefile_delete"),
     path(
         "sequence-files/<int:sequencefile_id>/update-type/",
         sequencefile_update_type,

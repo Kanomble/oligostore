@@ -17,7 +17,7 @@
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
             <div class="alert alert-info text-sm mb-4">
-                Choose a specific sequence-file record, template record, or PCR product for each asset. Sequence files and templates must parse successfully, multi-record files require explicit record selection, and restriction-ligation supports either two different vector cut sites or the same enzyme twice. When the same enzyme is used on both assets, fragment selectors appear so you can choose which digest fragments to keep.
+                Choose a specific sequence-file record, template record, or PCR product for each asset. Sequence files and templates must parse successfully, multi-record files require explicit record selection, and restriction-ligation uses the map to choose enzymes and digest fragments before Preview Assembly runs validation.
             </div>
             {% if review_construct %}
             <div class="alert alert-warning text-sm mb-4">
@@ -80,19 +80,75 @@
             </div>
             {% endif %}
 
-            <form method="POST" class="space-y-6" id="cloning-assembly-preview-form">
+            <form method="POST" class="space-y-6" id="cloning-assembly-preview-form" data-cloning-selection-owner>
                 {% csrf_token %}
                 <input type="hidden" name="step" value="preview">
                 {% for hidden in assembly_form.hidden_fields %}
                 {{ hidden }}
                 {% endfor %}
+                {% if map_payload %}
+                {{ map_payload|json_script:"cloning-map-data" }}
+                {% endif %}
                 {% for field in assembly_form.visible_fields %}
+                {% if field.name == "selected_enzymes" %}
+                <section class="form-control" data-cloning-unified-enzyme-picker>
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                            <label class="label px-0"><span class="label-text font-semibold">{{ field.label }}</span></label>
+                            {% if field.help_text %}<div class="text-xs opacity-70">{{ field.help_text }}</div>{% endif %}
+                        </div>
+                        <label class="form-control w-full sm:max-w-xs">
+                            <span class="label-text text-xs mb-1">Search enzymes</span>
+                            <input type="search" class="input input-bordered input-sm w-full" placeholder="Search enzyme" data-cloning-enzyme-search>
+                        </label>
+                    </div>
+                    {{ field }}
+                    {% if field.errors %}<div class="text-error text-sm mt-2">{{ field.errors|join:", " }}</div>{% endif %}
+                    <div class="mt-3 overflow-x-auto rounded-lg border border-base-300">
+                        <table class="assembly-enzyme-table" data-cloning-enzyme-table>
+                            <thead>
+                                <tr>
+                                    <th>Use</th>
+                                    <th>Enzyme</th>
+                                    <th>Vector cuts</th>
+                                    <th>Insert cuts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for value, label in field.field.choices %}
+                                <tr data-cloning-enzyme-row data-enzyme-name="{{ value }}">
+                                    <td>
+                                        <input type="checkbox" class="checkbox checkbox-sm" data-cloning-enzyme-toggle aria-label="Select {{ label }}">
+                                    </td>
+                                    <td class="font-semibold">{{ label }}</td>
+                                    <td data-cloning-enzyme-vector-count>-</td>
+                                    <td data-cloning-enzyme-insert-count>-</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="4" class="text-sm opacity-70">No restriction enzymes were detected for the selected vector.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="text-sm opacity-70" data-cloning-enzyme-selection-summary>No enzymes selected.</div>
+                        <div class="join" data-cloning-enzyme-pagination>
+                            <button type="button" class="btn btn-sm join-item" data-cloning-enzyme-prev-page>Prev</button>
+                            <span class="btn btn-sm join-item btn-disabled" data-cloning-enzyme-page-info>Page 1</span>
+                            <button type="button" class="btn btn-sm join-item" data-cloning-enzyme-next-page>Next</button>
+                        </div>
+                    </div>
+                </section>
+                {% else %}
                 <div class="form-control">
                     <label class="label"><span class="label-text font-semibold">{{ field.label }}</span></label>
                     {{ field }}
                     {% if field.help_text %}<div class="text-xs opacity-70 mt-2">{{ field.help_text }}</div>{% endif %}
                     {% if field.errors %}<div class="text-error text-sm mt-2">{{ field.errors|join:", " }}</div>{% endif %}
                 </div>
+                {% endif %}
                 {% endfor %}
                 {% if visual_preview %}
                 {% include "core/partials/cloning_assembly_visual_preview.html" %}
@@ -104,6 +160,7 @@
             </form>
 
             {% if preview_data %}
+            <div data-cloning-authoritative-preview>
             <div class="divider">Preview</div>
             <div class="rounded-xl border {% if preview_data.is_valid %}border-success/40 bg-success/10{% else %}border-warning/50 bg-warning/10{% endif %} p-4 mb-6">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -197,7 +254,7 @@
                 <pre class="mt-4 max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-base-100 border border-base-300 p-4 font-mono text-sm">{{ preview_data.assembled_sequence|default:"No assembled sequence was generated." }}</pre>
             </div>
 
-            <form method="POST" class="mt-6">
+            <form method="POST" class="mt-6" data-cloning-save-form>
                 {% csrf_token %}
                 <input type="hidden" name="step" value="save">
                 {% for hidden in assembly_form.hidden_fields %}
@@ -210,6 +267,7 @@
                 <input type="hidden" name="insert_fragment_index" value="{{ assembly_form.insert_fragment_index.value|default:'' }}">
                 <button type="submit" class="btn btn-primary">Save Construct</button>
             </form>
+            </div>
             {% endif %}
             {% endif %}
         </div>
@@ -219,5 +277,6 @@
 
 {% block extra_scripts %}
 {{ block.super }}
+<script src="{% static 'js/cloning_assembly_state.js' %}" defer></script>
 <script src="{% static 'js/cloning_assembly_preview.js' %}" defer></script>
 {% endblock %}

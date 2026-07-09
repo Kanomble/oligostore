@@ -15,6 +15,7 @@ from ..forms import (
     CloningConstructSequenceFileForm,
 )
 from ..services.cloning import (
+    build_cloning_assembly_map_payload,
     build_cloning_assembly_visual_preview,
     build_pcr_product_asset_choice,
     build_cloning_construct_detail_display,
@@ -198,6 +199,31 @@ def _build_assembly_visual_preview(assembly_form, assets):
         map_enzyme_names=_form_field_values(assembly_form, "selected_enzymes"),
         vector_fragment_index=_form_field_value(assembly_form, "vector_fragment_index"),
         insert_fragment_index=_form_field_value(assembly_form, "insert_fragment_index"),
+    )
+
+
+def _build_assembly_map_payload(assembly_form, assets):
+    if assembly_form is None or assets is None:
+        return None
+    enzyme_names = []
+    try:
+        choices = assembly_form.fields["selected_enzymes"].choices
+    except KeyError:
+        choices = ()
+    for value, _label in choices:
+        if value:
+            enzyme_names.append(value)
+    enzyme_names.extend(_form_field_values(assembly_form, "selected_enzymes"))
+    enzyme_names.extend(
+        [
+            _form_field_value(assembly_form, "left_enzyme"),
+            _form_field_value(assembly_form, "right_enzyme"),
+        ]
+    )
+    return build_cloning_assembly_map_payload(
+        vector_asset=assets.vector_asset,
+        insert_asset=assets.insert_asset,
+        enzyme_names=enzyme_names,
     )
 
 
@@ -389,6 +415,7 @@ def cloning_construct_create(request):
                 )
 
     visual_preview = _build_assembly_visual_preview(assembly_form, assets)
+    map_payload = _build_assembly_map_payload(assembly_form, assets)
 
     return render(
         request,
@@ -398,6 +425,7 @@ def cloning_construct_create(request):
             "assembly_form": assembly_form,
             "preview_data": preview_data,
             "visual_preview": visual_preview,
+            "map_payload": map_payload,
             "assets": assets,
             "review_construct": review_construct,
         },

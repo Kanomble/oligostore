@@ -191,8 +191,8 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
         choices=(),
         required=False,
         widget=forms.SelectMultiple,
-        label="Map enzyme overlays",
-        help_text="Select one or more enzymes to overlay cut sites and digest fragments on the assembly map.",
+        label="Restriction enzymes",
+        help_text="Search and select enzymes to show cut sites and digest fragments on the vector and insert maps.",
     )
     vector_fragment_index = forms.ChoiceField(choices=(), required=False)
     insert_fragment_index = forms.ChoiceField(choices=(), required=False)
@@ -262,8 +262,8 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
                 )
                 if enzyme_name
             ]
-        self.fields["left_enzyme"].help_text = "Only enzymes detected in the selected vector are listed."
-        self.fields["right_enzyme"].help_text = "Choose the same enzyme twice for same-enzyme cloning. Fragment selectors appear below when a same-enzyme digest is selected."
+        self.fields["left_enzyme"].widget = forms.HiddenInput()
+        self.fields["right_enzyme"].widget = forms.HiddenInput()
 
         selected_insert_asset = (
             self.data.get("insert_asset")
@@ -313,10 +313,16 @@ class CloningConstructAssemblyForm(BaseCloningConstructForm):
                 enzyme_name=same_enzyme_name,
                 asset_role="insert",
             )
-        else:
-            self.fields["vector_fragment_index"].widget = forms.HiddenInput()
-            self.fields["insert_fragment_index"].widget = forms.HiddenInput()
         apply_tailwind_classes(self.fields)
+        self.fields["selected_enzymes"].widget.attrs.update(
+            {
+                "class": "hidden",
+                "data-cloning-selected-enzymes-control": "1",
+                "aria-hidden": "true",
+            }
+        )
+        self.fields["vector_fragment_index"].widget = forms.HiddenInput()
+        self.fields["insert_fragment_index"].widget = forms.HiddenInput()
 
     def _default_result_is_circular(self, selected_vector_asset):
         if not selected_vector_asset:

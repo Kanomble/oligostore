@@ -54,7 +54,9 @@ def accessible_sequence_files(user: User) -> QuerySet[SequenceFile]:
 
 
 def editable_sequence_files(user: User) -> QuerySet[SequenceFile]:
-    return accessible_sequence_files(user)
+    if user is None:
+        return SequenceFile.objects.none()
+    return SequenceFile.objects.filter(uploaded_by=user)
 
 
 def accessible_pcr_products(user: User) -> QuerySet[PCRProduct]:
